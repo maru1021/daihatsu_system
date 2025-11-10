@@ -1,0 +1,291 @@
+{% load static %}
+<!-- CSRF Token -->
+<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}" />
+
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-success text-white">
+          <h5 class="card-title mb-0">
+            <i class="fas fa-hashtag me-2"></i>
+            日本語数字読み認識システム
+          </h5>
+        </div>
+        <div class="card-body">
+          <!-- 6個の入力フォーム -->
+          <div class="row mb-4">
+            <div class="col-12">
+              <label class="form-label fw-bold">
+                <i class="fas fa-keyboard me-1"></i>音声・手入力フォーム
+              </label>
+              <form id="voiceInputForm">
+                <div class="input-forms-container">
+                  <div class="row g-3">
+                    <div class="col-md-2 col-4">
+                      <label class="form-label text-center d-block small">フォーム1</label>
+                      <div class="input-group">
+                        <input type="number" class="form-control form-control-lg text-center input_number active-input"
+                               placeholder="0" step="any">
+                      </div>
+                    </div>
+                    <div class="col-md-2 col-4">
+                      <label class="form-label text-center d-block small">フォーム2</label>
+                      <div class="input-group">
+                        <input type="number" class="form-control form-control-lg text-center input_number"
+                               placeholder="0" step="any">
+                      </div>
+                    </div>
+                    <div class="col-md-2 col-4">
+                      <label class="form-label text-center d-block small">フォーム3</label>
+                      <div class="input-group">
+                        <input type="number" class="form-control form-control-lg text-center input_number"
+                               placeholder="0" step="any">
+                      </div>
+                    </div>
+                    <div class="col-md-2 col-4">
+                      <label class="form-label text-center d-block small">フォーム4</label>
+                      <div class="input-group">
+                        <input type="number" class="form-control form-control-lg text-center input_number"
+                               placeholder="0" step="any">
+                      </div>
+                    </div>
+                    <div class="col-md-2 col-4">
+                      <label class="form-label text-center d-block small">フォーム5</label>
+                      <div class="input-group">
+                        <input type="number" class="form-control form-control-lg text-center input_number"
+                               placeholder="0" step="any">
+                      </div>
+                    </div>
+                    <div class="col-md-2 col-4">
+                      <label class="form-label text-center d-block small">フォーム6</label>
+                      <div class="input-group">
+                        <input type="number" class="form-control form-control-lg text-center input_number"
+                               placeholder="0" step="any">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- コントロールボタン -->
+          <div class="d-flex gap-2 mb-4">
+            <button id="startRecording" class="btn btn-success btn-lg">
+              <i class="fas fa-microphone me-2"></i>
+              録音開始
+            </button>
+            <button id="stopRecording" class="btn btn-danger btn-lg" disabled>
+              <i class="fas fa-stop me-2"></i>
+              録音停止
+            </button>
+            <button id="clearForms" class="btn btn-outline-secondary">
+              <i class="fas fa-trash me-1"></i>
+              フォームクリア
+            </button>
+            <button id="prevForm" class="btn btn-outline-warning">
+              <i class="fas fa-arrow-left me-1"></i>
+              前のフォーム
+            </button>
+            <button id="nextForm" class="btn btn-outline-info">
+              <i class="fas fa-arrow-right me-1"></i>
+              次のフォーム
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .card {
+    border-radius: 15px;
+    border: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  .card-header {
+    border-radius: 15px 15px 0 0 !important;
+    border: none;
+  }
+
+  .form-control, .form-select {
+    border-radius: 10px;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+  }
+
+  .form-control:focus, .form-select:focus {
+    border-color: #28a745;
+    box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
+  }
+
+  .btn {
+    border-radius: 10px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+  }
+
+  .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  }
+
+  .alert {
+    border-radius: 10px;
+    border: none;
+  }
+
+  .progress {
+    border-radius: 10px;
+    background-color: #e9ecef;
+  }
+
+  .progress-bar {
+    border-radius: 10px;
+    transition: width 0.3s ease;
+  }
+
+  .transcript-container {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    min-height: 300px;
+  }
+
+  .transcript-item {
+    background-color: white;
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 10px;
+    border-left: 4px solid #28a745;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    animation: fadeInUp 0.3s ease;
+  }
+
+  .transcript-item:last-child {
+    margin-bottom: 0;
+  }
+
+  .transcript-timestamp {
+    font-size: 0.85em;
+    color: #6c757d;
+    font-weight: 500;
+    margin-bottom: 5px;
+  }
+
+  .transcript-text {
+    font-size: 1.1em;
+    line-height: 1.6;
+    color: #212529;
+    word-break: break-word;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .recording-pulse {
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+    }
+    70% {
+      box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+    }
+  }
+
+  .microphone-animation {
+    animation: bounce 1s infinite;
+  }
+
+  @keyframes bounce {
+    0%, 20%, 50%, 80%, 100% {
+      transform: translateY(0);
+    }
+    40% {
+      transform: translateY(-10px);
+    }
+    60% {
+      transform: translateY(-5px);
+    }
+  }
+
+  /* スクロールバーのカスタマイズ */
+  .transcript-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .transcript-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+  }
+
+  .transcript-container::-webkit-scrollbar-thumb {
+    background: #28a745;
+    border-radius: 10px;
+  }
+
+  .transcript-container::-webkit-scrollbar-thumb:hover {
+    background: #1e7e34;
+  }
+
+  /* 音声入力フォーム用スタイル */
+  .input_number {
+    font-weight: bold;
+    transition: all 0.3s ease;
+    border: 2px solid #dee2e6;
+  }
+
+  .input_number.active-input {
+    background-color: #d4edda !important;
+    border-color: #28a745 !important;
+    box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25) !important;
+  }
+
+  .input_number:focus {
+    background-color: #e3f2fd;
+    border-color: #2196f3 !important;
+    box-shadow: 0 0 0 0.2rem rgba(33, 150, 243, 0.25) !important;
+  }
+
+  .input-forms-container {
+    padding: 1.5rem;
+    background-color: #f8f9fa;
+    border-radius: 0.5rem;
+    border: 1px solid #dee2e6;
+  }
+
+  /* レスポンシブ対応 */
+  @media (max-width: 768px) {
+    .input-forms-container {
+      padding: 1rem;
+    }
+  }
+</style>
+
+<!-- リアルタイム音声文字起こし機能用のJavaScriptファイルを読み込み -->
+<script src="{% static 'js/realtime_speech.js' %}?v={{ CACHE_BUSTER }}"></script>
+
+<script>
+  // リアルタイム音声文字起こしのURLを設定
+  window.REALTIME_SPEECH_URL = '{% url "realtime_speech" %}';
+</script>

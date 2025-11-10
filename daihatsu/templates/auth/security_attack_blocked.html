@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>セキュリティ攻撃検出 - ダイハツ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .animate-pulse-slow {
+            animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .shadow-glow {
+            box-shadow: 0 0 20px rgba(220, 38, 38, 0.4);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen">
+    <div class="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+        <!-- 背景装飾 -->
+        <div class="absolute inset-0 overflow-hidden">
+            <div class="absolute -top-40 -right-40 w-80 h-80 bg-red-500 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse-slow"></div>
+            <div class="absolute -bottom-40 -left-40 w-80 h-80 bg-orange-500 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse-slow" style="animation-delay: 1s;"></div>
+            <div class="absolute top-40 left-40 w-80 h-80 bg-red-600 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse-slow" style="animation-delay: 2s;"></div>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <div class="relative z-10 max-w-lg w-full">
+            <div class="glass-effect rounded-3xl shadow-2xl p-6 shadow-glow">
+                <!-- ヘッダー -->
+                <div class="text-center mb-4">
+                    <div class="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-3 shadow-lg">
+                        <i class="fas fa-shield-alt text-2xl text-red-600"></i>
+                    </div>
+                    <h1 class="text-2xl font-bold text-gray-900 mb-2">セキュリティ攻撃検出</h1>
+                    <p class="text-red-600 font-medium text-base">悪意のあるリクエストが検出されました</p>
+                </div>
+
+                <!-- 攻撃タイプ表示 -->
+                <div class="bg-gradient-to-r from-red-50 to-red-100 border-l-4 border-red-500 p-4 mb-4 rounded-r-xl">
+                    <div class="flex items-start">
+                        <i class="fas fa-exclamation-triangle text-red-500 text-lg mt-0.5 mr-2"></i>
+                        <div>
+                            <h3 class="text-base font-semibold text-red-800 mb-1">検出された攻撃タイプ</h3>
+                            <div class="text-sm text-red-700 space-y-0.5">
+                                <div class="font-medium">{{ attack_type }}</div>
+                                {% if attack_type == 'XSS Attack' %}
+                                <div>・クロスサイトスクリプティング攻撃</div>
+                                <div>・悪意のあるJavaScriptコードの挿入試行</div>
+                                {% elif attack_type == 'SQL Injection' %}
+                                <div>・SQLインジェクション攻撃</div>
+                                <div>・データベースへの不正アクセス試行</div>
+                                {% elif attack_type == 'Directory Traversal' %}
+                                <div>・ディレクトリトラバーサル攻撃</div>
+                                <div>・システムファイルへの不正アクセス試行</div>
+                                {% elif attack_type == 'Code Injection' %}
+                                <div>・コードインジェクション攻撃</div>
+                                <div>・サーバー上でのコード実行試行</div>
+                                {% elif attack_type == 'System File Access' %}
+                                <div>・システムファイルアクセス攻撃</div>
+                                <div>・機密ファイルへのアクセス試行</div>
+                                {% else %}
+                                <div>・セキュリティポリシー違反</div>
+                                <div>・不正なリクエストパターンの検出</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 攻撃内容詳細 -->
+                {% if attack_string %}
+                <div class="bg-gradient-to-r from-orange-50 to-orange-100 border border-orange-200 rounded-xl p-4 mb-4">
+                    <div class="flex items-start">
+                        <i class="fas fa-code text-orange-500 text-lg mt-0.5 mr-2"></i>
+                        <div class="w-full">
+                            <h3 class="text-base font-semibold text-orange-800 mb-2">検出された攻撃文字列</h3>
+                            <div class="bg-gray-100 rounded-lg p-3 font-mono text-sm text-gray-800 break-all">
+                                {{ attack_string }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- セキュリティ情報 -->
+                <div class="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-xl p-4 mb-4">
+                    <div class="flex items-start">
+                        <i class="fas fa-info-circle text-blue-500 text-lg mt-0.5 mr-2"></i>
+                        <div>
+                            <h3 class="text-base font-semibold text-gray-800 mb-1">セキュリティ情報</h3>
+                            <ul class="space-y-1">
+                                <li class="flex items-start">
+                                    <i class="fas fa-user-shield text-green-500 mt-0.5 mr-2 text-sm"></i>
+                                    <span class="text-sm text-gray-700">ユーザー: {{ user_info }}</span>
+                                </li>
+                                <li class="flex items-start">
+                                    <i class="fas fa-globe text-blue-500 mt-0.5 mr-2 text-sm"></i>
+                                    <span class="text-sm text-gray-700">IPアドレス: {{ client_ip }}</span>
+                                </li>
+                                <li class="flex items-start">
+                                    <i class="fas fa-file-alt text-orange-500 mt-0.5 mr-2 text-sm"></i>
+                                    <span class="text-sm text-gray-700">攻撃ログが記録されました</span>
+                                </li>
+                                <li class="flex items-start">
+                                    <i class="fas fa-clock text-purple-500 mt-0.5 mr-2 text-sm"></i>
+                                    <span class="text-sm text-gray-700">{{ timestamp|date:"Y年m月d日 H:i:s" }}</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- セキュリティメッセージ -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <div class="text-center">
+                        <i class="fas fa-shield-alt text-red-500 text-base mb-1"></i>
+                        <p class="text-xs text-gray-500 leading-relaxed">
+                            このシステムは<span class="font-semibold text-red-600">AI搭載セキュリティシステム</span>により<br>
+                            リアルタイムで攻撃を検出・防御しています
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

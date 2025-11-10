@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block title %}生産数量入力{% endblock %}
+
+{% block content %}
+<h1>生産数量入力</h1>
+
+<form id="production-form" method="post">
+  {% csrf_token %}
+  <div class="input-container">
+    <label for="target-month">対象月：</label>
+    <input type="month" id="target-month" class="month-input" value="{{ year }}-{{ month|stringformat:'02d' }}">
+</div>
+
+  <table id="plan-table" class="table" style="width:100%; border-collapse:collapse; margin-top:1em;">
+    <thead>
+      <tr>
+        <th style="border-bottom:1px solid">車種</th>
+        <th style="border-bottom:1px solid">予定数量</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for engine_item in engine_items %}
+      <tr>
+        <td style="border-bottom:1px solid; padding:0.5em;">
+          {{ engine_item.name }}
+          <input type="hidden" name="engine_item_id_{{ forloop.counter0 }}" value="{{ engine_item.id }}">
+        </td>
+        <td style="border-bottom:1px solid; padding:0.5em;">
+          <input type="number" name="planned_volume_{{ forloop.counter0 }}" min="0" style="width:100px;">
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div style="margin-top:1em;">
+    <button type="submit">保存</button>
+  </div>
+</form>
+
+<script>
+// 単純な行追加 / 削除スクリプト
+document.getElementById('add-row').addEventListener('click', function(){
+  const tbody = document.querySelector('#plan-table tbody');
+  const first = tbody.querySelector('tr');
+  if(!first) return;
+  const tr = first.cloneNode(true);
+  tr.querySelectorAll('input').forEach(i => i.value = '');
+  tbody.appendChild(tr);
+});
+
+document.querySelector('#plan-table').addEventListener('click', function(e){
+  if(e.target && e.target.classList.contains('remove-row')){
+    const row = e.target.closest('tr');
+    const tbody = row.parentNode;
+    // 最低1行は残す
+    if(tbody.children.length > 1){
+      row.parentNode.removeChild(row);
+    } else {
+      row.querySelectorAll('input').forEach(i => i.value = '');
+    }
+  }
+});
+</script>
+
+{% endblock %}

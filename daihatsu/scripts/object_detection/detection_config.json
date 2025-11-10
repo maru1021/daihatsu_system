@@ -1,0 +1,47 @@
+{
+  "camera": {
+    "width": 640,
+    "height": 480,
+    "camera_id_range": 1
+  },
+  "detection": {
+    "motion": {
+      "history": 200,
+      "var_threshold": 10,
+      "detect_shadows": false,
+      "min_area": 100,
+      "morph_kernel_size": [7, 7],
+      "aspect_ratio_range": [0.1, 10.0],
+      "extent_threshold": 0.2
+    }
+  },
+  "alert": {
+    "zone": {
+      "type": "rectangle",
+      "x_ratio": 0.25,
+      "y_ratio": 0.25,
+      "position": "top_left"
+    },
+    "target_objects": ["motion"],
+    "alarm": {
+      "enabled": true,
+      "sound_message": "左上でなんか動いた",
+      "console_message": "左上エリア警告: {count}個の物体を検出！",
+      "auto_screenshot": true,
+      "screenshot_path": "screenshots"
+    }
+  },
+  "display": {
+    "window_name": "PC Camera Object Detection",
+    "colors": {
+      "motion": [0, 255, 0],
+      "default": [128, 128, 128]
+    },
+    "alert_zone_color": [0, 0, 255],
+    "font": {
+      "face": "FONT_HERSHEY_SIMPLEX",
+      "scale": 0.6,
+      "thickness": 2
+    }
+  }
+}

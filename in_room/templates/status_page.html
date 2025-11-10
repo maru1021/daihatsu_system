@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>入退室状況一覧</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background-color: #f5f5f5;
+            font-size: 14px;
+        }
+
+        /* スマホ対応 */
+        @media (max-width: 767px) {
+            body {
+                padding: 5px;
+                font-size: 13px;
+            }
+        }
+
+        /* 大画面対応 */
+        @media (min-width: 1400px) {
+            body {
+                font-size: 15px;
+            }
+        }
+        .header {
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0 0 8px 0;
+            color: #333;
+            font-size: 24px;
+        }
+        .summary {
+            font-size: 16px;
+            color: #666;
+        }
+        .summary .highlight {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .departments-container {
+            display: grid;
+            gap: 15px;
+            margin-bottom: 60px;
+            padding: 10px;
+            /* デスクトップ: 3列 + 年休・出張カード */
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        }
+
+        /* 大画面（1400px以上）: 4列 */
+        @media (min-width: 1400px) {
+            .departments-container {
+                grid-template-columns: repeat(4, 1fr);
+                max-width: 1600px;
+                margin: 0 auto 60px auto;
+            }
+        }
+
+        /* タブレット（768px～1199px）: 2列 */
+        @media (min-width: 768px) and (max-width: 1199px) {
+            .departments-container {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+        }
+
+        /* スマホ（767px以下）: 1列 */
+        @media (max-width: 767px) {
+            .departments-container {
+                grid-template-columns: 1fr;
+                gap: 10px;
+                padding: 5px;
+                margin-bottom: 80px; /* リフレッシュボタンのスペースを確保 */
+            }
+        }
+        .department, .absence-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+        }
+        .absence-card {
+            border: 2px solid #FF9800;
+        }
+        .department-header, .absence-header {
+            background-color: #2196F3;
+            color: white;
+            padding: 12px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .absence-header {
+            background-color: #FF9800;
+        }
+        .department-name {
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .department-counts {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .department-count, .absence-count {
+            font-size: 11px;
+            background-color: rgba(255, 255, 255, 0.2);
+            padding: 3px 8px;
+            border-radius: 12px;
+            white-space: nowrap;
+        }
+
+        /* スマホ対応 */
+        @media (max-width: 767px) {
+            .department, .absence-card {
+                min-height: 300px;
+            }
+            .department-header, .absence-header {
+                padding: 10px 12px;
+            }
+            .department-name {
+                font-size: 14px;
+            }
+            .department-count, .absence-count {
+                font-size: 10px;
+                padding: 2px 6px;
+            }
+        }
+        .employees-section {
+            padding: 12px;
+            flex: 1;
+            overflow-y: auto;
+        }
+        .section-title {
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+
+        /* スマホ対応 */
+        @media (max-width: 767px) {
+            .employees-section {
+                padding: 8px;
+            }
+            .section-title {
+                font-size: 12px;
+                margin-bottom: 6px;
+            }
+        }
+        .section-title.in-room {
+            color: #4CAF50;
+        }
+        .section-title.out-room {
+            color: #757575;
+        }
+        .section-title.business-trip {
+            color: #FF9800;
+        }
+        .section-title.annual-leave {
+            color: #9C27B0;
+        }
+        .section-title.morning-annual-leave {
+            color: #3F51B5;
+        }
+        .section-title.afternoon-annual-leave {
+            color: #2196F3;
+        }
+        .status-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .status-icon.in {
+            background-color: #4CAF50;
+        }
+        .status-icon.out {
+            background-color: #757575;
+        }
+        .status-icon.business-trip {
+            background-color: #FF9800;
+        }
+        .status-icon.annual-leave {
+            background-color: #9C27B0;
+        }
+        .status-icon.morning-annual-leave {
+            background-color: #3F51B5;
+        }
+        .status-icon.afternoon-annual-leave {
+            background-color: #2196F3;
+        }
+        .employees-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .employee-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 8px;
+            transition: all 0.3s ease;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* スマホ対応 */
+        @media (max-width: 767px) {
+            .employee-card {
+                padding: 6px;
+                font-size: 11px;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+        }
+
+        /* タブレット対応 */
+        @media (min-width: 768px) and (max-width: 1199px) {
+            .employee-card {
+                font-size: 11px;
+                padding: 6px;
+            }
+        }
+        .employee-card.in-room {
+            border-color: #4CAF50;
+            background-color: #f1f8e9;
+        }
+        .employee-card.out-room {
+            border-color: #e0e0e0;
+            background-color: #fafafa;
+        }
+        .employee-card.business-trip {
+            border-color: #FF9800;
+            background-color: #fff3e0;
+        }
+        .employee-card.annual-leave {
+            border-color: #9C27B0;
+            background-color: #f3e5f5;
+        }
+        .employee-card.morning-annual-leave {
+            border-color: #3F51B5;
+            background-color: #e8eaf6;
+        }
+        .employee-card.afternoon-annual-leave {
+            border-color: #2196F3;
+            background-color: #e3f2fd;
+        }
+        .employee-left {
+            flex: 0.3;
+            min-width: 0;
+        }
+        .employee-right {
+            flex: 0.7;
+            text-align: right;
+            min-width: 0;
+            margin-left: 8px;
+        }
+        .employee-name {
+            font-weight: bold;
+            margin-bottom: 2px;
+            font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .employee-number {
+            font-size: 10px;
+            color: #666;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .schedule-text {
+            font-size: 10px;
+            color: #888;
+            font-style: italic;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-bottom: 1px;
+            line-height: 1.2;
+        }
+        .schedule-text:last-child {
+            margin-bottom: 0;
+        }
+
+        /* スマホ対応 */
+        @media (max-width: 767px) {
+            .employee-left, .employee-right {
+                width: 100%;
+                margin-left: 0;
+            }
+            .employee-name {
+                font-size: 12px;
+                white-space: normal;
+                margin-bottom: 1px;
+            }
+            .employee-number, .schedule-text {
+                font-size: 9px;
+                white-space: normal;
+            }
+            .schedule-text {
+                margin-bottom: 2px;
+            }
+        }
+
+        /* タブレット対応 */
+        @media (min-width: 768px) and (max-width: 1199px) {
+            .employee-name {
+                font-size: 12px;
+            }
+            .employee-number, .schedule-text {
+                font-size: 9px;
+            }
+        }
+        .no-employees {
+            color: #999;
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
+        .refresh-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+        .refresh-btn:hover {
+            background-color: #1976D2;
+            transform: scale(1.1);
+        }
+
+        /* スマホ対応 */
+        @media (max-width: 767px) {
+            .refresh-btn {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+                bottom: 15px;
+                right: 15px;
+            }
+        }
+
+        /* タブレット対応 */
+        @media (min-width: 768px) and (max-width: 1199px) {
+            .refresh-btn {
+                width: 55px;
+                height: 55px;
+                font-size: 22px;
+            }
+        }
+        .navigation {
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .nav-link {
+            display: inline-block;
+            padding: 8px 16px;
+            margin: 0 5px;
+            background-color: white;
+            color: #2196F3;
+            text-decoration: none;
+            border-radius: 4px;
+            border: 2px solid #2196F3;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+        .nav-link:hover {
+            background-color: #2196F3;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="departments-container">
+        <!-- 年休・出張カード -->
+        {% if absence_card.total_count > 0 %}
+        <div class="absence-card">
+            <div class="absence-header">
+                <div class="department-name">年休・出張</div>
+                <div class="department-count">{{ absence_card.total_count }}名</div>
+            </div>
+
+            <div class="employees-section">
+                {% if absence_card.business_trip_employees %}
+                <div class="section-title business-trip">
+                    <div class="status-icon business-trip"></div>
+                    出張 ({{ absence_card.business_trip_employees|length }})
+                </div>
+                <div class="employees-grid">
+                    {% for employee in absence_card.business_trip_employees %}
+                    <div class="employee-card business-trip">
+                        <div class="employee-left">
+                            <div class="employee-name">{{ employee.name }}</div>
+                            <div class="employee-number">内線番号: {{ employee.phone }}</div>
+                        </div>
+                        <div class="employee-right">
+                            {% if employee.schedules %}
+                                {% for schedule in employee.schedules %}
+                                <div class="schedule-text">{{ schedule.title }} ({{ schedule.start_time|time:"H:i" }}-{{ schedule.end_time|time:"H:i" }})</div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="schedule-text">予定なし</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if absence_card.annual_leave_employees %}
+                <div class="section-title annual-leave">
+                    <div class="status-icon annual-leave"></div>
+                    年休 ({{ absence_card.annual_leave_employees|length }})
+                </div>
+                <div class="employees-grid">
+                    {% for employee in absence_card.annual_leave_employees %}
+                    <div class="employee-card annual-leave">
+                        <div class="employee-left">
+                            <div class="employee-name">{{ employee.name }}</div>
+                            <div class="employee-number">内線番号: {{ employee.phone }}</div>
+                        </div>
+                        <div class="employee-right">
+                            {% if employee.schedules %}
+                                {% for schedule in employee.schedules %}
+                                <div class="schedule-text">{{ schedule.title }} ({{ schedule.start_time|time:"H:i" }}-{{ schedule.end_time|time:"H:i" }})</div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="schedule-text">予定なし</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if absence_card.morning_annual_leave_employees %}
+                <div class="section-title morning-annual-leave">
+                    <div class="status-icon morning-annual-leave"></div>
+                    午前年休 ({{ absence_card.morning_annual_leave_employees|length }})
+                </div>
+                <div class="employees-grid">
+                    {% for employee in absence_card.morning_annual_leave_employees %}
+                    <div class="employee-card morning-annual-leave">
+                        <div class="employee-left">
+                            <div class="employee-name">{{ employee.name }}</div>
+                            <div class="employee-number">内線番号: {{ employee.phone }}</div>
+                        </div>
+                        <div class="employee-right">
+                            {% if employee.schedules %}
+                                {% for schedule in employee.schedules %}
+                                <div class="schedule-text">{{ schedule.title }} ({{ schedule.start_time|time:"H:i" }}-{{ schedule.end_time|time:"H:i" }})</div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="schedule-text">予定なし</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if absence_card.afternoon_annual_leave_employees %}
+                <div class="section-title afternoon-annual-leave">
+                    <div class="status-icon afternoon-annual-leave"></div>
+                    午後年休 ({{ absence_card.afternoon_annual_leave_employees|length }})
+                </div>
+                <div class="employees-grid">
+                    {% for employee in absence_card.afternoon_annual_leave_employees %}
+                    <div class="employee-card afternoon-annual-leave">
+                        <div class="employee-left">
+                            <div class="employee-name">{{ employee.name }}</div>
+                            <div class="employee-number">内線番号: {{ employee.phone }}</div>
+                        </div>
+                        <div class="employee-right">
+                            {% if employee.schedules %}
+                                {% for schedule in employee.schedules %}
+                                <div class="schedule-text">{{ schedule.title }} ({{ schedule.start_time|time:"H:i" }}-{{ schedule.end_time|time:"H:i" }})</div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="schedule-text">予定なし</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 部署カード -->
+        {% for dept_data in departments_with_employees %}
+        <div class="department">
+            <div class="department-header">
+                <div class="department-name">{{ dept_data.department.name }}</div>
+                <div class="department-counts">
+                    {% if dept_data.absence_count > 0 %}
+                    <div class="absence-count">年休・出張{{ dept_data.absence_count }}名</div>
+                    {% endif %}
+                    <div class="department-count">入室中{{ dept_data.in_room_count }}/{{ dept_data.total_count }}</div>
+                </div>
+            </div>
+
+            <div class="employees-section">
+
+                {% if dept_data.in_room_employees %}
+                <div class="section-title in-room">
+                    <div class="status-icon in"></div>
+                    入室中 ({{ dept_data.in_room_employees|length }})
+                </div>
+                <div class="employees-grid">
+                    {% for employee in dept_data.in_room_employees %}
+                    <div class="employee-card in-room">
+                        <div class="employee-left">
+                            <div class="employee-name">{{ employee.name }}</div>
+                            <div class="employee-number">内線番号: {{ employee.phone }}</div>
+                        </div>
+                        <div class="employee-right">
+                            {% if employee.schedules %}
+                                {% for schedule in employee.schedules %}
+                                <div class="schedule-text">{{ schedule.title }} ({{ schedule.start_time|time:"H:i" }}-{{ schedule.end_time|time:"H:i" }}){% if schedule.place %}({{ schedule.place }}){% endif %}</div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="schedule-text">予定なし</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if dept_data.out_room_employees %}
+                <div class="section-title out-room">
+                    <div class="status-icon out"></div>
+                    退室中 ({{ dept_data.out_room_employees|length }})
+                </div>
+                <div class="employees-grid">
+                    {% for employee in dept_data.out_room_employees %}
+                    <div class="employee-card out-room">
+                        <div class="employee-left">
+                            <div class="employee-name">{{ employee.name }}</div>
+                            <div class="employee-number">内線番号: {{ employee.phone }}</div>
+                        </div>
+                        <div class="employee-right">
+                            {% if employee.schedules %}
+                                {% for schedule in employee.schedules %}
+                                <div class="schedule-text">{{ schedule.title }} ({{ schedule.start_time|time:"H:i" }}-{{ schedule.end_time|time:"H:i" }})</div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="schedule-text">予定なし</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if not dept_data.in_room_employees and not dept_data.out_room_employees %}
+                <div class="no-employees">従業員なし</div>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="department">
+            <div class="employees-section">
+                <div class="no-employees">部署未登録</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        // 30秒ごとに自動更新
+        setInterval(function() {
+            location.reload();
+        }, 1000000);
+    </script>
+</body>
+</html>

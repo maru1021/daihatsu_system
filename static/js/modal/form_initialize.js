@@ -1,0 +1,72 @@
+// 編集フォームの初期化
+function initializeEditForm(data) {
+    if (!data || !data.data) {
+        console.error('Invalid data format:', data);
+        return;
+    }
+
+    const form = document.getElementById('EditForm');
+    if (!form) {
+        console.error('Edit form not found');
+        return;
+    }
+
+    // 編集時フォームの各フィールドに値を設定
+    const formData = data.data;
+    for (const [key, value] of Object.entries(formData)) {
+        const input = form.querySelector(`[name="${key}"]`);
+        if (input) {
+            if (input.type === 'checkbox') {
+                input.checked = value;
+            } else if (input.tagName === 'SELECT') {
+                input.value = value;
+
+                // select2の値を設定
+                if(Array.isArray(value)){
+                    for(const [index, item] of value.entries()){
+                        const select_id = key.replace('[]', index)
+                        $(`#${select_id}`).val(item.id).trigger('change');
+                    }
+                } else {
+                    $(`#id_${key}`).val(value).trigger('change');
+                }
+            } else {
+                // ファイル入力フィールドには値を設定できないのでスキップ
+                if (input.type === 'file') {
+                    // 画像プレビューがある場合は表示
+                    if (value && key.includes('image')) {
+                        const previewContainer = input.closest('.image-upload-container');
+                        if (previewContainer) {
+                            const uploadArea = previewContainer.querySelector('.image-upload-area');
+                            const imagePreview = previewContainer.querySelector('.image-preview');
+                            const previewImage = previewContainer.querySelector('.previewImage');
+
+                            if (uploadArea && imagePreview && previewImage) {
+                                previewImage.src = value;
+                                uploadArea.style.display = 'none';
+                                imagePreview.style.display = 'block';
+                            }
+                        }
+                    }
+                } else {
+                    input.value = value;
+                }
+            }
+        }
+    }
+
+    // フォームのaction属性を設定
+    if (data.edit_url) {
+        form.action = data.edit_url;
+    }
+}
+
+// 新規登録フォームの初期化
+function initializeRegisterForm() {
+    const form = $('#RegisterForm');
+    // フォームをリセット
+    form.reset();
+
+    // select2の値をクリア
+    $(form).find('.select2').val('').trigger('change');
+}

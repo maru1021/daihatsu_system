@@ -1,0 +1,307 @@
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div class="page-title">
+    <h1 class="h3 mb-0">{{ page_title }}</h1>
+  </div>
+
+  <div class="d-flex flex-column gap-2">
+    <div class="d-flex gap-2">
+      {% if is_admin and excel_export_url %}
+      <button
+        class="btn btn-success btn-sm"
+        type="button"
+        onclick="exportToExcel()"
+      >
+        <i class="fas fa-file-excel me-1"></i>Excel出力
+      </button>
+      {% endif %}
+
+      {% if is_admin and excel_import_url %}
+      <button
+        class="btn btn-info btn-sm"
+        type="button"
+        onclick="document.getElementById('excelFileInput').click()"
+      >
+        <i class="fas fa-file-upload me-1"></i>Excel入力
+      </button>
+      <input
+        type="file"
+        id="excelFileInput"
+        accept=".xlsx,.xls"
+        style="display: none"
+        onchange="handleExcelFileUpload(this)"
+      />
+      {% endif %}
+
+      {% if is_admin and pdf_import_url %}
+      <button
+        class="btn btn-warning btn-sm"
+        type="button"
+        onclick="document.getElementById('pdfFileInput').click()"
+      >
+        <i class="fas fa-file-upload me-1"></i>PDF入力
+      </button>
+      <input
+        type="file"
+        id="pdfFileInput"
+        accept=".pdf"
+        style="display: none"
+        onchange="handlePDFFileUpload(this)"
+      />
+      {% endif %}
+
+      {% if is_admin and pdf_export_url %}
+      <button
+        class="btn btn-warning btn-sm"
+        type="button"
+        onclick="exportToPDF()"
+      >
+        <i class="fas fa-file-pdf me-1"></i>PDF出力
+      </button>
+      {% endif %}
+    </div>
+
+    <div class="d-flex gap-2">
+      {% if search_url %}
+        <form class="d-flex">
+          {% if aggrigation %}
+          <input
+            type="text"
+            class="form-control datepicker"
+            id="search_date"
+            name="search_date"
+            value={{ date }}
+            style="margin-right: 10px"
+            placeholder="日付設定"
+          >
+          {% endif %}
+          <div class="input-group">
+            <input
+              type="text"
+              class="form-control"
+              name="search"
+              placeholder="検索..."
+              value="{{ search_query }}"
+              data-search-url="{{ search_url }}"
+            />
+            <button class="btn btn-outline-secondary" type="button" disabled>
+              <i class="fas fa-search"></i>
+            </button>
+          </div>
+        </form>
+      {% endif %} {% if is_admin and add_button_text %}
+      <button class="btn btn-primary" id="register-button">
+        {{ add_button_text }}
+      </button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+  function handleExcelFileUpload(input) {
+    const file = input.files[0];
+    if (file) {
+      uploadExcelFile(file);
+      // ファイル入力をクリアして、同じファイルを再度選択できるようにする
+      input.value = '';
+    }
+  }
+
+  function uploadExcelFile(file) {
+    const formData = new FormData();
+    formData.append("excel_file", file);
+
+    const csrfToken = document.querySelector(
+      "[name=csrfmiddlewaretoken]"
+    ).value;
+
+    fetch("{{ excel_import_url }}", {
+      method: "POST",
+      body: formData,
+      headers: {
+        "X-CSRFToken": csrfToken,
+      },
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.status === "success") {
+          const message =
+            "Excelファイルの処理が完了しました。<br><br>" +
+            data.results.join("<br>");
+          showToast("success", message);
+          // テーブルデータを更新
+          if (data.table_data) {
+            updateTable(data.table_data);
+          }
+        } else {
+          showToast("error", "エラーが発生しました: " + data.message);
+        }
+      })
+      .catch((error) => {
+        console.error("Error:", error);
+        showToast("error", "ファイルのアップロード中にエラーが発生しました。");
+      });
+  }
+
+  function updateTable(tableData) {
+    // テーブルコンテナを取得
+    const tableContainer = document.getElementById("TableContainer");
+    if (!tableContainer) {
+      return;
+    }
+
+    const tableBody = tableContainer.querySelector("tbody");
+
+    let tableHtml = "";
+
+    tableData.forEach((row) => {
+      tableHtml += "<tr>";
+      row.fields.forEach((field) => {
+        tableHtml += `<td>${field}</td>`;
+      });
+
+      if (row.edit_url || row.delete_url) {
+        tableHtml += '<td><div class="btn-group" role="group">';
+        if (row.edit_url) {
+          tableHtml += `<button type="button"
+                                        class="btn btn-sm btn-outline-primary edit-item"
+                                        data-item-id="${row.id}"
+                                        data-edit-url="${row.edit_url}">
+                                    <i class="fas fa-edit"></i>
+                                </button>`;
+        }
+        if (row.delete_url) {
+          tableHtml += `<button type="button"
+                                        class="btn btn-sm btn-outline-danger delete-item"
+                                        data-item-id="${row.id}"
+                                        data-item-name="${row.name}"
+                                        data-delete-url="${row.delete_url}">
+                                    <i class="fas fa-trash"></i>
+                                </button>`;
+        }
+        tableHtml += "</div></td>";
+      }
+      tableHtml += "</tr>";
+    });
+    tableHtml += "</tbody>";
+
+    tableBody.innerHTML = tableHtml;
+  }
+
+  function handlePDFFileUpload(input) {
+    const file = input.files[0];
+    if (file) {
+      uploadPDFFile(file);
+      // ファイル入力をクリアして、同じファイルを再度選択できるようにする
+      input.value = '';
+    }
+  }
+
+  function uploadPDFFile(file) {
+    const formData = new FormData();
+    formData.append("pdf_file", file);
+
+    const csrfToken = document.querySelector(
+      "[name=csrfmiddlewaretoken]"
+    ).value;
+
+    fetch("{{ pdf_import_url }}", {
+      method: "POST",
+      body: formData,
+      headers: {
+        "X-CSRFToken": csrfToken,
+      },
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.status === "success") {
+          const message =
+            "PDFファイルの処理が完了しました。<br><br>" +
+            data.results.join("<br>");
+          showToast("success", message);
+          // テーブルデータを更新
+          if (data.table_data) {
+            updateTable(data.table_data);
+          }
+        } else {
+          showToast("error", "エラーが発生しました: " + data.message);
+        }
+      })
+      .catch((error) => {
+        console.error("Error:", error);
+        showToast("error", "ファイルのアップロード中にエラーが発生しました。");
+      });
+  }
+
+  function exportToExcel() {
+    fetch("{{ excel_export_url }}")
+      .then((response) => {
+        // レスポンスヘッダーからファイル名を取得
+        const contentDisposition = response.headers.get("Content-Disposition");
+        let filename = "export.xlsx";
+
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+          if (filenameMatch) {
+            filename = filenameMatch[1];
+          }
+        }
+
+        return response.blob().then((blob) => ({ blob, filename }));
+      })
+      .then(({ blob, filename }) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      })
+      .catch((error) => {
+        console.error("Error:", error);
+        showToast(
+          "error",
+          "Excelファイルのダウンロード中にエラーが発生しました。"
+        );
+      });
+  }
+
+  function exportToPDF() {
+    fetch("{{ pdf_export_url }}")
+      .then((response) => {
+        // Content-Dispositionヘッダーからファイル名を取得
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'export.pdf'; // デフォルト名
+
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+          if (filenameMatch && filenameMatch[1]) {
+            filename = filenameMatch[1].replace(/['"]/g, '');
+          }
+        }
+        if (response.status === 200) {
+          return response.blob().then(blob => ({ blob, filename }));
+        } else {
+          return response.json().then(data => {
+            throw new Error(data.message);
+          });
+        }
+      })
+      .then(({ blob, filename }) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      })
+      .catch((error) => {
+        console.error("PDF Export Error:", error);
+        showToast("error", "PDFファイルのダウンロード中にエラーが発生しました。");
+      });
+  }
+</script>

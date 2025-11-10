@@ -1,0 +1,156 @@
+.datepicker {
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    transition: all 0.3s ease;
+}
+
+.datepicker:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.datepicker-dropdown {
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    border: none;
+    padding: 8px;
+}
+
+.datepicker table tr td,
+.datepicker table tr th {
+    border-radius: 6px;
+    border: none;
+    padding: 8px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.datepicker table tr td:hover {
+    background-color: #f8f9fa;
+    transform: scale(1.05);
+}
+
+.datepicker table tr td.active {
+    background: linear-gradient(135deg, #aed1f7, #9fc9f7);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+}
+
+.datepicker table tr td.today {
+    background: linear-gradient(135deg, #99feb1, #79ee95);
+    color: white;
+    font-weight: bold;
+}
+
+.datepicker table tr td.old,
+.datepicker table tr td.new {
+    color: #adb5bd;
+}
+
+.datepicker table tr td.text-danger {
+    color: #dc3545 !important;
+    font-weight: bold;
+}
+
+.datepicker table tr td.text-primary {
+    color: #007bff !important;
+    font-weight: bold;
+}
+
+.datepicker table tr td.disabled {
+    color: #adb5bd;
+    background-color: #f8f9fa;
+    cursor: not-allowed;
+}
+
+.datepicker-header {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border-radius: 8px 8px 0 0;
+    padding: 12px;
+    margin: -8px -8px 8px -8px;
+}
+
+.datepicker table tr th.prev,
+.datepicker table tr th.next {
+    background: none;
+    border: none;
+    font-size: 16px;
+    color: #6c757d;
+    transition: all 0.2s ease;
+}
+
+.datepicker table tr th.prev:hover,
+.datepicker table tr th.next:hover {
+    background-color: #e9ecef;
+    color: #495057;
+    transform: scale(1.1);
+}
+
+.datepicker table tr th.datepicker-switch {
+    font-weight: 600;
+    color: #495057;
+    font-size: 14px;
+}
+
+.datepicker table tr th.dow {
+    color: #6c757d;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.datepicker table tr td span {
+    border-radius: 6px;
+    border: none;
+    padding: 8px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.datepicker table tr td span:hover {
+    background-color: #f8f9fa;
+    transform: scale(1.05);
+}
+
+.datepicker table tr td span.active {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+}
+
+.datepicker table tr td span.old {
+    color: #adb5bd;
+}
+
+.datepicker table tr td span.new {
+    color: #adb5bd;
+}
+
+/* アニメーション効果 */
+.datepicker-dropdown {
+    animation: datepickerFadeIn 0.3s ease-out;
+}
+
+@keyframes datepickerFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .datepicker-dropdown {
+        font-size: 14px;
+    }
+    
+    .datepicker table tr td,
+    .datepicker table tr th {
+        padding: 6px;
+    }
+} 

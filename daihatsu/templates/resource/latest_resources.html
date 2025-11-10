@@ -1,0 +1,53 @@
+{% if latest_resource %}
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5 class="card-title">CPU使用率(24時間平均)</h5>
+                <h2 class="text-primary" id="cpu-value">{{ latest_resource.cpu|floatformat:1 }}%</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5 class="card-title">メモリ使用率(24時間平均)</h5>
+                <h2 class="text-warning" id="memory-value">{{ latest_resource.memory|floatformat:1 }}%</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5 class="card-title">ディスク使用率(24時間平均)</h5>
+                <h2 class="text-success" id="disk-value">{{ latest_resource.disk|floatformat:1 }}%</h2>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% block extra_js %}
+<script>
+    function updateResourceValues() {
+        fetch('/resource/?update=true')
+            .then(response => response.json())
+            .then(data => {
+                const cpuValue = document.getElementById('cpu-value');
+                const memoryValue = document.getElementById('memory-value');
+                const diskValue = document.getElementById('disk-value');
+
+                // 平均値を直接表示
+                if (data.cpu !== undefined && data.memory !== undefined && data.disk !== undefined) {
+                    cpuValue.textContent = data.cpu.toFixed(1) + '%';
+                    memoryValue.textContent = data.memory.toFixed(1) + '%';
+                    diskValue.textContent = data.disk.toFixed(1) + '%';
+                }
+            })
+            .catch(error => console.error('リソース値の更新エラー:', error));
+    }
+
+    // 定期的にリソース値を更新
+    setInterval(updateResourceValues, 60000);
+</script>
+{% endblock %}

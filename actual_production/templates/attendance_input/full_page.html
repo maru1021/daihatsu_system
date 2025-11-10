@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>勤怠入力</title>
+
+    <!-- CSS -->
+    <link href="/static/css/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/vendor/select2/select2.min.css" rel="stylesheet">
+    <link href="/static/css/vendor/select2/select2-bootstrap-5-theme.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/vendor/datepicker/bootstrap-datepicker3.min.css">
+    <link href="/static/css/attendance_input.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>勤怠入力フォーム</h1>
+        </div>
+
+        {% if error_message %}
+        <div class="status-error status-message" style="display: block;">
+            {{ error_message }}
+        </div>
+        {% endif %}
+
+        <form id="attendance-form">
+            <div class="main-form-layout">
+                <!-- 左側：基本情報 -->
+                {% include 'attendance_input/basic_info.html' %}
+
+                <!-- 右側：業務内容 -->
+                {% include 'attendance_input/task_content.html' %}
+            </div>
+        </form>
+
+        <div id="status-message" class="status-message"></div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/static/js/vendor/jquery/jquery-3.7.1.min.js"></script>
+    <script src="/static/js/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/vendor/select2/select2.min.js"></script>
+    <script src="/static/js/vendor/datepicker/bootstrap-datepicker.min.js"></script>
+    <script src="/static/js/vendor/datepicker/bootstrap-datepicker.ja.min.js"></script>
+    <script src="/static/js/base_setting.js"></script>
+    <script src="/static/js/form/datepicker_init.js"></script>
+    <script src="/static/js/attendance_input.js"></script>
+</body>
+</html>

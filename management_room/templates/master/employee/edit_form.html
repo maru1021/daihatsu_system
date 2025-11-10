@@ -1,0 +1,62 @@
+<!-- 編集用のフォーム -->
+<div class="mb-3">
+  <label for="id_name" class="form-label">従業員名 <span class="text-danger">*</span></label>
+  <input type="text" class="form-control" id="id_name" name="name">
+</div>
+<div class="mb-3">
+  <label for="id_employee_number" class="form-label">従業員番号 <span class="text-danger">*</span></label>
+  <input type="text" class="form-control" id="id_employee_number" name="employee_number">
+</div>
+<div class="mb-3">
+  <label class="form-label">部署 <span class="text-danger"></span></label>
+  <div id="id_department-container" class="variable-form">
+    <div class="department-row mb-2">
+      <div class="input-group">
+        <select class="form-control select2" name="department[]">
+          <option value="">選択してください</option>
+          {% for department in departments %}
+            <option value="{{ department.id }}">{{ department.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" class="btn btn-outline-success add-department" title="部署を追加">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="mb-3">
+  <label for="line" class="form-label">ライン <span class="text-danger"></span></label>
+  <select class="form-control select2" id="line" name="line">
+    <option value="">選択してください</option>
+    {% for line in lines %}
+    <option value="{{ line.id }}">{{ line.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="id_email" class="form-label">メールアドレス <span class="text-danger"></span></label>
+  <input type="email" class="form-control" id="id_email" name="email">
+</div>
+<div class="mb-3">
+  <label for="id_phone_number" class="form-label">内線番号 <span class="text-danger"></span></label>
+  <input type="text" class="form-control" id="id_phone_number" name="phone_number">
+</div>
+
+
+<style>
+.department-row .input-group {
+    align-items: stretch;
+}
+
+.department-row .input-group .select2-container {
+    flex: 1;
+}
+
+.department-row .input-group .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+}
+</style>

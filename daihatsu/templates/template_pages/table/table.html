@@ -1,0 +1,60 @@
+{% if data %}
+    <div id="TableContainer">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        {% for header in headers %}
+                        <th>{{ header }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in data %}
+                    <tr>
+                        {% for field in row.fields %}
+                        <td>{{ field|safe }}</td>
+                        {% endfor %}
+                        {% if is_admin and row.edit_url %}
+                        <td>
+                            <div class="btn-group" role="group">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-primary edit-item"
+                                        data-item-id="{{ row.id }}"
+                                        data-edit-url="{{ row.edit_url }}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-danger delete-item"
+                                        data-item-id="{{ row.id }}"
+                                        data-item-name="{{ row.name }}"
+                                        data-delete-url="{{ row.delete_url }}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ページネーション -->
+    {% include "components/table/pagination.html" with display_pagination=display_pagination data=data search_query=search_query %}
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+        <h5 class="text-muted">{{ title|add:"が見つかりません" }}</h5>
+        {% if search_query %}
+            <p class="text-muted">「{{ search_query }}」に該当するデータはありません。</p>
+        {% else %}
+            <p class="text-muted">{{ title|add:"がまだ登録されていません" }}</p>
+        {% endif %}
+    </div>
+{% endif %}
+
+<script>
+    window.search_date_url = "{{ search_date_url|escapejs }}";
+</script>

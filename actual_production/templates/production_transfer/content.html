@@ -1,0 +1,519 @@
+{% load static %}
+
+<style>
+/* Select2の高さをBootstrapのform-controlと合わせる */
+.select2-container--default .select2-selection--single {
+    height: 38px !important;
+    border: 1px solid #ced4da !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+    line-height: 36px !important;
+    padding-left: 12px !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__arrow {
+    height: 36px !important;
+    right: 10px !important;
+}
+
+.select2-container--default .select2-selection--single:focus {
+    border-color: #86b7fe !important;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
+}
+</style>
+
+{% include "components/table/header.html" with page_title="実績管理への転機" %}
+
+<!-- CSRF Token -->
+{% csrf_token %}
+
+<!-- フィルター section -->
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex align-items-center gap-3">
+            <div>
+                <label for="filter_date" class="form-label mb-1 fw-semibold">日付</label>
+                <div class="input-group" style="max-width: 200px;">
+                    <span class="input-group-text">
+                        <i class="fas fa-calendar"></i>
+                    </span>
+                    <input type="date" class="form-control" id="filter_date" value="{{ today }}">
+                </div>
+            </div>
+
+            <div>
+                <label for="filter_line" class="form-label mb-1 fw-semibold">
+                    <i class="fas fa-industry me-1"></i>ライン
+                </label>
+                <select class="form-control" id="filter_line" style="width: 200px;">
+                    <option value="">全てのライン</option>
+                    {% for line in lines %}
+                        <option value="{{ line.id }}">{{ line.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label for="filter_shift" class="form-label mb-1 fw-semibold">
+                    <i class="fas fa-clock me-1"></i>勤務区分
+                </label>
+                <select class="form-control" id="filter_shift" style="width: 120px;">
+                    <option value="">全て</option>
+                    <option value="day">日勤</option>
+                    <option value="night">夜勤</option>
+                </select>
+            </div>
+
+            <div style="align-self: end;">
+                <button type="button" class="btn btn-primary" onclick="loadProductionData()">
+                    <i class="fas fa-search me-1"></i>検索
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- メインコンテンツエリア -->
+<div class="row">
+    <!-- 左側: 実績表示 -->
+    <div class="col-6">
+        <div class="card" id="results-card" style="display: none;">
+            <div class="card-body">
+                <div class="count-info mb-3" id="count-info" style="display: none;"></div>
+
+                <div id="TableContainer" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="production-table">
+                            <thead>
+                                <tr>
+                                    <th rowspan="2" class="align-middle">実績品目</th>
+                                    <th class="text-center">通常</th>
+                                    <th class="text-center">残業</th>
+                                </tr>
+                            </thead>
+                            <tbody id="production-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="text-center py-5" id="no-data" style="display: none;">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">実績データが見つかりません</h5>
+                    <p class="text-muted" id="no-data-message">該当するデータがまだ登録されていません</p>
+                </div>
+
+                <div class="text-center py-5" id="loading" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">読み込み中...</span>
+                    </div>
+                    <p class="mt-3 mb-0">データを読み込み中...</p>
+                </div>
+
+                <div class="alert alert-danger" id="error-message" style="display: none;">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <span id="error-text"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右側: 入力フォーム -->
+    <div class="col-6">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">実績入力</h6>
+                <form id="production-form">
+                    <div id="input-rows">
+                        {% for i in "0123456789" %}
+                        <div class="row mb-2">
+                            <div class="col-8">
+                                <select class="form-control production-item-select" id="item-select-{{ forloop.counter0 }}" data-row="{{ forloop.counter0 }}">
+                                    <option value="">実績品目を選択</option>
+                                    {% for item in production_items %}
+                                        <option value="{{ item.id }}">{{ item.code }} - {{ item.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-4">
+                                <input type="number" class="form-control" id="item-value-{{ forloop.counter0 }}" placeholder="数値" step="0.1" min="0">
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-success" onclick="saveProductionData()">
+                            <i class="fas fa-save me-1"></i>保存
+                        </button>
+                        <button type="button" class="btn btn-secondary ms-2" onclick="clearForm()">
+                            <i class="fas fa-eraser me-1"></i>クリア
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// イベントリスナーの重複を防ぐ
+if (!window.productionTransferEventsAdded) {
+    window.productionTransferEventsAdded = true;
+
+    // DOMContentLoaded（初回読み込み）
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOMContentLoaded - initializing select2');
+        // リロード時はより長い待機時間が必要
+        setTimeout(initializeSelect2, 800);
+    });
+
+    // htmx遷移時
+    document.addEventListener('htmx:afterSwap', function(event) {
+        console.log('htmx:afterSwap - initializing select2');
+        // 少し長めの待機時間でDOMの準備を確実にする
+        setTimeout(initializeSelect2, 500);
+    });
+
+    // ページ完全読み込み後（リロード時の保険）
+    window.addEventListener('load', function() {
+        console.log('window load - initializing select2');
+        setTimeout(() => {
+            // Select2が正しく適用されていない場合のみ再初期化
+            const hasSelect2 = document.querySelector('.select2-container');
+            if (!hasSelect2) {
+                console.log('No Select2 found on load, reinitializing...');
+                initializeSelect2();
+            }
+        }, 500);
+    });
+}
+
+// 既に読み込まれている場合（リロード時など）
+if (document.readyState === 'complete') {
+    console.log('Document already complete - initializing select2');
+    setTimeout(initializeSelect2, 500);
+} else if (document.readyState === 'interactive') {
+    console.log('Document interactive - waiting for complete');
+    document.addEventListener('readystatechange', function() {
+        if (document.readyState === 'complete') {
+            console.log('Document now complete - initializing select2');
+            setTimeout(initializeSelect2, 300);
+        }
+    });
+}
+
+// Select2を初期化
+function initializeSelect2() {
+    console.log('initializeSelect2 called');
+
+    // jQueryとSelect2が利用可能かチェック
+    if (typeof $ === 'undefined') {
+        console.log('jQuery not available, retrying...');
+        setTimeout(initializeSelect2, 1000);
+        return;
+    }
+
+    if (typeof $.fn.select2 === 'undefined') {
+        console.log('Select2 not available, retrying...');
+        setTimeout(initializeSelect2, 1000);
+        return;
+    }
+
+    console.log('jQuery and Select2 are available');
+
+    // select要素が存在するか確認
+    const selects = document.querySelectorAll('.production-item-select');
+    if (selects.length === 0) {
+        console.log('No select elements found, retrying...');
+        setTimeout(initializeSelect2, 500);
+        return;
+    }
+
+    // まず全てのSelect2を破棄
+    try {
+        $('.production-item-select').select2('destroy');
+        console.log('Destroyed existing select2 instances');
+    } catch(e) {
+        console.log('No existing select2 to destroy');
+    }
+
+    console.log(`Found ${selects.length} select elements`);
+
+    selects.forEach((select, index) => {
+        console.log(`Processing select ${index}, options count: ${select.options.length}`);
+
+        // Select2コンテナが既に存在する場合は削除
+        const selectId = select.id;
+        const existingContainer = document.querySelector(`#select2-${selectId}-container`);
+        if (existingContainer) {
+            const parentContainer = existingContainer.closest('.select2-container');
+            if (parentContainer) {
+                parentContainer.remove();
+            }
+        }
+
+        // Select2を初期化
+        $(select).select2({
+            placeholder: '実績品目を選択',
+            allowClear: true,
+            width: '100%',
+            minimumResultsForSearch: 5
+        });
+        console.log(`Select2 initialized for select ${index}`);
+    });
+}
+
+// 実績データを読み込む
+async function loadProductionData() {
+    const dateElement = document.getElementById('filter_date');
+    const lineElement = document.getElementById('filter_line');
+    const shiftElement = document.getElementById('filter_shift');
+
+    if (!dateElement || !lineElement || !shiftElement) {
+        showError('ページの初期化に失敗しました。');
+        return;
+    }
+
+    const date = dateElement.value;
+    const lineId = lineElement.value;
+    const shiftType = shiftElement.value;
+
+    if (!date) {
+        showError('日付を選択してください');
+        return;
+    }
+
+    document.getElementById('results-card').style.display = 'block';
+    showLoading(true);
+    hideError();
+    hideTable();
+    hideNoData();
+
+    try {
+        let url = `/actual_production/production-transfer/data/?date=${date}`;
+        if (lineId) url += `&line_id=${lineId}`;
+        if (shiftType) url += `&shift_type=${shiftType}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        showLoading(false);
+
+        if (data.status === 'success') {
+            if (data.data.length > 0) {
+                displayData(data.data, data.count, data.total_attendance, data.total_line_people, data.line_operation_hours, data.production_overtime_hours);
+            } else {
+                showNoData();
+            }
+        } else {
+            showError(data.message || 'データの取得に失敗しました');
+        }
+    } catch (error) {
+        showLoading(false);
+        showError('通信エラーが発生しました: ' + error.message);
+    }
+}
+
+// データをテーブルに表示
+function displayData(data, count, totalAttendance, totalLinePeople, lineOperationHours, productionOvertimeHours) {
+    const tbody = document.getElementById('production-tbody');
+    const countInfo = document.getElementById('count-info');
+
+    if (!tbody || !countInfo) return;
+
+    tbody.innerHTML = '';
+
+    // ライン作業行を一番上に追加
+    const lineWorkRow = document.createElement('tr');
+    lineWorkRow.className = 'table-success';
+    lineWorkRow.innerHTML = `
+        <td class="align-middle fw-bold">ライン作業</td>
+        <td class="align-middle fw-bold text-center">${(lineOperationHours || 0).toFixed(1)}</td>
+        <td class="align-middle fw-bold text-center">${(productionOvertimeHours || 0).toFixed(1)}</td>
+    `;
+    tbody.appendChild(lineWorkRow);
+
+    data.forEach(record => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="align-middle">${record.item_code} - ${record.item_name}</td>
+            <td class="align-middle text-center">${record.normal_hours ? record.normal_hours.toFixed(1) : '0.0'}</td>
+            <td class="align-middle text-center">${record.overtime_hours ? record.overtime_hours.toFixed(1) : '0.0'}</td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    // 出勤人数行を追加
+    const attendanceRow = document.createElement('tr');
+    attendanceRow.className = 'table-info';
+    attendanceRow.innerHTML = `
+        <td class="align-middle fw-bold">出勤人数</td>
+        <td class="align-middle fw-bold text-center" colspan="2">${totalAttendance}</td>
+    `;
+    tbody.appendChild(attendanceRow);
+
+    // ライン人数行を追加
+    const lineRow = document.createElement('tr');
+    lineRow.className = 'table-info';
+    lineRow.innerHTML = `
+        <td class="align-middle fw-bold">ライン人数</td>
+        <td class="align-middle fw-bold text-center" colspan="2">${totalLinePeople}</td>
+    `;
+    tbody.appendChild(lineRow);
+
+    countInfo.textContent = `${count}件の実績品目が見つかりました`;
+    showTable();
+}
+
+// 表示制御関数
+function showLoading(show) {
+    const loading = document.getElementById('loading');
+    if (loading) loading.style.display = show ? 'block' : 'none';
+}
+
+function showTable() {
+    const resultsCard = document.getElementById('results-card');
+    const tableContainer = document.getElementById('TableContainer');
+    const countInfo = document.getElementById('count-info');
+
+    if (resultsCard) resultsCard.style.display = 'block';
+    if (tableContainer) tableContainer.style.display = 'block';
+    if (countInfo) countInfo.style.display = 'block';
+}
+
+function hideTable() {
+    const tableContainer = document.getElementById('TableContainer');
+    const countInfo = document.getElementById('count-info');
+
+    if (tableContainer) tableContainer.style.display = 'none';
+    if (countInfo) countInfo.style.display = 'none';
+}
+
+function showNoData() {
+    const resultsCard = document.getElementById('results-card');
+    const noData = document.getElementById('no-data');
+
+    if (resultsCard) resultsCard.style.display = 'block';
+    if (noData) noData.style.display = 'block';
+}
+
+function hideNoData() {
+    const noData = document.getElementById('no-data');
+    if (noData) noData.style.display = 'none';
+}
+
+function showError(message) {
+    const resultsCard = document.getElementById('results-card');
+    const errorDiv = document.getElementById('error-message');
+    const errorText = document.getElementById('error-text');
+
+    if (resultsCard) resultsCard.style.display = 'block';
+    if (errorDiv && errorText) {
+        errorText.textContent = message;
+        errorDiv.style.display = 'block';
+    }
+}
+
+function hideError() {
+    const errorMessage = document.getElementById('error-message');
+    if (errorMessage) errorMessage.style.display = 'none';
+}
+
+// 実績データを保存
+async function saveProductionData() {
+    const dateElement = document.getElementById('filter_date');
+    const lineElement = document.getElementById('filter_line');
+    const shiftElement = document.getElementById('filter_shift');
+
+    if (!dateElement || !lineElement || !shiftElement) {
+        showError('ページの初期化に失敗しました。');
+        return;
+    }
+
+    const date = dateElement.value;
+    const lineId = lineElement.value;
+    const shiftType = shiftElement.value;
+
+    if (!date) {
+        showError('日付を選択してください');
+        return;
+    }
+
+    // 入力データを収集
+    const inputData = [];
+    for (let i = 0; i < 10; i++) {
+        const selectElement = document.getElementById(`item-select-${i}`);
+        const valueElement = document.getElementById(`item-value-${i}`);
+
+        if (selectElement && valueElement && selectElement.value && valueElement.value) {
+            inputData.push({
+                item_id: selectElement.value,
+                value: parseFloat(valueElement.value)
+            });
+        }
+    }
+
+    if (inputData.length === 0) {
+        showError('入力データがありません');
+        return;
+    }
+
+    try {
+        const response = await fetch('/actual_production/production-transfer/save/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({
+                date: date,
+                line_id: lineId,
+                shift_type: shiftType,
+                data: inputData
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.status === 'success') {
+            alert('実績データを保存しました');
+            clearForm();
+            loadProductionData();
+        } else {
+            showError(result.message || '保存に失敗しました');
+        }
+    } catch (error) {
+        showError('通信エラーが発生しました: ' + error.message);
+    }
+}
+
+// フォームをクリア
+function clearForm() {
+    for (let i = 0; i < 10; i++) {
+        const selectElement = document.getElementById(`item-select-${i}`);
+        const valueElement = document.getElementById(`item-value-${i}`);
+
+        if (selectElement) selectElement.value = '';
+        if (valueElement) valueElement.value = '';
+    }
+}
+
+// CSRFトークンを取得
+function getCsrfToken() {
+    let csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (csrfToken) return csrfToken.value;
+
+    csrfToken = document.querySelector('meta[name=csrf-token]');
+    if (csrfToken) return csrfToken.content;
+
+    return '';
+}
+
+// Enterキーでも検索実行
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target.closest('#filter_date, #filter_line, #filter_shift')) {
+        loadProductionData();
+    }
+});
+</script>

@@ -1,0 +1,74 @@
+{% load static %}
+{% load compress %}
+
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}Daihatsu{% endblock %}</title>
+    {% compress css %}
+      <!-- External libraries -->
+      <link href="{% static 'css/vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet" />
+      <link href="{% static 'css/vendor/font-awesome/all.min.css' %}" rel="stylesheet" />
+      <link href="{% static 'css/vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet" />
+      <link href="{% static 'css/vendor/select2/select2.min.css' %}" rel="stylesheet" />
+      <link href="{% static 'css/vendor/select2/select2-bootstrap-5-theme.min.css' %}" rel="stylesheet" />
+      <link href="{% static 'css/vendor/datepicker/bootstrap-datepicker3.min.css' %}" rel="stylesheet" />
+
+      <!-- Application styles -->
+      <link href="{% static 'css/base.css' %}" rel="stylesheet" />
+      <link href="{% static 'css/datepicker_custom.css' %}" rel="stylesheet" />
+    {% endcompress %}
+
+    {% block extra_css %}{% endblock %}
+  </head>
+  <body>
+    {% include 'sidebar/sidebar.html' %}
+    {% include 'components/toast.html' %}
+    <main class="main-content" id="main-content">
+      {% block content %} {% endblock %}
+    </main>
+    {% include 'components/modal/image_modal.html' %}
+
+    {% compress js %}
+      <!-- External libraries -->
+      <script src="{% static 'js/vendor/jquery/jquery-3.7.1.min.js' %}" defer></script>
+      <script src="{% static 'js/vendor/bootstrap/bootstrap.bundle.min.js' %}" defer></script>
+      <script src="{% static 'js/vendor/htmx/htmx.min.js' %}" defer></script>
+      <script src="{% static 'js/vendor/chartjs/chart.min.js' %}" defer></script>
+      <script src="{% static 'js/vendor/select2/select2.min.js' %}" defer></script>
+      <script src="{% static 'js/vendor/datepicker/bootstrap-datepicker.min.js' %}" defer></script>
+      <script src="{% static 'js/vendor/datepicker/bootstrap-datepicker.ja.min.js' %}" defer></script>
+
+      <!-- Application scripts -->
+      <script src="{% static 'js/utils/initialization.js' %}" defer></script>
+      <script src="{% static 'js/session_keepalive.js' %}" defer></script>
+      <script src="{% static 'js/base_setting.js' %}" defer></script>
+      <script src="{% static 'js/sidebar.js' %}" defer></script>
+      <script src="{% static 'js/toast.js' %}" defer></script>
+      <script src="{% static 'js/focus.js' %}" defer></script>
+      <script src="{% static 'js/modal/modal.js' %}" defer></script>
+      <script src="{% static 'js/fetch/page_info.js' %}" defer></script>
+      <script src="{% static 'js/fetch/delete.js' %}" defer></script>
+      <script src="{% static 'js/fetch/form_submit.js' %}" defer></script>
+      <script src="{% static 'js/fetch/search.js' %}" defer></script>
+      <script src="{% static 'js/form/select2_init.js' %}" defer></script>
+      <script src="{% static 'js/form/datepicker_init.js' %}" defer></script>
+      <script src="{% static 'js/form/variable_form.js' %}" defer></script>
+      <script src="{% static 'js/form/image_upload.js' %}" defer></script>
+      <script src="{% static 'js/modal/image_modal.js' %}" defer></script>
+      <script src="{% static 'js/form/relation_select2.js' %}" defer></script>
+      <script src="{% static 'js/form/machining_machine_select.js' %}" defer></script>
+      <script src="{% static 'js/form/machining_tool_no_select.js' %}" defer></script>
+      <script src="{% static 'js/modal/form_reset.js' %}" defer></script>
+      <script src="{% static 'js/modal/form_initialize.js' %}" defer></script>
+      <script src="{% static 'js/table_master.js' %}" defer></script>
+      <script src="{% static 'js/history_management.js' %}" defer></script>
+      <script src="{% static 'js/base.js' %}" defer></script>
+    {% endcompress %}
+
+    {% block extra_js %}
+    {% endblock %}
+  </body>
+</html>

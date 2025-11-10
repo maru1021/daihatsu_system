@@ -1,0 +1,76 @@
+<li class="nav-item">
+  <a
+    class="nav-link {% if 'manufacturing' in request.resolver_match.app_name %}active{% endif %}"
+    href="#"
+    data-bs-toggle="collapse"
+    data-bs-target="#manufacturingSubmenu"
+  >
+    <i class="fas fa-industry"></i>
+    製造管理
+  </a>
+  <div
+    class="collapse submenu {% if 'manufacturing:machining_line_master' in request.resolver_match.url_name or 'manufacturing:machining_machine_master' in request.resolver_match.url_name or 'manufacturing:machining_tool_master' in request.resolver_match.url_name %}show{% endif %}"
+    id="manufacturingSubmenu"
+  >
+    <a
+      class="nav-link {% if 'manufacturing:assembly_line_master' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'manufacturing:assembly_line_master' %}"
+      hx-get="{% url 'manufacturing:assembly_line_master' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-route"></i>
+      組付ライン管理
+    </a>
+    <a
+      class="nav-link {% if 'manufacturing:machining_line_master' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'manufacturing:machining_line_master' %}"
+      hx-get="{% url 'manufacturing:machining_line_master' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-route"></i>
+      加工ライン管理
+    </a>
+    <a
+      class="nav-link {% if 'manufacturing:casting_line_master' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'manufacturing:casting_line_master' %}"
+      hx-get="{% url 'manufacturing:casting_line_master' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-route"></i>
+      鋳造ライン管理
+    </a>
+    <a
+      class="nav-link {% if 'manufacturing:machining_machine_master' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'manufacturing:machining_machine_master' %}"
+      hx-get="{% url 'manufacturing:machining_machine_master' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-cogs"></i>
+      加工機管理
+    </a>
+    <a
+      class="nav-link {% if 'manufacturing:casting_machine_master' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'manufacturing:casting_machine_master' %}"
+      hx-get="{% url 'manufacturing:casting_machine_master' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-cogs"></i>
+      鋳造機管理
+    </a>
+    <a
+      class="nav-link {% if 'manufacturing:machining_tool_no_master' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'manufacturing:machining_tool_no_master' %}"
+      hx-get="{% url 'manufacturing:machining_tool_no_master' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-tools"></i>
+      加工ツール管理
+    </a>
+  </div>
+</li>

@@ -1,0 +1,77 @@
+<!-- 基本情報セクション -->
+<div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 150px; flex-shrink: 0;">
+            <h3 style="margin: 0; white-space: nowrap;">基本情報</h3>
+            <select id="shift_type" name="shift_type" style="padding: 5px; border-radius: 5px; border: 1px solid #ccc; min-width: 80px;">
+                <option value="day">日勤</option>
+                <option value="night">夜勤</option>
+            </select>
+        </div>
+        <div id="validation-error" class="validation-error" style="display: none; color: #e74c3c; font-weight: 600; max-width: 300px; text-align: right; font-size: 15px; line-height: 1.6; white-space: pre-line; padding: 8px 12px; background-color: rgba(231, 76, 60, 0.1); border-radius: 8px;"></div>
+    </div>
+    <div class="form-group" style="display: flex; gap: 20px;">
+        <div style="flex: 0.5;">
+            <label for="employee_number">社員番号(入力) <span class="required">*</span></label>
+            <input type="text" id="employee_number" name="employee_number" required placeholder="社員番号を入力してください">
+        </div>
+        <div style="flex: 0.5; display: flex; align-items: end;">
+            <div id="employee_name_display" style="padding: 10px 14px; border: 2px solid #e8ecf0; border-radius: 10px; background: rgba(255, 255, 255, 0.8); min-height: 38px; color: #34495e; font-size: 14px; display: flex; align-items: center; width: 100%; box-sizing: border-box;">
+                <span id="employee_name_text" style="color: #999;"></span>
+            </div>
+        </div>
+        <div style="flex: 1;">
+            <label for="attendance_date">日付 <span class="required">*</span></label>
+            <input type="text" id="attendance_date" name="attendance_date" class="datepicker" value="{{ today }}" required readonly>
+        </div>
+    </div>
+    <div class="form-group" style="display: flex; gap: 20px;">
+        <div style="flex: 1;">
+            <label for="start_time">開始時間(午前休、遅刻時などのみ変更) <span class="required">*</span></label>
+            <input type="time" id="start_time" name="start_time" value="{{ default_start_time }}" class="time-input" step="300" required>
+        </div>
+        <div style="flex: 1;">
+            <label for="end_time">終了時間(午後休、早退時などのみ変更) <span class="required">*</span></label>
+            <input type="time" id="end_time" name="end_time" class="time-input" step="300" required>
+        </div>
+    </div>
+    <div class="form-group" style="display: flex; gap: 20px;">
+        <div style="flex: 1;">
+            <label for="own_line_operation_hours">自ライン稼働時間 (時間)</label>
+            <input type="number" id="own_line_operation_hours" name="own_line_operation_hours" step="0.5" min="0" max="24" disabled>
+        </div>
+        <div style="flex: 1;">
+            <label for="production_overtime">生産残業 (時間)(ライン残業時は入力)</label>
+            <input type="number" id="production_overtime" name="production_overtime" step="0.5" min="0" max="24">
+        </div>
+    </div>
+
+    <!-- 応援セクション -->
+    <h3 style="margin-top: 25px;">応援(応援時のみ入力)</h3>
+    <div class="tasks-grid">
+        {% for i in "0123"|make_list %}
+        <div class="task-item-grid">
+            <div class="task-select">
+                <select name="support_line" class="support-line-select select2">
+                    <option value="">ラインを選択してください</option>
+                    {% for line in lines %}
+                        <option value="{{ line.id }}">{{ line.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="task-hours">
+                <input type="number" name="support_hours" step="0.5" min="0" max="24" placeholder="0.0">
+            </div>
+            <div class="task-overtime">
+                <label for="support_overtime_{{ forloop.counter0 }}">残業</label>
+                <input type="checkbox" name="support_overtime" id="support_overtime_{{ forloop.counter0 }}">
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- ボタンエリア -->
+    <div class="form-group" style="margin-top: 25px;">
+        <button type="button" class="btn btn-primary w-100" onclick="submitForm()">送信</button>
+    </div>
+</div>

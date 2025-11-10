@@ -1,0 +1,122 @@
+<div class="row">
+  <div class="col-12">
+      <div class="card">
+          <div class="card-body">
+            <div class="chart-container" style="width:{{ width }}px; height:{{ height }}px;">
+              <canvas id="{{ chart_id }}"></canvas>
+            </div>
+          </div>
+      </div>
+  </div>
+</div>
+<script>
+(function() {
+  function renderChart() {
+    if (typeof Chart === 'undefined') {
+      setTimeout(renderChart, 100);
+      return;
+    }
+    
+    const ctx = document.getElementById('{{ chart_id }}').getContext('2d');
+    let chart;
+    
+    // 初期データを取得してグラフを描画
+    function initializeChart() {
+      fetch('{{ reload_url }}')
+        .then(response => response.json())
+        .then(data => {
+          chart = new Chart(ctx, {
+            type: '{{ chart_type }}',
+            data: {
+              labels: data.labels,
+              datasets: data.datasets
+            },
+            options: data.options || {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                title: {
+                  display: true,
+                  text: '{{ chart_title }}',
+                  font: {
+                    size: 16,
+                    weight: 'bold'
+                  },
+                  padding: {
+                    top: 10,
+                    bottom: 20
+                  }
+                },
+                legend: { position: 'top' },
+                tooltip: {
+                  callbacks: {
+                    label: function(context) {
+                      return context.dataset.label + ': ' + context.parsed.y + '{{ vertical_unit|default:"" }}';
+                    }
+                  }
+                }
+              },
+              scales: {
+                x: {
+                  display: true,
+                  title: { display: true, text: '{{ horizontal_title }}' }
+                },
+                y: {
+                  beginAtZero: true,
+                  max: 100,
+                  title: { display: true, text: '{{ vertical_title }}' },
+                }
+              }
+            }
+          });
+          startAutoUpdate();
+        })
+        .catch(error => {
+          console.error('グラフ初期化エラー:', error);
+          // エラー時は空のグラフを表示
+          chart = new Chart(ctx, {
+            type: '{{ chart_type }}',
+            data: { labels: [], datasets: [] },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false
+            }
+          });
+        });
+    }
+    
+    // 自動更新
+    function startAutoUpdate() {
+      setInterval(function() {
+        fetch('{{ reload_url }}?update=true')
+          .then(response => response.json())
+          .then(data => {
+            if (chart && data.timestamp && data.data) {
+              // 最新の1件を追加
+              chart.data.labels.push(data.timestamp);
+              
+              // 各データセットに新しいデータを追加
+              chart.data.datasets.forEach(function(dataset, index) {
+                if (data.data[index] !== undefined) {
+                  dataset.data.push(data.data[index]);
+                }
+              });
+              
+              // 古いデータを削除
+              chart.data.labels.shift(); // 最初の要素（古いデータ）を削除
+              chart.data.datasets.forEach(function(dataset) {
+                dataset.data.shift(); // 各データセットの最初の要素を削除
+              });
+              
+              chart.update();
+            }
+          })
+          .catch(error => console.error('データ更新エラー:', error));
+      }, {{ reload_interval|default:60000 }});
+    }
+    
+    initializeChart();
+  }
+  renderChart();
+})();
+</script> 

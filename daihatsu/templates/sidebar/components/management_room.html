@@ -1,0 +1,127 @@
+<li class="nav-item">
+  <a
+    class="nav-link {% if 'management_room' in request.resolver_match.app_name %}active{% endif %}"
+    href="#"
+    data-bs-toggle="collapse"
+    data-bs-target="#managementRoomSubmenu"
+  >
+    <i class="fas fa-building"></i>
+    管理室
+  </a>
+  <div
+    class="collapse submenu {% if 'management_room' in request.resolver_match.app_name %}show{% endif %}"
+    id="managementRoomSubmenu"
+  >
+    <!-- 生産管理 -->
+    {% if 'production_management_user' in groups %}
+    <a
+      class="nav-link {% if 'management_room:akashi_order_list' in request.resolver_match.url_name %}active{% endif %}"
+      href="#"
+      data-bs-toggle="collapse"
+      data-bs-target="#managementRoomProductionManagementSubmenu"
+    >
+      <i class="fas fa-industry"></i>
+      生産管理
+    </a>
+    <div
+      class="collapse submenu {% if 'management_room:akashi_order_list' in request.resolver_match.url_name %}show{% endif %}"
+      id="managementRoomProductionManagementSubmenu"
+    >
+      <a
+        class="nav-link {% if 'management_room:production_volume_input' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:production_volume_input' %}"
+      >
+        <i class="fas fa-database"></i>
+        生産台数入力
+      </a>
+      <a
+        class="nav-link {% if 'management_room:casting_production_plan' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:casting_production_plan' %}"
+      >
+        <i class="fas fa-database"></i>
+        鋳造
+      </a>
+      <a
+        class="nav-link {% if 'management_room:akashi_order_list' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:akashi_order_list' %}"
+        hx-get="{% url 'management_room:akashi_order_list' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-clipboard-list"></i>
+        明石発注データリスト
+      </a>
+      <a
+        class="nav-link {% if 'management_room:akashi_order_aggregation' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:akashi_order_aggregation' %}"
+        hx-get="{% url 'management_room:akashi_order_aggregation' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-clipboard-list"></i>
+        明石発注データ集計
+      </a>
+    </div>
+    {% endif %}
+
+    <!-- マスター管理 -->
+    <a
+      class="nav-link {% if 'management_room:department_master' in request.resolver_match.url_name or 'management_room:employee_master' in request.resolver_match.url_name %}active{% endif %}"
+      href="#"
+      data-bs-toggle="collapse"
+      data-bs-target="#managementRoomMasterSubmenu"
+    >
+      <i class="fas fa-database"></i>
+      マスター管理
+    </a>
+    <div
+      class="collapse submenu {% if 'management_room:department_master' in request.resolver_match.url_name or 'management_room:employee_master' in request.resolver_match.url_name %}show{% endif %}"
+      id="managementRoomMasterSubmenu"
+    >
+      <!-- 人事 -->
+      {% if 'human_resources_user' in groups %}
+      <a
+        class="nav-link {% if 'management_room:department_master' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:department_master' %}"
+        hx-get="{% url 'management_room:department_master' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-building"></i>
+        部署管理
+      </a>
+      <a
+        class="nav-link {% if 'management_room:employee_master' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:employee_master' %}"
+        hx-get="{% url 'management_room:employee_master' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-user"></i>
+        従業員管理
+      </a>
+      <a
+        class="nav-link {% if 'management_room:assembly_item_master' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:assembly_item_master' %}"
+        hx-get="{% url 'management_room:assembly_item_master' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-database"></i>
+        完成品番管理
+      </a>
+      <a
+        class="nav-link {% if 'management_room:casting_item_master' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:casting_item_master' %}"
+        hx-get="{% url 'management_room:casting_item_master' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-database"></i>
+        鋳造品番管理
+      </a>
+      {% endif %}
+      <!-- 工務も追加 -->
+    </div>
+  </div>
+</li>

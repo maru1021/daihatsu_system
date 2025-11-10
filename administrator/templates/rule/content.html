@@ -1,0 +1,297 @@
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-12">
+      <!-- ヘッダーセクション -->
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h1 class="text-primary mb-2">
+            <i class="fas fa-book-open me-2"></i>開発者用ルール
+          </h1>
+          <p class="text-muted">開発チーム向けのガイドラインとベストプラクティス</p>
+        </div>
+      </div>
+
+      <!-- メインコンテンツ -->
+      <div class="row">
+        <!-- Gitコミットルール -->
+        <div class="col-lg-6 mb-4">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-header bg-gradient-primary text-white">
+              <h5 class="card-title mb-0">
+                <i class="fas fa-code-branch me-2"></i>Gitコミット規約
+              </h5>
+            </div>
+            <div class="card-body">
+              <p class="card-text text-muted mb-3">
+                コミットメッセージは以下のプレフィックスを使用してください：
+              </p>
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="d-flex align-items-center mb-2">
+                    <span class="badge bg-primary me-2">feat</span>
+                    <small>新機能の追加</small>
+                  </div>
+                  <div class="d-flex align-items-center mb-2">
+                    <span class="badge bg-danger me-2">fix</span>
+                    <small>バグ修正</small>
+                  </div>
+                  <div class="d-flex align-items-center mb-2">
+                    <span class="badge bg-warning me-2">refactor</span>
+                    <small>コードのリファクタリング</small>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="d-flex align-items-center mb-2">
+                    <span class="badge bg-info me-2">test</span>
+                    <small>テストコードの追加</small>
+                  </div>
+                  <div class="d-flex align-items-center mb-2">
+                    <span class="badge bg-secondary me-2">docs</span>
+                    <small>ドキュメントの更新</small>
+                  </div>
+                  <div class="d-flex align-items-center mb-2">
+                    <span class="badge bg-dark me-2">style</span>
+                    <small>コードスタイルの修正</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- コーディング規約 -->
+        <div class="col-lg-6 mb-4">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-header bg-gradient-success text-white">
+              <h5 class="card-title mb-0">
+                <i class="fas fa-laptop-code me-2"></i>コーディング規約
+              </h5>
+            </div>
+                          <div class="card-body">
+                <!-- Python用ガイドライン -->
+                <div class="mb-3">
+                  <h6 class="text-primary">
+                    <i class="fab fa-python me-2"></i>Python
+                  </h6>
+                  <ul class="list-unstyled">
+                    <li class="mb-2">
+                      <i class="fas fa-check text-success me-2"></i>
+                      <strong>命名規則:</strong> snake_case（変数・関数）、PascalCase（クラス）
+                    </li>
+                    <li class="mb-2">
+                      <i class="fas fa-check text-success me-2"></i>
+                      <strong>インデント:</strong> スペース4個
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- JavaScript用ガイドライン -->
+                <div>
+                  <h6 class="text-warning">
+                    <i class="fab fa-js-square me-2"></i>JavaScript
+                  </h6>
+                  <ul class="list-unstyled">
+                    <li class="mb-2">
+                      <i class="fas fa-check text-success me-2"></i>
+                      <strong>命名規則:</strong> camelCase（変数・関数）、PascalCase（クラス）
+                    </li>
+                    <li class="mb-2">
+                      <i class="fas fa-check text-success me-2"></i>
+                      <strong>const/let:</strong> varは使用禁止、constを優先
+                    </li>
+                    <li class="mb-2">
+                      <i class="fas fa-check text-success me-2"></i>
+                      <strong>テンプレートリテラル:</strong> 文字列連結には`${}`を使用
+                    </li>
+                  </ul>
+                </div>
+              </div>
+          </div>
+        </div>
+
+        <!-- データベース設計 -->
+        <div class="col-lg-6 mb-4">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-header bg-gradient-info text-white">
+              <h5 class="card-title mb-0">
+                <i class="fas fa-database me-2"></i>データベース設計原則
+              </h5>
+            </div>
+            <div class="card-body">
+              <!-- Django固有のガイドライン -->
+              <div class="mb-3">
+                <h6 class="text-info">
+                  <i class="fab fa-python me-2"></i>Django
+                </h6>
+                <ul class="list-unstyled">
+                  <li class="mb-2">
+                    <i class="fas fa-check text-success me-2"></i>
+                    <strong>モデル命名:</strong> 単数形（User, Product）
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-check text-success me-2"></i>
+                    <strong>フィールド名:</strong> snake_case（created_at, user_name）
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-check text-success me-2"></i>
+                    <strong>Meta class:</strong> 適切なverbose_nameを設定
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-check text-success me-2"></i>
+                    <strong>マイグレーション:</strong> 必ずmakemigrationsを実行
+                  </li>
+                </ul>
+              </div>
+
+              <!-- 一般的なDB設計 -->
+              <div>
+                <h6 class="text-secondary">
+                  <i class="fas fa-database me-2"></i>一般原則
+                </h6>
+                <ul class="list-unstyled">
+                  <li class="mb-2">
+                    <i class="fas fa-check text-success me-2"></i>
+                    <strong>正規化:</strong> 第3正規形まで適用
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-check text-success me-2"></i>
+                    <strong>インデックス:</strong> 検索頻度の高いカラムに設定
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-check text-success me-2"></i>
+                    <strong>外部キー:</strong> 適切な制約を設定
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- セキュリティガイドライン -->
+        <div class="col-lg-6 mb-4">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-header bg-gradient-warning text-white">
+              <h5 class="card-title mb-0">
+                <i class="fas fa-shield-alt me-2"></i>セキュリティガイドライン
+              </h5>
+            </div>
+            <div class="card-body">
+              <!-- Django固有のセキュリティ -->
+              <div class="mb-3">
+                <h6 class="text-warning">
+                  <i class="fab fa-python me-2"></i>Django
+                </h6>
+                <ul class="list-unstyled">
+                  <li class="mb-2">
+                    <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                    <strong>CSRF保護:</strong> 送信時にCSRFトークンを送信
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                    <strong>SQLインジェクション:</strong> ORMを使用、生SQLは避ける
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                    <strong>XSS対策:</strong> テンプレートで&#123;&#123; &#125;&#125;を使用
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                    <strong>認証:</strong> <div>adminページでグループを作成し、グループごとに権限を設定する。</div>
+                    <div>サイドバーでは、if 'management_room_user' in groupsのような形式で、グループによって表示を切り替える。</div>
+                  </li>
+                  <li class="mb-2">
+                    <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                    <strong>入力検証:</strong> 入力値の検証は必ずサーバーサイドで実施する(できるだけクライアントサイドと両方で実施)。
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 参考リンク -->
+      <div class="row mt-4">
+        <div class="col-12">
+          <div class="card border-0 shadow-sm">
+            <div class="card-header bg-light">
+              <h6 class="mb-0">
+                <i class="fas fa-link me-2"></i>参考リンク
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div class="col-md-4">
+                  <a href="https://docs.djangoproject.com/ja/5.2/" target="_blank" class="text-decoration-none">
+                    <i class="fas fa-external-link-alt me-2"></i>Django公式ドキュメント
+                  </a>
+                </div>
+                <div class="col-md-4">
+                  <a href="https://pep8-ja.readthedocs.io/ja/latest/" target="_blank" class="text-decoration-none">
+                    <i class="fas fa-external-link-alt me-2"></i>Python PEP 8
+                  </a>
+                </div>
+                <div class="col-md-4">
+                  <a href="https://guides.github.com/introduction/flow/" target="_blank" class="text-decoration-none">
+                    <i class="fas fa-external-link-alt me-2"></i>GitHub Flow
+                  </a>
+                </div>
+              </div>
+              <div class="row mt-3">
+                <div class="col-md-4">
+                  <a href="https://developer.mozilla.org/ja/docs/Web/JavaScript" target="_blank" class="text-decoration-none">
+                    <i class="fas fa-external-link-alt me-2"></i>JavaScript MDN
+                  </a>
+                </div>
+                <div class="col-md-4">
+                  <a href="https://getbootstrap.com/docs/5.3/" target="_blank" class="text-decoration-none">
+                    <i class="fas fa-external-link-alt me-2"></i>Bootstrap 5
+                  </a>
+                </div>
+                <div class="col-md-4">
+                  <a href="https://htmx.org/docs/" target="_blank" class="text-decoration-none">
+                    <i class="fas fa-external-link-alt me-2"></i>HTMX ドキュメント
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.bg-gradient-primary {
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+}
+
+.bg-gradient-success {
+  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+}
+
+.bg-gradient-info {
+  background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%);
+}
+
+.bg-gradient-warning {
+  background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+}
+
+.card {
+  transition: transform 0.2s ease-in-out;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+}
+
+.badge {
+  font-size: 0.75rem;
+}
+
+.text-muted {
+  color: #6c757d !important;
+}
+</style>

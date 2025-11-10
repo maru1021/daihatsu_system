@@ -1,0 +1,193 @@
+{% load static %}
+<!-- CSRF Token -->
+<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}" />
+
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white">
+          <h5 class="card-title mb-0">
+            <i class="fas fa-database me-2"></i>
+            AIチャット君1号
+          </h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-12">
+              <div class="form-group mb-3">
+                <label for="naturalLanguageQuery" class="form-label fw-bold">
+                  <i class="fas fa-search me-1"></i>質問内容
+                </label>
+                <textarea
+                  id="naturalLanguageQuery"
+                  class="form-control form-control-lg"
+                  rows="3"
+                  placeholder="例: ライン一覧を教えてください"
+                  style="resize: none"
+                ></textarea>
+              </div>
+
+              <div class="d-flex gap-2 mb-3">
+                <button id="executeQuery" class="btn btn-primary btn-lg">
+                  <i class="fas fa-search me-2"></i>
+                  質問する
+                </button>
+
+                <button id="clearResults" class="btn btn-outline-secondary">
+                  <i class="fas fa-trash me-1"></i>
+                  クリア
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="row mt-4">
+            <div class="col-12">
+              <div id="queryResult" style="display: none">
+                <div class="card border-success">
+                  <div class="card-header bg-success text-white">
+                    <h6 class="mb-0">
+                      <i class="fas fa-table me-1"></i>
+                      最新の解答
+                    </h6>
+                  </div>
+                  <div class="card-body">
+                    <div id="resultInfo" class="mb-3"></div>
+                    <div id="resultTable"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .card {
+    border-radius: 15px;
+    border: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  .card-header {
+    border-radius: 15px 15px 0 0 !important;
+    border: none;
+  }
+
+  .form-control {
+    border-radius: 10px;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+  }
+
+  .form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+  }
+
+  .btn {
+    border-radius: 10px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+  }
+
+  .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  }
+
+  .table {
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .table th {
+    background-color: #f8f9fa;
+    border: none;
+    font-weight: 600;
+    color: #495057;
+  }
+
+  .table td {
+    border: none;
+    border-bottom: 1px solid #dee2e6;
+  }
+
+  .alert {
+    border-radius: 10px;
+    border: none;
+  }
+
+  .claude-response {
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 15px;
+  }
+
+  .claude-response h1,
+  .claude-response h2,
+  .claude-response h3 {
+    color: #495057;
+    margin-top: 20px;
+    margin-bottom: 10px;
+  }
+
+  .claude-response p {
+    margin-bottom: 15px;
+    line-height: 1.6;
+    color: #212529;
+  }
+
+  .claude-response code {
+    background-color: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+  }
+
+  .claude-response pre {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 15px;
+    margin: 15px 0;
+    overflow-x: auto;
+  }
+
+  .claude-response pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .claude-response ul {
+    margin-bottom: 15px;
+    padding-left: 20px;
+  }
+
+  .claude-response li {
+    margin-bottom: 5px;
+  }
+
+  .claude-response strong {
+    color: #495057;
+  }
+
+  .claude-response em {
+    color: #6c757d;
+  }
+</style>
+
+<!-- AI Query機能用のJavaScriptファイルを読み込み -->
+<script src="{% static 'js/ai_query.js' %}?v={{ CACHE_BUSTER }}"></script>
+
+<script>
+  // AI QueryのURLを設定
+  window.AI_QUERY_URL = '{% url "ai_query" %}';
+</script>

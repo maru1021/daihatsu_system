@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://user:password@localhost:5432/db"
+      ],
+      "alwaysAllow": ["query"]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ],
+      "alwaysAllow": ["read_file", "write_file", "create_directory", "list_directory"]
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    }
+  },
+  "tools": {
+    "alwaysAllow": ["python manage.py shell:*", "python manage.py shell -c *"]
+  }
+}

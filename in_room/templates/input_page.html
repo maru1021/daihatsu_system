@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>入退室管理</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            text-align: center;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .button-group {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+        .btn {
+            padding: 15px 30px;
+            font-size: 18px;
+            border: 3px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 120px;
+            font-weight: 600;
+            position: relative;
+            outline: none;
+            user-select: none;
+        }
+        .btn-enter {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .btn-enter:hover:not(.active) {
+            background-color: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
+        }
+        .btn-exit {
+            background-color: #f44336;
+            color: white;
+        }
+        .btn-exit:hover:not(.active) {
+            background-color: #da190b;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
+        }
+        .btn.active {
+            transform: scale(1.05);
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.8), 0 0 20px rgba(0, 0, 0, 0.3);
+            border-color: #ffffff;
+            z-index: 10;
+        }
+        .btn-enter.active {
+            background-color: #2e7d32;
+            border-color: #ffffff;
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9), 0 0 20px rgba(76, 175, 80, 0.5);
+        }
+        .btn-exit.active {
+            background-color: #c62828;
+            border-color: #ffffff;
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9), 0 0 20px rgba(244, 67, 54, 0.5);
+        }
+        .btn:not(.active) {
+            opacity: 0.7;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .employee-input {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            display: block;
+        }
+        .employee-input input {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            width: 200px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>入退室管理</h1>
+        <div class="button-group">
+            <button id="enter-btn" class="btn btn-enter" tabindex="-1" onmousedown="selectAction('enter', 'enterBtn'); return false;">入室</button>
+            <button id="exit-btn" class="btn btn-exit" tabindex="-1" onmousedown="selectAction('exit', 'exitBtn'); return false;">退室</button>
+        </div>
+
+        <div id="employee-input" class="employee-input">
+            <input type="text" id="card-no" maxlength="5" autofocus>
+        </div>
+
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        // DOM要素をキャッシュ
+        const elements = {
+            cardNoInput: document.getElementById('card-no'),
+            enterBtn: document.getElementById('enter-btn'),
+            exitBtn: document.getElementById('exit-btn'),
+            statusDiv: document.getElementById('status')
+        };
+
+        let currentAction = 'enter';
+
+        function selectAction(action, activeBtn) {
+            currentAction = action;
+
+            // すべてのボタンのアクティブ状態をリセット
+            elements.enterBtn.classList.remove('active');
+            elements.exitBtn.classList.remove('active');
+
+            // 選択されたボタンをアクティブに
+            elements[activeBtn].classList.add('active');
+        }
+
+        function submitEntry() {
+            const cardNo = elements.cardNoInput.value.trim();
+
+            recordEntry(currentAction, cardNo);
+        }
+
+        // メッセージの表示
+        function showStatus(className, message, duration = 3000) {
+            elements.statusDiv.className = `status ${className}`;
+            elements.statusDiv.textContent = message;
+            elements.statusDiv.style.display = 'block';
+
+            setTimeout(() => {
+                elements.statusDiv.style.display = 'none';
+            }, duration);
+        }
+
+        // 入退室記録の送信
+        function recordEntry(action, cardNo) {
+            fetch('/in_room/record-entry/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({
+                    action: action,
+                    card_no: cardNo,
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => {
+                return response.json().then(data => ({
+                    ok: response.ok,
+                    status: response.status,
+                    data: data
+                }));
+            })
+            .then(result => {
+                if (result.ok) {
+                    showStatus('success', result.data.message);
+                    elements.cardNoInput.value = '';
+                } else {
+                    showStatus('error', result.data.message || 'エラーが発生しました');
+                    elements.cardNoInput.value = '';
+                }
+            })
+            .catch(error => {
+                showStatus('error', `ネットワークエラーが発生しました: ${error.message}`, 5000);
+                elements.cardNoInput.value = '';
+            });
+        }
+
+        // 入力が完了したら即座に送信
+        elements.cardNoInput.addEventListener('input', function(e) {
+            const cardNo = e.target.value.trim();
+            if (cardNo.length === 5) {
+                recordEntry(currentAction, cardNo);
+            }
+        });
+
+        // ページ読み込み時の初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            selectAction('enter', 'enterBtn'); // 入室をデフォルトで選択
+
+            // 常にカード番号入力欄にフォーカスを維持
+            maintainFocus();
+        });
+
+        // フォーカスが外れた時に即座に戻す
+        function maintainFocus() {
+            document.addEventListener('focusout', function(e) {
+                if (e.target === elements.cardNoInput) {
+                    setTimeout(() => {
+                        if (document.activeElement !== elements.cardNoInput) {
+                            elements.cardNoInput.focus();
+                        }
+                    }, 10);
+                }
+            });
+
+            // 他の要素がフォーカスを受け取った時に強制的に戻す
+            document.addEventListener('focusin', function(e) {
+                if (e.target !== elements.cardNoInput) {
+                    e.preventDefault();
+                    elements.cardNoInput.focus();
+                }
+            });
+
+            // 定期的にフォーカスをチェック
+            setInterval(() => {
+                if (document.activeElement !== elements.cardNoInput) {
+                    elements.cardNoInput.focus();
+                }
+            }, 100);
+        }
+
+        // CSRFトークンの取得用の関数
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>アカウントロック - ダイハツ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .animate-pulse-slow {
+            animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .shadow-glow {
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen">
+    <div class="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+        <!-- 背景装飾 -->
+        <div class="absolute inset-0 overflow-hidden">
+            <div class="absolute -top-40 -right-40 w-80 h-80 bg-red-400 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse-slow"></div>
+            <div class="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-400 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse-slow" style="animation-delay: 1s;"></div>
+            <div class="absolute top-40 left-40 w-80 h-80 bg-pink-400 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse-slow" style="animation-delay: 2s;"></div>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <div class="relative z-10 max-w-lg w-full">
+            <div class="glass-effect rounded-3xl shadow-2xl p-6 shadow-glow">
+                <!-- ヘッダー -->
+                <div class="text-center mb-4">
+                    <div class="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-3 shadow-lg">
+                        <i class="fas fa-shield-alt text-2xl text-red-600"></i>
+                    </div>
+                    <h1 class="text-2xl font-bold text-gray-1000 mb-2">アカウントロック</h1>
+                    <p class="text-red-600 font-medium text-base">セキュリティ保護のため一時的にロックされています</p>
+                </div>
+
+                <!-- 警告カード -->
+                <div class="bg-gradient-to-r from-red-50 to-red-100 border-l-4 border-red-500 p-4 mb-4 rounded-r-xl">
+                    <div class="flex items-start">
+                        <i class="fas fa-exclamation-triangle text-red-500 text-lg mt-0.5 mr-2"></i>
+                        <div>
+                            <h3 class="text-base font-semibold text-red-800 mb-1">ロック理由</h3>
+                            <div class="text-sm text-red-700 space-y-0.5">
+                                <div>・10回連続でログイン失敗</div>
+                                <div>・セキュリティ上問題のあるアクセス</div>
+                                <div>上記のいずれかが検出されましたので、セキュリティ保護機能が作動しました。</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 対処法 -->
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 mb-4">
+                    <ul class="space-y-2">
+                        <li class="flex items-start">
+                            <i class="fas fa-check-circle text-green-500 mt-0.5 mr-2 text-sm"></i>
+                            <span class="text-sm text-blue-700">10分間後に再度ログインしてください</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check-circle text-green-500 mt-0.5 mr-2 text-sm"></i>
+                            <span class="text-sm text-blue-700">パスワードを忘れた場合は管理者にお問い合わせください</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- アクションボタン -->
+                <div class="space-y-3">
+                    <a href="/auth/login"
+                       class="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl flex items-center justify-center group">
+                        <i class="fas fa-arrow-left mr-2 group-hover:-translate-x-1 transition-transform"></i>
+                        ログインページに戻る
+                    </a>
+                </div>
+
+                <!-- セキュリティメッセージ -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <div class="text-center">
+                        <i class="fas fa-shield-alt text-gray-400 text-base mb-1"></i>
+                        <p class="text-xs text-gray-500 leading-relaxed">
+                            この機能は不正アクセスからアカウントを保護するための<br>
+                            <span class="font-semibold">セキュリティ対策</span>です
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

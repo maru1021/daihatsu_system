@@ -1,0 +1,4 @@
+<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+
+<input type="hidden" id="currentPageNumber" value="{{ data.number|default:'1' }}">
+<input type="hidden" id="currentSearchQuery" value="{{ search_query|default:'' }}">

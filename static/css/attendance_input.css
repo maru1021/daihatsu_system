@@ -1,0 +1,491 @@
+/* 勤怠入力ページ専用CSS */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.container {
+    max-width: 1400px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.98);
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+.main-form-layout {
+    display: grid;
+    grid-template-columns: 0.8fr 2.2fr;
+    gap: 20px;
+    margin-top: 15px;
+}
+
+.header {
+    text-align: left;
+    margin-bottom: 20px;
+}
+
+.header h1 {
+    color: #2c3e50;
+    margin: 0;
+    font-size: 1.8rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.form-section {
+    margin-bottom: 15px;
+    padding: 18px;
+    border: none;
+    border-radius: 15px;
+    background: linear-gradient(145deg, #ffffff, #f0f0f0);
+    box-shadow:
+        8px 8px 16px rgba(163, 177, 198, 0.4),
+        -8px -8px 16px rgba(255, 255, 255, 0.8);
+    transition: all 0.3s ease;
+    animation: fadeInUp 0.6s ease-out;
+}
+
+.form-section:hover {
+    transform: translateY(-2px);
+    box-shadow:
+        12px 12px 20px rgba(163, 177, 198, 0.5),
+        -12px -12px 20px rgba(255, 255, 255, 0.9);
+}
+
+.form-section:nth-child(2) { animation-delay: 0.1s; }
+.form-section:nth-child(3) { animation-delay: 0.2s; }
+
+h3 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: #2c3e50;
+    font-weight: 600;
+    font-size: 1.3rem;
+    border-bottom: 2px solid #e8ecf0;
+    padding-bottom: 10px;
+}
+
+.form-row {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.form-group {
+    flex: 1;
+    min-width: 200px;
+}
+
+.form-group.small {
+    flex: 0 0 150px;
+}
+
+.form-group.large {
+    flex: 2;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #34495e;
+    font-size: 0.9rem;
+    letter-spacing: 0.5px;
+}
+
+.required {
+    color: #e74c3c !important;
+    font-weight: 600;
+}
+
+/* フォーム要素の共通スタイル */
+input, select, textarea {
+    width: 100%;
+    padding: 10px 14px;
+    border: 2px solid #e8ecf0;
+    border-radius: 10px;
+    font-size: 14px;
+    box-sizing: border-box;
+    transition: all 0.3s ease;
+    background: rgba(255, 255, 255, 0.8);
+    height: 38px;
+}
+
+input[type="checkbox"] {
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    border-radius: 3px;
+    transform: scale(1.2);
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    background: rgba(255, 255, 255, 1);
+    transform: translateY(-1px);
+}
+
+input:hover, select:hover, textarea:hover {
+    border-color: #c3cfe2;
+}
+
+.time-input {
+    cursor: pointer;
+}
+
+/* Select2のカスタマイズ */
+.select2-container .select2-selection--single {
+    height: 38px !important;
+    border: 2px solid #e8ecf0 !important;
+    border-radius: 10px !important;
+    background: rgba(255, 255, 255, 0.8) !important;
+}
+
+.select2-container .select2-selection--single .select2-selection__rendered {
+    line-height: 34px !important;
+    padding-left: 14px !important;
+    font-size: 14px !important;
+}
+
+.select2-container .select2-selection--single .select2-selection__arrow {
+    height: 34px !important;
+    right: 14px !important;
+}
+
+.select2-container--focus .select2-selection--single,
+.select2-container--open .select2-selection--single {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+}
+
+/* タスクグリッドレイアウト */
+.tasks-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.task-item-grid {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.task-select {
+    flex: 3;
+    min-width: 120px;
+}
+
+.task-hours {
+    flex: 1;
+    min-width: 60px;
+}
+
+.task-overtime {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 50px;
+}
+
+.task-number {
+    font-weight: bold;
+    color: #007bff;
+    font-size: 14px;
+    margin-bottom: 5px;
+}
+
+/* ステータスメッセージ */
+.status-message {
+    padding: 15px 20px;
+    margin: 20px 0;
+    border-radius: 12px;
+    display: none;
+    font-weight: 500;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.status-success {
+    background: linear-gradient(135deg, #d4edda, #c3e6cb);
+    color: #155724;
+    border: none;
+}
+
+.status-error {
+    background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+    color: #721c24;
+    border: none;
+}
+
+/* アニメーション */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* レスポンシブデザイン */
+@media (max-width: 1200px) {
+    .main-form-layout {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .container {
+        max-width: 100%;
+        margin: 10px;
+        padding: 20px;
+    }
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 10px;
+        align-items: flex-start;
+    }
+
+    .container {
+        padding: 20px 15px;
+        margin: 0;
+        border-radius: 10px;
+    }
+
+    .header h1 {
+        font-size: 1.6rem;
+        text-align: center;
+    }
+
+    .form-row {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .form-group {
+        min-width: auto;
+    }
+
+    .form-group[style*="display: flex"] {
+        flex-direction: column !important;
+        gap: 15px !important;
+    }
+
+    .tasks-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .task-item-grid {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.6);
+        border-radius: 8px;
+        border: 1px solid #e8ecf0;
+    }
+
+    .task-select, .task-hours, .task-overtime {
+        flex: none;
+        min-width: auto;
+    }
+
+    .task-overtime {
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+    }
+
+    h3 {
+        font-size: 1.2rem;
+        margin-bottom: 15px;
+    }
+
+    /* ボタンのサイズ調整 */
+    .btn {
+        padding: 12px 20px;
+        font-size: 16px;
+    }
+
+    /* フォーム要素のタッチ対応 */
+    input, select, textarea {
+        min-height: 44px;
+        font-size: 16px; /* iOS Safari zoom prevention */
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 15px 10px;
+    }
+
+    .header h1 {
+        font-size: 1.4rem;
+    }
+
+    .task-item-grid {
+        padding: 10px;
+    }
+
+    .tasks-grid {
+        gap: 10px;
+    }
+
+    h3 {
+        font-size: 1.1rem;
+    }
+}
+
+/* タッチデバイス用の改善 */
+@media (hover: none) and (pointer: coarse) {
+    .form-section:hover {
+        transform: none;
+        box-shadow:
+            8px 8px 16px rgba(163, 177, 198, 0.4),
+            -8px -8px 16px rgba(255, 255, 255, 0.8);
+    }
+
+    input:hover, select:hover, textarea:hover {
+        border-color: #e8ecf0;
+    }
+
+    .btn {
+        min-height: 44px;
+    }
+}
+
+/* ユーティリティクラス */
+.production-item {
+    background-color: white;
+    border: 1px solid #ddd;
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+}
+
+.task-item {
+    background-color: white;
+    border: 1px solid #ddd;
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+}
+
+.remove-btn {
+    float: right;
+    margin-top: -5px;
+}
+
+/* Monthly overtime table header styling */
+.monthly-overtime-header {
+    background-color: #17a2b8 !important;
+    color: white !important;
+}
+
+/* Attendance display table styling */
+.support-edit-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.support-edit-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr auto auto;
+    gap: 5px;
+    align-items: center;
+    padding: 3px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+.support-edit-row select,
+.support-edit-row input {
+    font-size: 0.8rem;
+    padding: 2px 4px;
+}
+
+.support-edit-row .form-check {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.support-edit-row .form-check-input {
+    margin: 0;
+}
+
+.table-hover tbody tr:hover {
+    background-color: transparent !important;
+}
+
+.table tbody tr,
+.table-striped tbody tr:nth-of-type(odd),
+.table-striped tbody tr:nth-of-type(even) {
+    background-color: #ffffff !important;
+    background-image: none !important;
+}
+
+.table tbody tr td,
+.table tbody tr th,
+.table-striped tbody tr:nth-of-type(odd) td,
+.table-striped tbody tr:nth-of-type(even) td {
+    background-color: #ffffff !important;
+    background-image: none !important;
+}
+
+/* Table responsive with horizontal scroll */
+.table-responsive {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent table from expanding beyond container */
+.table {
+    min-width: 100%;
+    white-space: nowrap;
+}
+
+/* Fixed column widths for edit mode */
+.table th, .table td {
+    min-width: 80px;
+    max-width: 150px;
+    padding: 8px;
+}
+
+/* Employee name column - wider and sticky */
+.table th:first-child, .table td:first-child {
+    min-width: 120px;
+    position: sticky;
+    left: 0;
+    background-color: #ffffff !important;
+    z-index: 10;
+}
+
+/* Edit mode input sizing */
+.edit-mode input, .edit-mode select {
+    width: 100% !important;
+    min-width: 60px;
+    max-width: 100px;
+}

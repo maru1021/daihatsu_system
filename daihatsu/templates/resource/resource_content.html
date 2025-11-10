@@ -1,0 +1,20 @@
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">リソースモニター</h2>
+
+            <!-- 最新のリソース状況 -->
+            {% include 'resource/latest_resources.html' %}
+
+            <!-- グラフ表示エリア -->
+            <div class="row">
+                <div class="col-md-6">
+                    {% include "components/chart/chartjs.html" with chart_id="resourceChartRealTime" chart_type="line" width=500 height=300 reload_url="/resource/data/real-time" reload_interval=60000 chart_title="使用率(1時間)" horizontal_title="時間" vertical_title="使用率(%)"  vertical_labels="CPU使用率(%),メモリ使用率(%),ディスク使用率(%)" vertical_unit="%" %}
+                </div>
+                <div class="col-md-6">
+                    {% include "components/chart/chartjs.html" with chart_id="resourceChartHourly" chart_type="line" width=500 height=300 reload_url="/resource/data/hourly" reload_interval=3600000 chart_title="使用率(1日)" horizontal_title="時間" vertical_title="使用率(%)"  vertical_labels="CPU使用率(%),メモリ使用率(%),ディスク使用率(%)" vertical_unit="%" %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

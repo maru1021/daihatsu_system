@@ -1,0 +1,136 @@
+{% if table_data %}
+    <div id="TableContainer">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th class="fw-semibold">社員名</th>
+                        <th class="fw-semibold">所属ライン</th>
+                        <th class="fw-semibold">区分</th>
+                        <th class="fw-semibold">計</th>
+                        <th class="fw-semibold">稼働時間</th>
+                        {% for attendance_select in attendance_selects %}
+                        <th class="fw-semibold">{{ attendance_select.name }}</th>
+                        {% endfor %}
+                        <th class="fw-semibold">応援ライン</th>
+                        <th class="fw-semibold">応援時間</th>
+                        {% if is_admin %}
+                        <th class="operation-column fw-semibold">操作</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in table_data %}
+                    <!-- 通常行 -->
+                    <tr data-record-id="{{ row.id }}" class="normal-row">
+                        <td rowspan="2" class="align-middle">{{ row.employee_name }}</td>
+                        <td rowspan="2" class="align-middle">{{ row.employee_line }}</td>
+                        <td>通常</td>
+                        <td class="total-cell normal-total" data-record-id="{{ row.id }}">{{ row.normal_total }}</td>
+                        <td class="editable-cell" data-field="own_line_operation_hours">
+                            <span class="view-mode">{{ row.own_line_operation_hours }}</span>
+                            <input type="number" class="form-control form-control-sm edit-mode d-none" value="{{ row.own_line_operation_hours }}" step="0.5" min="0" max="24">
+                        </td>
+                        {% for task_column in row.normal_task_columns %}
+                        <td class="editable-cell task-cell" data-field="normal_task_{{ forloop.counter0 }}">
+                            <span class="view-mode">{{ task_column }}</span>
+                            <input type="text" class="form-control form-control-sm edit-mode d-none" value="{{ task_column }}" placeholder="時間">
+                        </td>
+                        {% endfor %}
+                        <td class="editable-cell" data-field="normal_supports">
+                            <div class="view-mode">
+                                {% for line in row.normal_support_lines %}
+                                    {{ line }}{% if not forloop.last %}<br>{% endif %}
+                                {% empty %}
+                                    -
+                                {% endfor %}
+                            </div>
+                            <div class="edit-mode d-none support-edit-container">
+                                <div id="normal-support-edit-{{ row.id }}" class="support-edit-grid">
+                                    <!-- 動的に生成される応援編集フィールド -->
+                                </div>
+                                <div class="mt-1">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSupportRow({{ row.id }}, 'normal')">
+                                        <i class="fas fa-plus"></i> 応援追加
+                                    </button>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="editable-cell" data-field="normal_support_hours">
+                            <div class="view-mode">
+                                {% for hours in row.normal_support_hours %}
+                                    {{ hours }}{% if not forloop.last %}<br>{% endif %}
+                                {% empty %}
+                                    -
+                                {% endfor %}
+                            </div>
+                        </td>
+                        {% if is_admin %}
+                        <td rowspan="2" class="align-middle operation-column">
+                            <div class="btn-group" role="group">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-danger delete-item"
+                                        data-item-id="{{ row.id }}"
+                                        data-item-name="{{ row.employee_name }}"
+                                        data-delete-url="{{ row.delete_url }}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    <!-- 残業行 -->
+                    <tr data-record-id="{{ row.id }}" class="overtime-row">
+                        <td>残業</td>
+                        <td class="total-cell overtime-total" data-record-id="{{ row.id }}">{{ row.overtime_total }}</td>
+                        <td class="editable-cell" data-field="production_overtime">
+                            <span class="view-mode">{{ row.production_overtime }}</span>
+                            <input type="number" class="form-control form-control-sm edit-mode d-none" value="{{ row.production_overtime }}" step="0.5" min="0" max="24">
+                        </td>
+                        {% for task_column in row.overtime_task_columns %}
+                        <td class="editable-cell task-cell" data-field="overtime_task_{{ forloop.counter0 }}">
+                            <span class="view-mode">{{ task_column }}</span>
+                            <input type="text" class="form-control form-control-sm edit-mode d-none" value="{{ task_column }}" placeholder="時間">
+                        </td>
+                        {% endfor %}
+                        <td class="editable-cell" data-field="overtime_supports">
+                            <div class="view-mode">
+                                {% for line in row.overtime_support_lines %}
+                                    {{ line }}{% if not forloop.last %}<br>{% endif %}
+                                {% empty %}
+                                    -
+                                {% endfor %}
+                            </div>
+                            <div class="edit-mode d-none support-edit-container">
+                                <div id="overtime-support-edit-{{ row.id }}" class="support-edit-grid">
+                                    <!-- 動的に生成される応援編集フィールド -->
+                                </div>
+                                <div class="mt-1">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSupportRow({{ row.id }}, 'overtime')">
+                                        <i class="fas fa-plus"></i> 応援追加
+                                    </button>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="editable-cell" data-field="overtime_support_hours">
+                            <div class="view-mode">
+                                {% for hours in row.overtime_support_hours %}
+                                    {{ hours }}{% if not forloop.last %}<br>{% endif %}
+                                {% empty %}
+                                    -
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+        <h5 class="text-muted">勤怠データが見つかりません</h5>
+        <p class="text-muted">{{ selected_date|date:"Y年n月j日" }}のデータがまだ登録されていません</p>
+    </div>
+{% endif %}

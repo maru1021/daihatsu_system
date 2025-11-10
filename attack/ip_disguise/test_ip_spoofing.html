@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IP偽装テスト</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .test-button {
+            background: #dc2626; color: white; padding: 12px 24px;
+            border: none; border-radius: 6px; margin: 10px;
+            cursor: pointer; font-size: 16px;
+        }
+        .test-button:hover { background: #b91c1c; }
+        .result {
+            margin-top: 20px; padding: 20px;
+            border: 1px solid #ccc; border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔒 IP偽装検出システム テスト</h1>
+    <p>以下のボタンをクリックして、IP偽装エラーページを確認できます。</p>
+
+    <button class="test-button" onclick="testIPSpoofing('basic')">
+        基本的なIP偽装テスト
+    </button>
+
+    <button class="test-button" onclick="testIPSpoofing('advanced')">
+        高度なIP偽装テスト
+    </button>
+
+    <button class="test-button" onclick="testIPSpoofing('multiple')">
+        複数ヘッダー偽装テスト
+    </button>
+
+    <button class="test-button" onclick="testNormalAccess()">
+        正常アクセステスト（比較用）
+    </button>
+
+    <div id="result" class="result" style="display:none;">
+        <h3>テスト結果:</h3>
+        <div id="content"></div>
+    </div>
+
+    <script>
+        function testIPSpoofing(type) {
+            const resultDiv = document.getElementById('result');
+            const contentDiv = document.getElementById('content');
+
+            resultDiv.style.display = 'block';
+            contentDiv.innerHTML = '<p>新しいウィンドウでIP偽装テストを実行しています...</p>';
+
+            // curlコマンドを生成して表示
+            let curlCommand = '';
+            let description = '';
+
+            switch(type) {
+                case 'basic':
+                    curlCommand = 'curl -H "X-Forwarded-For: 8.8.8.8" -H "X-Real-IP: 1.1.1.1" http://127.0.0.1:8000/auth/login';
+                    description = 'ローカル接続での基本的なIP偽装（複数ヘッダー）';
+                    openTestWindow('8.8.8.8', '1.1.1.1');
+                    break;
+                case 'advanced':
+                    curlCommand = 'curl -H "X-Forwarded-For: 203.0.113.100" http://127.0.0.1:8000/auth/login';
+                    description = 'ローカル接続でのパブリックIP偽装';
+                    openTestWindow('203.0.113.100');
+                    break;
+                case 'multiple':
+                    curlCommand = 'curl -H "X-Forwarded-For: 8.8.8.8, 1.1.1.1" -H "X-Real-IP: 208.67.222.222" -H "Client-IP: 9.9.9.9" http://127.0.0.1:8000/auth/login';
+                    description = '複数の偽装ヘッダーを使用した高度な攻撃';
+                    openTestWindow('8.8.8.8, 1.1.1.1', '208.67.222.222', '9.9.9.9');
+                    break;
+            }
+
+            contentDiv.innerHTML = `
+                <div style="background: #f0f9ff; border: 1px solid #0ea5e9; border-radius: 6px; padding: 15px; margin: 10px 0;">
+                    <h4 style="color: #0c4a6e; margin-top: 0;">📊 テスト内容:</h4>
+                    <p><strong>${description}</strong></p>
+                    <p><strong>相当するcurlコマンド:</strong></p>
+                    <code style="background: #1e293b; color: #f1f5f9; padding: 8px; display: block; border-radius: 4px; font-size: 12px; word-break: break-all;">
+                        ${curlCommand}
+                    </code>
+                </div>
+                <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 15px; margin: 10px 0;">
+                    <h4 style="color: #92400e; margin-top: 0;">🔍 期待される結果:</h4>
+                    <p>✅ <strong>HTTP 403 Forbidden</strong> - IP偽装検出ページが表示される</p>
+                    <p>🎨 赤色グラデーションの専用エラーページ</p>
+                    <p>📝 「IP偽装検出 - ダイハツ」のタイトル</p>
+                </div>
+                <div style="background: #ecfdf5; border: 1px solid #10b981; border-radius: 6px; padding: 15px; margin: 10px 0;">
+                    <h4 style="color: #065f46; margin-top: 0;">💡 ブラウザ拡張機能での確認:</h4>
+                    <ol style="margin: 0;">
+                        <li><strong>ModHeader</strong> をインストール</li>
+                        <li>ヘッダーを追加: <code>X-Forwarded-For: 8.8.8.8</code></li>
+                        <li><a href="http://127.0.0.1:8000/auth/login" target="_blank" style="color: #dc2626; font-weight: bold;">http://127.0.0.1:8000/auth/login</a> にアクセス</li>
+                    </ol>
+                </div>
+            `;
+        }
+
+        function openTestWindow(xForwardedFor, xRealIP, clientIP) {
+            // 新しいウィンドウでテスト結果を表示するためのHTMLを生成
+            const testPageContent = `
+                <!DOCTYPE html>
+                <html lang="ja">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>IP偽装テスト結果</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 20px; background: #f8fafc; }
+                        .info { background: #dbeafe; padding: 15px; border-radius: 6px; margin: 10px 0; }
+                        .warning { background: #fef3c7; padding: 15px; border-radius: 6px; margin: 10px 0; }
+                    </style>
+                </head>
+                <body>
+                    <h1>🧪 IP偽装テスト実行中...</h1>
+                    <div class="info">
+                        <p><strong>テストパラメータ:</strong></p>
+                        <ul>
+                            ${xForwardedFor ? `<li>X-Forwarded-For: ${xForwardedFor}</li>` : ''}
+                            ${xRealIP ? `<li>X-Real-IP: ${xRealIP}</li>` : ''}
+                            ${clientIP ? `<li>Client-IP: ${clientIP}</li>` : ''}
+                        </ul>
+                    </div>
+                    <div class="warning">
+                        <p>⚠️ このウィンドウは参考用です。</p>
+                        <p>実際のテストは以下の方法で行ってください：</p>
+                        <ol>
+                            <li><strong>ModHeader</strong> 拡張機能をインストール</li>
+                            <li>上記のヘッダーを設定</li>
+                            <li><a href="http://127.0.0.1:8000/auth/login" target="_blank">http://127.0.0.1:8000/auth/login</a> にアクセス</li>
+                        </ol>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            const newWindow = window.open('', '_blank');
+            newWindow.document.write(testPageContent);
+            newWindow.document.close();
+        }
+
+        function testNormalAccess() {
+            const resultDiv = document.getElementById('result');
+            const contentDiv = document.getElementById('content');
+
+            resultDiv.style.display = 'block';
+
+            // 正常アクセステストは新しいウィンドウで直接開く
+            window.open('http://127.0.0.1:8000/auth/login', '_blank');
+
+            contentDiv.innerHTML = `
+                <div style="background: #ecfdf5; border: 1px solid #10b981; border-radius: 6px; padding: 15px; margin: 10px 0;">
+                    <h4 style="color: #065f46; margin-top: 0;">✅ 正常アクセステスト</h4>
+                    <p>新しいウィンドウでログインページを開きました。</p>
+                    <p><strong>期待される結果:</strong></p>
+                    <ul>
+                        <li>HTTP 200 OK</li>
+                        <li>通常のログインページが表示される</li>
+                        <li>「ログイン - 製造管理システム」のタイトル</li>
+                    </ul>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

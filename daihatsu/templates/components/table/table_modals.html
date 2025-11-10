@@ -1,0 +1,8 @@
+<!-- 新規追加モーダル -->
+{% include "components/modal/crud_modal.html" with modal_id="RegisterModal" title=title|add:"追加" form_id="RegisterForm" form_template=form_dir|add:"/register_form.html" submit_text="登録" %}
+
+<!-- 編集モーダル -->
+{% include "components/modal/crud_modal.html" with modal_id="EditModal" title=title|add:"編集" form_id="EditForm" form_template=form_dir|add:"/edit_form.html" submit_text="更新" %}
+
+<!-- 削除確認モーダル -->
+{% include "components/modal/delete_modal.html" with modal_id="DeleteModal" title=title|add:"削除の確認" confirm_button_text="削除" %}

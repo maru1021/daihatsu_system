@@ -1,0 +1,249 @@
+<div class="container-fluid">
+    <div class="row justify-content-center">
+        <div class="col-md-10 col-lg-8 port-test-form">
+            <div class="card shadow">
+                <div class="card-header bg-info text-white">
+                    <h4 class="card-title mb-0">
+                        <i class="fas fa-network-wired me-2"></i>
+                        ポートテスト
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <form id="portTestForm">
+                        <!-- メッセージ表示エリア -->
+                        <div id="form-messages" class="mb-3"></div>
+
+                        <!-- IPアドレス -->
+                        <div class="mb-3">
+                            <label for="id_ip_address" class="form-label">
+                                <i class="fas fa-globe me-1"></i>
+                                IPアドレス
+                                <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="id_ip_address" name="ip_address" placeholder="192.168.1.1" autofocus>
+                            <div class="invalid-feedback"></div>
+                        </div>
+
+                        <!-- ポート番号 -->
+                        <div class="mb-3">
+                            <label for="id_port" class="form-label">
+                                <i class="fas fa-door-open me-1"></i>
+                                ポート番号
+                                <span class="text-danger">*</span>
+                            </label>
+                            <input type="number" class="form-control" id="id_port" name="port" placeholder="80" min="1" max="65535">
+                            <div class="invalid-feedback"></div>
+                            <div class="form-text">
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    一般的なポート: HTTP(80), HTTPS(443), SSH(22), FTP(21), Telnet(23)
+                                </small>
+                            </div>
+                        </div>
+
+                        <!-- タイムアウト -->
+                        <div class="mb-4">
+                            <label for="id_timeout" class="form-label">
+                                <i class="fas fa-clock me-1"></i>
+                                タイムアウト（秒）
+                                <span class="text-danger">*</span>
+                            </label>
+                            <input type="number" class="form-control" id="id_timeout" name="timeout" value="5" min="1" max="120">
+                            <div class="invalid-feedback"></div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-info submit-button">
+                                <i class="fas fa-play me-2"></i>
+                                テスト実行
+                            </button>
+                            <a href="{% url 'home' %}" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left me-2"></i>
+                                戻る
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+window.portTestFormLoad = false;
+function initializePortTestForm() {
+    if (window.portTestFormLoad) return;
+
+    if (typeof $ === 'undefined' || !$('#portTestForm').length) {
+        setTimeout(initializePortTestForm, 50);
+        return;
+    }
+
+    // フォーム送信処理
+    $('#portTestForm').on('submit', function(e) {
+        e.preventDefault();
+
+        const form = this;
+        const url = "{% url 'port_test' %}";
+        const $messages = $('#form-messages');
+
+        // フロントエンドバリデーション実行
+        if (!validatePortTestForm()) {
+            return;
+        }
+
+        // バリデーション成功時のみ送信
+        submitForm(form, url, function(data) {
+            if (data.status === 'success') {
+                showTestResult($messages, data.result);
+            }
+        }, false).catch(function(error) {
+            if (error.response && error.data) {
+                showErrorMessage($messages, error.data);
+            } else {
+                showSystemError($messages);
+            }
+        });
+    });
+
+    window.portTestFormLoad = true;
+}
+
+function validatePortTestForm() {
+    let isValid = true;
+
+    // 全フィールドからis-invalidクラスを削除
+    $('#portTestForm .form-control').removeClass('is-invalid');
+
+    // IPアドレスのバリデーション
+    const ipAddress = $('#id_ip_address').val().trim();
+    const ipField = $('#id_ip_address');
+    const ipFeedback = ipField.next('.invalid-feedback');
+
+    if (!ipAddress) {
+        ipField.addClass('is-invalid');
+        ipFeedback.text('IPアドレスは必須です。');
+        isValid = false;
+    } else if (!isValidIpAddress(ipAddress)) {
+        ipField.addClass('is-invalid');
+        ipFeedback.text('有効なIPアドレスを入力してください。');
+        isValid = false;
+    }
+
+    // ポート番号のバリデーション
+    const port = parseInt($('#id_port').val());
+    const portField = $('#id_port');
+    const portFeedback = portField.next('.invalid-feedback');
+
+    if (!port) {
+        portField.addClass('is-invalid');
+        portFeedback.text('ポート番号は必須です。');
+        isValid = false;
+    } else if (port < 1 || port > 65535) {
+        portField.addClass('is-invalid');
+        portFeedback.text('ポート番号は1-65535の範囲で入力してください。');
+        isValid = false;
+    }
+
+    // タイムアウトのバリデーション
+    const timeout = parseInt($('#id_timeout').val());
+    const timeoutField = $('#id_timeout');
+    const timeoutFeedback = timeoutField.next('.invalid-feedback');
+
+    if (!timeout) {
+        timeoutField.addClass('is-invalid');
+        timeoutFeedback.text('タイムアウトは必須です。');
+        isValid = false;
+    } else if (timeout < 1 || timeout > 120) {
+        timeoutField.addClass('is-invalid');
+        timeoutFeedback.text('タイムアウトは1-120秒の範囲で入力してください。');
+        isValid = false;
+    }
+
+    return isValid;
+}
+
+function isValidIpAddress(ip) {
+    const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    return ipRegex.test(ip);
+}
+
+function showTestResult($container, result) {
+    const statusIcon = result.success ? 'check-circle text-success' : 'times-circle text-danger';
+    const statusText = result.success ? '成功' : '失敗';
+
+    let resultHtml = `
+        <div class="alert alert-${result.success ? 'success' : 'danger'} alert-dismissible fade show" role="alert">
+            <h6><i class="fas fa-${statusIcon} me-2"></i>テスト結果: ${statusText}</h6>
+            <hr>
+            <div class="row">
+                <div class="col-md-6">
+                    <strong>接続先:</strong> ${result.ip_address}:${result.port}<br>
+                    <strong>実行時刻:</strong> ${result.timestamp}
+                </div>
+                <div class="col-md-6">
+                    ${result.success ? `<strong>応答時間:</strong> ${result.connection_time}ms` : ''}
+                    ${result.error ? `<strong>エラー:</strong> ${result.error}` : ''}
+                </div>
+            </div>
+    `;
+
+    if (result.response) {
+        resultHtml += `
+            <hr>
+            <strong>レスポンス:</strong>
+            <pre class="bg-light p-2 mt-2 small">${result.response}</pre>
+        `;
+    }
+
+    resultHtml += `
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+
+    $container.html(resultHtml);
+}
+
+function showErrorMessage($container, response) {
+    let errorDetails = '';
+    if (response.error_details?.length > 0) {
+        errorDetails = '<ul class="mb-0 mt-2">' +
+                      response.error_details.map(error => `<li><small>${error}</small></li>`).join('') +
+                      '</ul>';
+    }
+
+    $container.html(`
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            ${response.message || 'エラーが発生しました。'}
+            ${errorDetails}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `);
+}
+
+function showSystemError($container) {
+    $container.html(`
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            システムエラーが発生しました。管理者にお問い合わせください。
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `);
+}
+
+if (!window.portTestFormLoad) {
+    initializePortTestForm();
+}
+</script>
+
+<style>
+.port-test-form {
+    .form-control { border-radius: 8px; }
+    .btn { border-radius: 8px; }
+    .card { border-radius: 12px; }
+    .card-header { border-radius: 12px 12px 0 0 !important; }
+    .alert { border-radius: 8px; }
+    .form-label i { color: #6c757d; }
+}
+</style>

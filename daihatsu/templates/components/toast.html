@@ -1,0 +1,19 @@
+<!-- トースト通知 -->
+<div class="toast-container position-fixed top-0 end-0 p-3">
+    <div id="successToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true">
+        <div class="toast-header bg-success bg-gradient text-white border-0">
+            <i class="fas fa-check-circle me-2"></i>
+            <strong class="me-auto">成功</strong>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body bg-white shadow-sm" id="toastMessage"></div>
+    </div>
+    <div id="errorToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true">
+        <div class="toast-header bg-danger bg-gradient text-white border-0">
+            <i class="fas fa-exclamation-circle me-2"></i>
+            <strong class="me-auto">エラー</strong>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body bg-white shadow-sm" id="errorMessage"></div>
+    </div>
+</div>

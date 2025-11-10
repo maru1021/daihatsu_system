@@ -1,0 +1,33 @@
+<!-- 新規追加時フォーム -->
+<div class="mb-3">
+  <label for="name" class="form-label">部署名 <span class="text-danger">*</span></label>
+  <input type="text" class="form-control" id="name" name="name" value="">
+</div>
+<div class="mb-3">
+  <label for="code" class="form-label">コード <span class="text-danger">*</span></label>
+  <input type="text" class="form-control" id="code" name="code" value="">
+</div>
+<div class="mb-3">
+  <label for="parent" class="form-label">親部署 <span class="text-danger"></span></label>
+  <select class="form-control select2" id="parent" name="parent">
+    <option value="">選択してください</option>
+    {% for department in departments %}
+      <option value="{{ department.id }}">{{ department.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="manager" class="form-label">部署長 <span class="text-danger"></span></label>
+  <select class="form-control select2" id="manager" name="manager">
+    <option value="">選択してください</option>
+    {% for employee in employees %}
+      <option value="{{ employee.id }}">{{ employee.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <div class="form-check">
+      <input type="checkbox" class="form-check-input" id="active" name="active" checked>
+      <label class="form-check-label" for="active">有効</label>
+  </div>
+</div>

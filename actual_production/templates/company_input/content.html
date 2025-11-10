@@ -1,0 +1,208 @@
+{% load static %}
+
+{% include "components/table/header.html" with page_title="Company入力用" %}
+
+<!-- フィルター section -->
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex align-items-center gap-3">
+            <div>
+                <label for="filter_date" class="form-label mb-1 fw-semibold">日付</label>
+                <div class="input-group" style="max-width: 200px;">
+                    <span class="input-group-text">
+                        <i class="fas fa-calendar"></i>
+                    </span>
+                    <input type="date" class="form-control" id="filter_date" value="{{ today }}">
+                </div>
+            </div>
+
+            <div>
+                <label for="filter_shift" class="form-label mb-1 fw-semibold">勤務区分</label>
+                <select class="form-control" id="filter_shift" style="width: 150px;">
+                    <option value="all">全て</option>
+                    <option value="day">日勤</option>
+                    <option value="night">夜勤</option>
+                </select>
+            </div>
+
+            <div>
+                <label for="filter_line" class="form-label mb-1 fw-semibold">
+                    <i class="fas fa-industry me-1"></i>ライン
+                </label>
+                <select class="form-control" id="filter_line" style="width: 200px;">
+                    <option value="">全てのライン</option>
+                    {% for line in lines %}
+                        <option value="{{ line.id }}">{{ line.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="align-self: end;">
+                <button type="button" class="btn btn-primary" onclick="loadAttendanceData()">
+                    <i class="fas fa-search me-1"></i>検索
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 結果表示エリア -->
+<div class="card" id="results-card" style="display: none;">
+    <div class="card-body">
+        <div class="count-info mb-3" id="count-info" style="display: none;"></div>
+
+        <div id="TableContainer" style="display: none;">
+            <div class="table-responsive">
+                <table class="table table-hover" id="attendance-table">
+                    <thead>
+                        <tr>
+                            <th class="fw-semibold">従業員番号</th>
+                            <th class="fw-semibold">社員名</th>
+                            <th class="fw-semibold">出勤時間</th>
+                            <th class="fw-semibold">退勤時間</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-tbody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="text-center py-5" id="no-data" style="display: none;">
+            <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted">勤怠データが見つかりません</h5>
+            <p class="text-muted" id="no-data-message">該当するデータがまだ登録されていません</p>
+        </div>
+
+        <div class="text-center py-5" id="loading" style="display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">読み込み中...</span>
+            </div>
+            <p class="mt-3 mb-0">データを読み込み中...</p>
+        </div>
+
+        <div class="alert alert-danger" id="error-message" style="display: none;">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <span id="error-text"></span>
+        </div>
+    </div>
+</div>
+
+<script>
+// ページ読み込み時の初期化（検索ボタンを押すまでテーブルは表示しない）
+document.addEventListener('DOMContentLoaded', function() {
+    // 初期状態では何も表示しない
+});
+
+// 勤怠データを読み込む
+async function loadAttendanceData() {
+    const date = document.getElementById('filter_date').value;
+    const shiftType = document.getElementById('filter_shift').value;
+    const lineId = document.getElementById('filter_line').value;
+
+    if (!date) {
+        showError('日付を選択してください');
+        return;
+    }
+
+    document.getElementById('results-card').style.display = 'block';
+    showLoading(true);
+    hideError();
+    hideTable();
+    hideNoData();
+
+    try {
+        let url = `/actual_production/company-input/data/?date=${date}&shift_type=${shiftType}`;
+        if (lineId) {
+            url += `&line_id=${lineId}`;
+        }
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        showLoading(false);
+
+        if (data.status === 'success') {
+            if (data.data.length > 0) {
+                displayData(data.data, data.count);
+            } else {
+                showNoData();
+            }
+        } else {
+            showError(data.message || 'データの取得に失敗しました');
+        }
+    } catch (error) {
+        showLoading(false);
+        showError('通信エラーが発生しました: ' + error.message);
+    }
+}
+
+// データをテーブルに表示
+function displayData(data, count) {
+    const tbody = document.getElementById('attendance-tbody');
+    const countInfo = document.getElementById('count-info');
+
+    // テーブルをクリア
+    tbody.innerHTML = '';
+
+    // データを追加
+    data.forEach(record => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="align-middle">${record.employee_number}</td>
+            <td class="align-middle">${record.employee_name}</td>
+            <td class="align-middle">${record.start_time}</td>
+            <td class="align-middle">${record.end_time}</td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    // 件数情報を表示
+    countInfo.textContent = `${count}件のデータが見つかりました`;
+    showTable();
+}
+
+// 表示制御関数
+function showLoading(show) {
+    document.getElementById('loading').style.display = show ? 'block' : 'none';
+}
+
+function showTable() {
+    document.getElementById('results-card').style.display = 'block';
+    document.getElementById('TableContainer').style.display = 'block';
+    document.getElementById('count-info').style.display = 'block';
+}
+
+function hideTable() {
+    document.getElementById('TableContainer').style.display = 'none';
+    document.getElementById('count-info').style.display = 'none';
+}
+
+function showNoData() {
+    document.getElementById('results-card').style.display = 'block';
+    document.getElementById('no-data').style.display = 'block';
+}
+
+function hideNoData() {
+    document.getElementById('no-data').style.display = 'none';
+}
+
+function showError(message) {
+    document.getElementById('results-card').style.display = 'block';
+    const errorDiv = document.getElementById('error-message');
+    const errorText = document.getElementById('error-text');
+    errorText.textContent = message;
+    errorDiv.style.display = 'block';
+}
+
+function hideError() {
+    document.getElementById('error-message').style.display = 'none';
+}
+
+// Enterキーでも検索実行
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        loadAttendanceData();
+    }
+});
+</script>

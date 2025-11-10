@@ -1,0 +1,1088 @@
+{% include "components/table/header.html" with page_title="勤怠データ表示" %}
+
+{% if error_message %}
+<div class="alert alert-danger" role="alert">
+    <i class="fas fa-exclamation-triangle me-2"></i>
+    {{ error_message }}
+</div>
+{% endif %}
+
+<!-- 日付選択フィルター -->
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between">
+            <form method="get" class="d-flex flex-column gap-2">
+                <div class="d-flex align-items-center gap-3">
+                    <div>
+                        <label for="date" class="form-label mb-1 fw-semibold">日付</label>
+                        <div class="input-group" style="max-width: 200px;">
+                            <span class="input-group-text">
+                                <i class="fas fa-calendar"></i>
+                            </span>
+                            <input type="date"
+                                   class="form-control"
+                                   name="date"
+                                   id="date"
+                                   value="{{ date_str }}"
+                                   onchange="this.form.submit()">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="line_filter" class="form-label mb-1 fw-semibold">
+                            <i class="fas fa-industry me-1"></i>ライン
+                        </label>
+                        <div style="width: 200px;">
+                            <select class="form-control select2"
+                                    name="line_filter"
+                                    id="line_filter"
+                                    onchange="this.form.submit()"
+                                    data-width="100%">
+                                <option value="">すべて</option>
+                                {% for line in lines %}
+                                <option value="{{ line.id }}" {% if selected_line_id == line.id %}selected{% endif %}>{{ line.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            {% if is_admin and table_data %}
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary" id="edit-mode-toggle" onclick="toggleEditMode()">
+                    <i class="fas fa-edit me-1"></i>
+                    <span id="edit-mode-text">編集モード</span>
+                </button>
+                <button class="btn btn-success d-none" id="save-all-btn" onclick="saveAllChanges()">
+                    <i class="fas fa-save me-1"></i>
+                    すべて保存
+                </button>
+                <button class="btn btn-secondary d-none" id="cancel-edit-btn" onclick="cancelEditMode()">
+                    <i class="fas fa-times me-1"></i>
+                    キャンセル
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 残業累積カード -->
+<div class="card mb-3" id="overtime-summary-card">
+    <div class="card-body">
+        <h5 class="card-title">
+            <i class="fas fa-clock me-2"></i>
+            残業累積
+        </h5>
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm">
+                <thead>
+                    <tr>
+                        <th class="text-center text-dark fw-bold monthly-overtime-header"></th>
+                        {% for employee in overtime_summary_data %}
+                        <th class="text-center text-dark fw-bold monthly-overtime-header">{{ employee.name }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="fw-bold text-center align-middle">{{ selected_date|date:"n月" }}</td>
+                        {% for employee in overtime_summary_data %}
+                        <td class="text-center align-middle">
+                            <span class="badge {% if employee.monthly_overtime > 40 %}bg-danger text-white{% elif employee.monthly_overtime > 30 %}bg-warning text-dark{% else %}bg-success text-white{% endif %}">
+                                {{ employee.monthly_overtime }}h
+                            </span>
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    <tr>
+                        <td class="fw-bold text-center align-middle">45h超</td>
+                        {% for employee in overtime_summary_data %}
+                        <td class="text-center align-middle">
+                            <span class="badge {% if employee.over_45_count >= 3 %}bg-danger text-white{% elif employee.over_45_count >= 2 %}bg-warning text-dark{% else %}bg-secondary text-white{% endif %}">
+                                {{ employee.over_45_count }}回
+                            </span>
+                        </td>
+                        {% endfor %}
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div id="TableContainer">
+            {% include 'attendance_display/data_table.html' %}
+        </div>
+    </div>
+</div>
+
+{% if is_admin %}
+    {% include 'attendance_display/modals.html' %}
+{% endif %}
+
+{% include "components/table/hidden_field.html" %}
+
+<style>
+.support-edit-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 100%;
+    max-width: 100%;
+}
+
+.support-edit-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr auto auto;
+    gap: 5px;
+    align-items: center;
+    padding: 3px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.support-edit-row select,
+.support-edit-row input {
+    font-size: 0.8rem;
+    padding: 2px 4px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.support-edit-row .form-check {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.support-edit-row .form-check-input {
+    margin: 0;
+}
+
+.support-edit-row .btn {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    width: auto;
+    min-width: auto;
+}
+
+/* Bootstrapのデフォルトホバー効果を無効化 */
+.table-hover tbody tr:hover {
+    background-color: transparent !important;
+}
+
+/* 全ての行を強制的に白色に統一 */
+.table tbody tr,
+.table-striped tbody tr:nth-of-type(odd),
+.table-striped tbody tr:nth-of-type(even) {
+    background-color: #ffffff !important;
+    background-image: none !important;
+}
+
+.table tbody tr td,
+.table tbody tr th,
+.table-striped tbody tr:nth-of-type(odd) td,
+.table-striped tbody tr:nth-of-type(even) td {
+    background-color: #ffffff !important;
+    background-image: none !important;
+}
+
+/* Monthly overtime table header styling */
+.monthly-overtime-header {
+    background-color: #0d6efd !important; /* より濃い青色に変更 */
+    color: black !important; /* 黒文字に変更 */
+    min-width: 80px !important;
+    max-width: 100px !important;
+    width: 80px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Overtime summary table styling */
+#overtime-summary-card .table {
+    table-layout: fixed !important;
+    width: 100% !important;
+}
+
+#overtime-summary-card .table th:first-child {
+    width: 120px !important;
+    min-width: 120px !important;
+    max-width: 120px !important;
+}
+
+#overtime-summary-card .table th:not(:first-child) {
+    width: 80px !important;
+    min-width: 80px !important;
+    max-width: 80px !important;
+}
+
+#overtime-summary-card .table td {
+    text-align: center !important;
+    vertical-align: middle !important;
+    padding: 8px 4px !important;
+}
+
+/* Table responsive with horizontal scroll */
+.table-responsive {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent table from expanding beyond container */
+.table {
+    min-width: 100%;
+    white-space: nowrap;
+}
+
+/* Fixed column widths for edit mode */
+.table th, .table td {
+    min-width: 80px;
+    max-width: 150px;
+    padding: 8px;
+}
+
+/* Support column specific width */
+.table th:nth-last-child(2), .table td:nth-last-child(2) {
+    min-width: 200px;
+    max-width: 300px;
+}
+
+/* Employee name column - wider and sticky */
+.table th:first-child, .table td:first-child {
+    min-width: 120px;
+    position: sticky;
+    left: 0;
+    background-color: #ffffff !important;
+    z-index: 20;
+}
+
+/* Ensure rowspan employee name stays on top */
+.table td:first-child[rowspan] {
+    z-index: 25;
+}
+
+/* Edit mode input sizing */
+.edit-mode input, .edit-mode select {
+    width: 100% !important;
+    min-width: 60px;
+    max-width: 100px;
+}
+
+/* Support edit container layout */
+.support-edit-container .mt-1 {
+    display: flex !important;
+    gap: 10px !important;
+    align-items: center !important;
+    margin-top: 0.5rem !important;
+}
+
+.support-edit-container .btn {
+    flex-shrink: 0 !important;
+}
+
+/* Hide operation column in edit mode */
+.edit-mode-active .operation-column {
+    display: none !important;
+}
+
+/* Sticky table header */
+.table thead th {
+    position: sticky;
+    top: 0;
+    background-color: #ffffff !important; /* 白色に戻す */
+    z-index: 10;
+    border-bottom: 2px solid #dee2e6 !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    backdrop-filter: blur(5px); /* Add blur effect for better visibility */
+}
+
+/* Ensure proper z-index for sticky elements */
+.table th:first-child {
+    z-index: 30 !important; /* Employee name column needs higher z-index */
+}
+
+/* Handle table container for sticky header */
+#TableContainer .table-responsive {
+    max-height: 60vh; /* Limit main table height to enable sticky header */
+    overflow-y: auto;
+}
+
+/* For small screens, adjust the max height */
+@media (max-width: 768px) {
+    #TableContainer .table-responsive {
+        max-height: 50vh;
+    }
+}
+
+</style>
+
+<script>
+let isEditMode = false;
+let originalData = {};
+
+function toggleEditMode() {
+    isEditMode = !isEditMode;
+
+    if (isEditMode) {
+        enterEditMode();
+    } else {
+        exitEditMode();
+    }
+}
+
+function enterEditMode() {
+    // 元のデータを保存
+    saveOriginalData();
+
+    // テーブルに編集モードクラスを追加
+    const tableContainer = document.getElementById('TableContainer');
+    if (tableContainer) {
+        tableContainer.classList.add('edit-mode-active');
+    }
+
+    // 編集用の値を設定
+    document.querySelectorAll('.editable-cell').forEach(cell => {
+        const field = cell.dataset.field;
+        const editElement = cell.querySelector('.edit-mode');
+        const viewElement = cell.querySelector('.view-mode');
+
+        if (editElement && viewElement) {
+            const originalValue = viewElement.textContent.trim();
+
+            if (editElement.tagName === 'INPUT') {
+                if (field === 'own_line_operation_hours' || field === 'production_overtime') {
+                    // 自ライン稼働時間とライン残業はそのまま数値として設定
+                    editElement.value = originalValue;
+                } else if (field.startsWith('normal_task_') || field.startsWith('overtime_task_')) {
+                    // 業務内容はそのまま数値として設定
+                    if (originalValue === '-') {
+                        editElement.value = '';
+                    } else {
+                        editElement.value = originalValue;
+                    }
+                }
+            } else if (field === 'normal_supports' || field === 'overtime_supports') {
+                // 応援は専用の編集UI生成
+                initializeSupportEdit(cell, originalValue, field);
+            }
+        }
+    });
+
+    // UI切り替え
+    document.querySelectorAll('.view-mode').forEach(el => el.classList.add('d-none'));
+    document.querySelectorAll('.edit-mode').forEach(el => el.classList.remove('d-none'));
+
+    // ボタン切り替え
+    document.getElementById('edit-mode-toggle').classList.add('d-none');
+    document.getElementById('save-all-btn').classList.remove('d-none');
+    document.getElementById('cancel-edit-btn').classList.remove('d-none');
+
+    // テーブルの操作列を非表示
+    document.querySelectorAll('.delete-item').forEach(btn => btn.disabled = true);
+
+    // 合計更新リスナーを追加
+    addTotalUpdateListeners();
+}
+
+function exitEditMode() {
+    // テーブルから編集モードクラスを削除
+    const tableContainer = document.getElementById('TableContainer');
+    if (tableContainer) {
+        tableContainer.classList.remove('edit-mode-active');
+    }
+
+    // UI切り替え
+    document.querySelectorAll('.view-mode').forEach(el => el.classList.remove('d-none'));
+    document.querySelectorAll('.edit-mode').forEach(el => el.classList.add('d-none'));
+
+    // ボタン切り替え
+    document.getElementById('edit-mode-toggle').classList.remove('d-none');
+    document.getElementById('save-all-btn').classList.add('d-none');
+    document.getElementById('cancel-edit-btn').classList.add('d-none');
+
+    // テーブルの操作列を有効化
+    document.querySelectorAll('.delete-item').forEach(btn => btn.disabled = false);
+
+    // 編集モードテキストを更新（存在確認）
+    const editModeText = document.getElementById('edit-mode-text');
+    if (editModeText) {
+        editModeText.textContent = '編集モード';
+    }
+}
+
+function saveOriginalData() {
+    originalData = {};
+
+    // record-idでグループ化して処理する
+    const recordIds = [...new Set(Array.from(document.querySelectorAll('tr[data-record-id]')).map(row => row.dataset.recordId))];
+
+    recordIds.forEach(recordId => {
+        originalData[recordId] = {};
+
+        // 同じrecord-idを持つ全ての行から元データを収集
+        document.querySelectorAll(`tr[data-record-id="${recordId}"]`).forEach(row => {
+            row.querySelectorAll('.editable-cell').forEach(cell => {
+                const field = cell.dataset.field;
+                const viewElement = cell.querySelector('.view-mode');
+                if (viewElement) {
+                    const originalValue = viewElement.textContent.trim();
+                    originalData[recordId][field] = originalValue;
+                    console.log(`Saved original data - Record: ${recordId}, Field: ${field}, Value: "${originalValue}"`);
+                }
+            });
+        });
+    });
+}
+
+function cancelEditMode() {
+    // 元のデータに戻す
+    Object.keys(originalData).forEach(recordId => {
+        const row = document.querySelector(`tr[data-record-id="${recordId}"]`);
+        if (row) {
+            Object.keys(originalData[recordId]).forEach(field => {
+                const cell = row.querySelector(`.editable-cell[data-field="${field}"]`);
+                if (cell) {
+                    const editElement = cell.querySelector('.edit-mode');
+                    const originalValue = originalData[recordId][field];
+
+                    if (editElement.tagName === 'INPUT') {
+                        if (editElement.type === 'number') {
+                            editElement.value = originalValue.replace('h', '');
+                        } else {
+                            editElement.value = originalValue;
+                        }
+                    } else if (editElement.tagName === 'TEXTAREA') {
+                        editElement.value = originalValue.replace(/<br>/g, '\n');
+                    }
+                }
+            });
+        }
+    });
+
+    isEditMode = false;
+    exitEditMode();
+}
+
+function saveAllChanges() {
+    const changes = collectChanges();
+    console.log('Collected changes:', changes);
+
+    if (Object.keys(changes).length === 0) {
+        showToast('info', '変更がありません。');
+        return;
+    }
+
+    // サーバーに変更を送信
+    fetch('/actual_production/attendance-display/bulk-update/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({
+            changes: changes,
+            date: document.getElementById('date').value,
+            selected_line_id: document.getElementById('line_filter').value || null
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast('success', data.message);
+            console.log('Save successful, updating table...');
+
+            // 日付フィールドを更新
+            if (data.selected_date) {
+                document.getElementById('date').value = data.selected_date;
+            }
+
+            // 残業累積カードを更新
+            if (data.overtime_summary_data) {
+                updateOvertimeSummaryCard(data.overtime_summary_data, data.selected_date);
+            }
+
+            // JSONデータからテーブルを再構築
+            rebuildTableFromData(data.table_data, data.attendance_selects);
+
+            // 編集モードを終了
+            isEditMode = false;
+            exitEditMode();
+
+            // ホバー効果を再初期化
+            setTimeout(initializeEmployeeGroupHover, 100);
+            console.log('Table updated successfully');
+        } else {
+            showToast('error', data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('error', '保存中にエラーが発生しました。');
+    });
+}
+
+function collectChanges() {
+    const changes = {};
+
+    // record-idでグループ化して処理する
+    const recordIds = [...new Set(Array.from(document.querySelectorAll('tr[data-record-id]')).map(row => row.dataset.recordId))];
+
+    recordIds.forEach(recordId => {
+        const rowChanges = {};
+        let hasChanges = false;
+
+        // 同じrecord-idを持つ全ての行から変更を収集
+        document.querySelectorAll(`tr[data-record-id="${recordId}"]`).forEach(row => {
+            row.querySelectorAll('.editable-cell').forEach(cell => {
+                const field = cell.dataset.field;
+                const editElement = cell.querySelector('.edit-mode');
+                const viewElement = cell.querySelector('.view-mode');
+
+                if (editElement && viewElement) {
+                    let newValue = '';
+                    let originalValue = originalData[recordId][field] || '';
+
+                    if (field === 'normal_supports' || field === 'overtime_supports') {
+                        // 応援は専用の収集関数を使用
+                        console.log(`Processing support field: ${field} for record ${recordId}`);
+                        newValue = collectSupportChanges(cell);
+                        console.log(`Support newValue: "${newValue}", originalValue: "${originalValue}"`);
+                    } else if (editElement.tagName === 'INPUT') {
+                        newValue = editElement.value;
+                    } else if (editElement.tagName === 'TEXTAREA') {
+                        newValue = editElement.value.replace(/\n/g, '<br>');
+                    }
+
+                    if (newValue !== originalValue) {
+                        console.log(`Change detected - Field: ${field}, Original: "${originalValue}", New: "${newValue}"`);
+                        rowChanges[field] = newValue;
+                        hasChanges = true;
+                    }
+                }
+            });
+        });
+
+        if (hasChanges) {
+            changes[recordId] = rowChanges;
+        }
+    });
+
+    return changes;
+}
+
+// ライン情報をJavaScriptで利用できるようにする
+const linesData = [
+    {% for line in lines %}
+    {id: {{ line.id }}, name: '{{ line.name }}'},
+    {% endfor %}
+];
+
+function initializeSupportEdit(cell, originalValue, fieldType) {
+    const recordId = cell.closest('tr').dataset.recordId;
+    const supportType = fieldType === 'normal_supports' ? 'normal' : 'overtime';
+    const container = cell.querySelector('.support-edit-grid');
+
+    console.log('initializeSupportEdit called:', { originalValue, fieldType });
+
+    // 既存の内容をクリア
+    container.innerHTML = '';
+
+    // 既存の応援データをパース
+    if (originalValue && originalValue !== '-') {
+        // 応援ライン列と応援時間列から データを取得
+        const row = cell.closest('tr');
+        const lineCell = row.querySelector('[data-field="' + fieldType + '"]');
+        const hoursCell = row.querySelector('[data-field="' + fieldType.replace('supports', 'support_hours') + '"]');
+
+        if (lineCell && hoursCell) {
+            const lineContent = lineCell.querySelector('.view-mode').innerHTML;
+            const hoursContent = hoursCell.querySelector('.view-mode').innerHTML;
+
+            if (lineContent.trim() !== '-' && hoursContent.trim() !== '-') {
+                const lines = lineContent.split('<br>').filter(s => s.trim());
+                const hours = hoursContent.split('<br>').filter(s => s.trim());
+
+                console.log('Split lines:', lines);
+                console.log('Split hours:', hours);
+
+                // ラインと時間をペアで処理
+                for (let i = 0; i < Math.max(lines.length, hours.length); i++) {
+                    const lineName = lines[i] || '';
+                    const hour = hours[i] || '0';
+
+                    if (lineName.trim()) {
+                        const parsedSupport = {
+                            lineName: lineName.trim(),
+                            hours: hour.trim(),
+                            overtime: false
+                        };
+                        console.log('Parsed support for editing:', parsedSupport);
+                        addSupportRowWithData(recordId, parsedSupport, supportType);
+                    }
+                }
+            }
+        }
+    }
+
+    // 少なくとも1つの空行を追加
+    if (container.children.length === 0) {
+        addSupportRow(recordId, supportType);
+    }
+}
+
+function parseSupportDisplay(supportText) {
+    // "1ブロック 1" のような形式をパース
+    console.log('Parsing support display:', supportText);
+
+    const overtime = supportText.includes('残業');
+    const hoursMatch = supportText.match(/([0-9.]+)(?:\s*\(残業\))?$/);
+    const hours = hoursMatch ? hoursMatch[1] : '0';
+
+    // ライン名の抽出（最後の数値とその前の空白を除去）
+    let lineName = '';
+    if (hoursMatch) {
+        lineName = supportText.substring(0, hoursMatch.index).trim();
+    } else {
+        lineName = supportText.trim();
+    }
+
+    console.log('Parsed result:', { lineName, hours, overtime });
+
+    return {
+        lineName: lineName,
+        hours: hours,
+        overtime: overtime
+    };
+}
+
+function addSupportRow(recordId, supportType) {
+    addSupportRowWithData(recordId, {lineName: '', hours: '0', overtime: false}, supportType);
+}
+
+function addSupportRowWithData(recordId, data, supportType) {
+    const containerId = `${supportType}-support-edit-${recordId}`;
+    const container = document.getElementById(containerId);
+    const rowIndex = container.children.length;
+
+    const row = document.createElement('div');
+    row.className = 'support-edit-row';
+    row.innerHTML = `
+        <select class="form-control form-control-sm support-line-select">
+            <option value="">ラインを選択</option>
+            ${linesData.map(line =>
+                `<option value="${line.id}" ${line.name === data.lineName ? 'selected' : ''}>${line.name}</option>`
+            ).join('')}
+        </select>
+        <input type="number" class="form-control form-control-sm support-hours"
+               value="${data.hours}" step="0.5" min="0" max="24" placeholder="0.0">
+        <div class="form-check">
+            <input type="checkbox" class="form-check-input support-overtime"
+                   ${data.overtime ? 'checked' : ''} style="display: none;">
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeSupportRow(this, '${supportType}')">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+
+    container.appendChild(row);
+}
+
+function removeSupportRow(button, supportType) {
+    const row = button.closest('.support-edit-row');
+    const container = row.parentElement;
+    row.remove();
+
+    // 最後の行を削除した場合は新しい空行を追加
+    if (container.children.length === 0) {
+        const recordId = container.id.replace(`${supportType}-support-edit-`, '');
+        addSupportRow(recordId, supportType);
+    }
+}
+
+function collectSupportChanges(cell) {
+    const container = cell.querySelector('.support-edit-grid');
+    const rows = container.querySelectorAll('.support-edit-row');
+
+    const supports = [];
+    rows.forEach(row => {
+        const lineSelect = row.querySelector('.support-line-select');
+        const hoursInput = row.querySelector('.support-hours');
+
+        if (lineSelect && hoursInput) {
+            const lineId = lineSelect.value;
+            const hours = parseFloat(hoursInput.value) || 0;
+
+            if (lineId && hours > 0) {
+                const lineName = lineSelect.options[lineSelect.selectedIndex].text;
+                supports.push(`${lineName} ${hours}`);
+            }
+        }
+    });
+
+    console.log('Collected support changes:', supports);
+    return supports.length > 0 ? supports.join('<br>') : '-';
+}
+
+// 従業員グループホバー効果の初期化
+function initializeEmployeeGroupHover() {
+    const tableRows = document.querySelectorAll('tr[data-record-id]');
+
+    // 全てのセルの背景色を初期化
+    tableRows.forEach(row => {
+        setCellBackgroundColor(row, '#ffffff');
+        row.removeEventListener('mouseenter', handleMouseEnter);
+        row.removeEventListener('mouseleave', handleMouseLeave);
+        row.addEventListener('mouseenter', handleMouseEnter);
+        row.addEventListener('mouseleave', handleMouseLeave);
+    });
+}
+
+function handleMouseEnter(event) {
+    const recordId = event.currentTarget.dataset.recordId;
+    const groupRows = document.querySelectorAll(`tr[data-record-id="${recordId}"]`);
+
+    groupRows.forEach(row => {
+        setCellBackgroundColor(row, '#d1ecf1');
+    });
+}
+
+function handleMouseLeave(event) {
+    const recordId = event.currentTarget.dataset.recordId;
+    const groupRows = document.querySelectorAll(`tr[data-record-id="${recordId}"]`);
+
+    groupRows.forEach(row => {
+        setCellBackgroundColor(row, '#ffffff');
+    });
+}
+
+function setCellBackgroundColor(row, color) {
+    const cells = row.querySelectorAll('td, th');
+    cells.forEach(cell => {
+        cell.style.setProperty('background-color', color, 'important');
+        cell.style.setProperty('background-image', 'none', 'important');
+    });
+}
+
+// 編集時に合計を動的に更新する関数
+function updateTotals(recordId) {
+    const normalRows = document.querySelectorAll(`tr[data-record-id="${recordId}"].normal-row`);
+    const overtimeRows = document.querySelectorAll(`tr[data-record-id="${recordId}"].overtime-row`);
+
+    // 通常の合計を計算
+    let normalTotal = 0;
+    normalRows.forEach(row => {
+        // ライン稼働時間
+        const lineHoursInput = row.querySelector('[data-field="own_line_operation_hours"] .edit-mode');
+        if (lineHoursInput && lineHoursInput.value) {
+            normalTotal += parseFloat(lineHoursInput.value) || 0;
+        }
+
+        // 業務内容
+        row.querySelectorAll('[data-field^="normal_task_"] .edit-mode').forEach(input => {
+            if (input.value && input.value !== '-') {
+                normalTotal += parseFloat(input.value) || 0;
+            }
+        });
+
+        // 応援（通常）
+        const normalSupportContainer = row.querySelector('[data-field="normal_supports"] .support-edit-grid');
+        if (normalSupportContainer) {
+            normalSupportContainer.querySelectorAll('.support-hours').forEach(input => {
+                normalTotal += parseFloat(input.value) || 0;
+            });
+        }
+    });
+
+    // 残業の合計を計算
+    let overtimeTotal = 0;
+    overtimeRows.forEach(row => {
+        // ライン残業時間
+        const lineOvertimeInput = row.querySelector('[data-field="production_overtime"] .edit-mode');
+        if (lineOvertimeInput && lineOvertimeInput.value) {
+            overtimeTotal += parseFloat(lineOvertimeInput.value) || 0;
+        }
+
+        // 業務内容（残業）
+        row.querySelectorAll('[data-field^="overtime_task_"] .edit-mode').forEach(input => {
+            if (input.value && input.value !== '-') {
+                overtimeTotal += parseFloat(input.value) || 0;
+            }
+        });
+
+        // 応援（残業）
+        const overtimeSupportContainer = row.querySelector('[data-field="overtime_supports"] .support-edit-grid');
+        if (overtimeSupportContainer) {
+            overtimeSupportContainer.querySelectorAll('.support-hours').forEach(input => {
+                overtimeTotal += parseFloat(input.value) || 0;
+            });
+        }
+    });
+
+    // 合計を表示に反映
+    const normalTotalCell = document.querySelector(`.normal-total[data-record-id="${recordId}"]`);
+    const overtimeTotalCell = document.querySelector(`.overtime-total[data-record-id="${recordId}"]`);
+
+    if (normalTotalCell) {
+        normalTotalCell.textContent = normalTotal.toFixed(1);
+    }
+    if (overtimeTotalCell) {
+        overtimeTotalCell.textContent = overtimeTotal.toFixed(1);
+    }
+}
+
+// 入力フィールドにイベントリスナーを追加
+function addTotalUpdateListeners() {
+    document.querySelectorAll('.edit-mode').forEach(input => {
+        input.addEventListener('input', function() {
+            const row = this.closest('tr[data-record-id]');
+            if (row) {
+                const recordId = row.dataset.recordId;
+                updateTotals(recordId);
+            }
+        });
+    });
+}
+
+// ホバー効果の初期化
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(initializeEmployeeGroupHover, 100);
+});
+
+document.addEventListener('htmx:afterSwap', (event) => {
+    if (event.detail.target.id === 'TableContainer') {
+        setTimeout(initializeEmployeeGroupHover, 100);
+    }
+});
+
+window.addEventListener('load', () => {
+    setTimeout(initializeEmployeeGroupHover, 200);
+});
+
+document.addEventListener('htmx:afterSwap', (event) => {
+    if (event.detail.target.id === 'TableContainer') {
+        setTimeout(initializeEmployeeGroupHover, 100);
+    }
+});
+
+// JSONデータからテーブルを再構築する関数
+function rebuildTableFromData(tableData, attendanceSelects) {
+    const tableContainer = document.getElementById('TableContainer');
+
+    if (!tableData || tableData.length === 0) {
+        tableContainer.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">勤怠データが見つかりません</h5>
+                <p class="text-muted">選択された日付のデータがまだ登録されていません</p>
+            </div>
+        `;
+        return;
+    }
+
+    let tableHtml = `
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th class="fw-semibold">社員名</th>
+                        <th class="fw-semibold">区分</th>
+                        <th class="fw-semibold">計</th>
+                        <th class="fw-semibold">ライン</th>
+                        ${attendanceSelects.map(sel => `<th class="fw-semibold">${sel.name}</th>`).join('')}
+                        <th class="fw-semibold">応援ライン</th>
+                        <th class="fw-semibold">応援時間</th>
+                        <th class="operation-column fw-semibold">操作</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+    tableData.forEach(row => {
+        // 通常行
+        tableHtml += `
+            <tr data-record-id="${row.id}" class="normal-row">
+                <td rowspan="2" class="align-middle">${row.employee_name}</td>
+                <td>通常</td>
+                <td class="total-cell normal-total" data-record-id="${row.id}">${row.normal_total}</td>
+                <td class="editable-cell" data-field="own_line_operation_hours">
+                    <span class="view-mode">${row.own_line_operation_hours}</span>
+                    <input type="number" class="form-control form-control-sm edit-mode d-none" value="${row.own_line_operation_hours}" step="0.5" min="0" max="24">
+                </td>
+                ${row.normal_task_columns.map((task, index) => `
+                    <td class="editable-cell task-cell" data-field="normal_task_${index}">
+                        <span class="view-mode">${task}</span>
+                        <input type="text" class="form-control form-control-sm edit-mode d-none" value="${task}" placeholder="時間">
+                    </td>
+                `).join('')}
+                <td class="editable-cell" data-field="normal_supports">
+                    <div class="view-mode">
+                        ${row.normal_support_lines && row.normal_support_lines.length > 0 ? row.normal_support_lines.join('<br>') : '-'}
+                    </div>
+                    <div class="edit-mode d-none support-edit-container">
+                        <div id="normal-support-edit-${row.id}" class="support-edit-grid"></div>
+                        <div class="mt-1">
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSupportRow(${row.id}, 'normal')">
+                                <i class="fas fa-plus"></i> 応援追加
+                            </button>
+                        </div>
+                    </div>
+                </td>
+                <td class="editable-cell" data-field="normal_support_hours">
+                    <div class="view-mode">
+                        ${row.normal_support_hours && row.normal_support_hours.length > 0 ? row.normal_support_hours.join('<br>') : '-'}
+                    </div>
+                </td>
+                <td rowspan="2" class="align-middle operation-column">
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-danger delete-item" data-item-id="${row.id}" data-item-name="${row.employee_name}" data-delete-url="${row.delete_url}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            <tr data-record-id="${row.id}" class="overtime-row">
+                <td>残業</td>
+                <td class="total-cell overtime-total" data-record-id="${row.id}">${row.overtime_total}</td>
+                <td class="editable-cell" data-field="production_overtime">
+                    <span class="view-mode">${row.production_overtime}</span>
+                    <input type="number" class="form-control form-control-sm edit-mode d-none" value="${row.production_overtime}" step="0.5" min="0" max="24">
+                </td>
+                ${row.overtime_task_columns.map((task, index) => `
+                    <td class="editable-cell task-cell" data-field="overtime_task_${index}">
+                        <span class="view-mode">${task}</span>
+                        <input type="text" class="form-control form-control-sm edit-mode d-none" value="${task}" placeholder="時間">
+                    </td>
+                `).join('')}
+                <td class="editable-cell" data-field="overtime_supports">
+                    <div class="view-mode">
+                        ${row.overtime_support_lines && row.overtime_support_lines.length > 0 ? row.overtime_support_lines.join('<br>') : '-'}
+                    </div>
+                    <div class="edit-mode d-none support-edit-container">
+                        <div id="overtime-support-edit-${row.id}" class="support-edit-grid"></div>
+                        <div class="mt-1">
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSupportRow(${row.id}, 'overtime')">
+                                <i class="fas fa-plus"></i> 応援追加
+                            </button>
+                        </div>
+                    </div>
+                </td>
+                <td class="editable-cell" data-field="overtime_support_hours">
+                    <div class="view-mode">
+                        ${row.overtime_support_hours && row.overtime_support_hours.length > 0 ? row.overtime_support_hours.join('<br>') : '-'}
+                    </div>
+                </td>
+            </tr>`;
+    });
+
+    tableHtml += `
+                </tbody>
+            </table>
+        </div>`;
+
+    tableContainer.innerHTML = tableHtml;
+}
+
+// 残業累積カードを更新する関数
+function updateOvertimeSummaryCard(overtimeData, selectedDate) {
+    // 日付情報をパース
+    const dateObj = new Date(selectedDate);
+    const year = dateObj.getFullYear();
+    const month = dateObj.getMonth() + 1;
+
+    // 年度を計算
+    const fiscalYear = month >= 4 ? year : year - 1;
+
+    // カードのヘッダー部分
+    let cardHtml = `
+        <h5 class="card-title">
+            <i class="fas fa-clock me-2"></i>
+            残業累積
+        </h5>
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm">
+                <thead>
+                    <tr>
+                        <th class="text-center text-dark fw-bold monthly-overtime-header"></th>`;
+
+    // 従業員名のヘッダー
+    overtimeData.forEach(employee => {
+        cardHtml += `<th class="text-center text-dark fw-bold monthly-overtime-header">${employee.name}</th>`;
+    });
+
+    cardHtml += `
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="fw-bold text-center align-middle">${month}月</td>`;
+
+    // 月間残業時間の行
+    overtimeData.forEach(employee => {
+        let badgeClass, textClass;
+        if (employee.monthly_overtime > 40) {
+            badgeClass = 'bg-danger';
+            textClass = 'text-white';
+        } else if (employee.monthly_overtime > 30) {
+            badgeClass = 'bg-warning';
+            textClass = 'text-dark';
+        } else {
+            badgeClass = 'bg-success';
+            textClass = 'text-white';
+        }
+        cardHtml += `
+            <td class="text-center align-middle">
+                <span class="badge ${badgeClass} ${textClass}">
+                    ${employee.monthly_overtime}h
+                </span>
+            </td>`;
+    });
+
+    cardHtml += `
+                    </tr>
+                    <tr>
+                        <td class="fw-bold text-center align-middle">45h超</td>`;
+
+    // 45時間超え回数の行
+    overtimeData.forEach(employee => {
+        let badgeClass, textClass;
+        if (employee.over_45_count >= 3) {
+            badgeClass = 'bg-danger';
+            textClass = 'text-white';
+        } else if (employee.over_45_count >= 2) {
+            badgeClass = 'bg-warning';
+            textClass = 'text-dark';
+        } else {
+            badgeClass = 'bg-secondary';
+            textClass = 'text-white';
+        }
+        cardHtml += `
+            <td class="text-center align-middle">
+                <span class="badge ${badgeClass} ${textClass}">
+                    ${employee.over_45_count}回
+                </span>
+            </td>`;
+    });
+
+    cardHtml += `
+                    </tr>
+                </tbody>
+            </table>
+        </div>`;
+
+    // カードのbodyを更新
+    const cardBody = document.querySelector('#overtime-summary-card .card-body');
+    if (cardBody) {
+        cardBody.innerHTML = cardHtml;
+    }
+}
+</script>

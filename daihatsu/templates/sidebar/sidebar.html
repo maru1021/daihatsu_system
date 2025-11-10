@@ -1,0 +1,142 @@
+{% load group_tags %}
+{% user_groups user as groups %}
+
+<nav class="sidebar" id="main-sidebar">
+  <div class="sidebar-header">
+    <h3>Daihatsu</h3>
+    <div>{{ user.username }}</div>
+  </div>
+  <ul class="nav flex-column">
+    <li class="nav-item">
+      <a
+        class="nav-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}"
+        href="{% url 'home' %}"
+        hx-get="{% url 'home' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-home"></i>
+        ホーム
+      </a>
+    </li>
+
+    <!-- 管理室 -->
+    {% if 'management_room_user' in groups %}
+      {% include 'sidebar/components/management_room.html' %}
+    {% endif %}
+
+    <!-- 生産実績 -->
+    {% if 'actual_production_user' in groups %}
+      {% include 'sidebar/components/actual_production.html' %}
+    {% endif %}
+
+    <!-- 製造 -->
+    {% if 'manufacturing_user' in groups %}
+      {% include 'sidebar/components/manufacturing.html' %}
+    {% endif %}
+
+    <li class="nav-item">
+      {% if user.is_authenticated and user.is_staff %}
+        <a href="{% url 'admin:index' %}"
+          class="nav-link"
+          style="text-decoration: none;">
+            <i class="fas fa-cog"></i>
+            データベース管理画面
+        </a>
+        <a
+          class="nav-link {% if 'resource' in request.resolver_match.url_name %}active{% endif %}"
+          href="{% url 'resource' %}"
+          hx-get="{% url 'resource' %}"
+          hx-target=".main-content"
+          hx-push-url="true"
+        >
+          <i class="fas fa-chart-line"></i>
+          リソース管理
+        </a>
+        <!--
+        <a
+          class="nav-link {% if 'ai_query' in request.resolver_match.url_name %}active{% endif %}"
+          href="{% url 'ai_query' %}"
+          hx-get="{% url 'ai_query' %}"
+          hx-target=".main-content"
+          hx-push-url="true"
+        >
+          <i class="fas fa-robot"></i>
+          AI検索君1号
+        </a>
+        <a
+          class="nav-link {% if 'realtime_speech' in request.resolver_match.url_name %}active{% endif %}"
+          href="{% url 'realtime_speech' %}"
+          hx-get="{% url 'realtime_speech' %}"
+          hx-target=".main-content"
+          hx-push-url="true"
+        >
+          <i class="fas fa-microphone"></i>
+          リアルタイム文字起こし
+        </a>
+        <a
+          class="nav-link {% if 'rule' in request.resolver_match.url_name %}active{% endif %}"
+          href="{% url 'administrator:rule' %}"
+          hx-get="{% url 'administrator:rule' %}"
+          hx-target=".main-content"
+          hx-push-url="true"
+        >
+          <i class="fas fa-book"></i>
+          開発者用ルール
+        </a>
+        <a
+          class="nav-link {% if 'port_test' in request.resolver_match.url_name %}active{% endif %}"
+          href="{% url 'port_test' %}"
+          hx-get="{% url 'port_test' %}"
+          hx-target=".main-content"
+          hx-push-url="true"
+        >
+          <i class="fas fa-network-wired"></i>
+          ポートテスト
+        </a>
+        -->
+      {% endif %}
+
+      <a
+        class="nav-link {% if 'in_room:in_room_input' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'in_room:in_room_input' %}"
+      >
+        <i class="fas fa-edit"></i>
+        在籍管理入力用
+      </a>
+      <a
+        class="nav-link {% if 'in_room:in_room_status' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'in_room:in_room_status' %}"
+      >
+        <i class="fas fa-edit"></i>
+        在籍管理
+      </a>
+      <a
+        class="nav-link {% if 'graph_maker' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'graph_maker' %}"
+      >
+        <i class="fas fa-edit"></i>
+        グラフツクール君2号
+      </a>
+      <a
+        class="nav-link {% if 'password_change' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'password_change' %}"
+        hx-get="{% url 'password_change' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-key"></i>
+        パスワード変更
+      </a>
+      <form method="post" action="{% url 'logout' %}" style="display: inline;">
+        {% csrf_token %}
+        <button type="submit"
+                class="nav-link btn btn-link logout-button"
+                style="border: none; background: none; color: inherit; text-decoration: none;">
+            <i class="fas fa-door-open"></i>
+            ログアウト
+        </button>
+      </form>
+    </li>
+  </ul>
+</nav>

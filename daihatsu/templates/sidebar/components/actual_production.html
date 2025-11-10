@@ -1,0 +1,98 @@
+<li class="nav-item">
+  <a
+    class="nav-link {% if 'actual_production' in request.resolver_match.app_name %}active{% endif %}"
+    href="#"
+    data-bs-toggle="collapse"
+    data-bs-target="#actualProductionSubmenu"
+  >
+    <i class="fas fa-chart-line"></i>
+    生産実績
+  </a>
+  <div
+    class="collapse submenu {% if 'actual_production:actual_production_item_master' in request.resolver_match.url_name or 'actual_production:attendance_select_master' in request.resolver_match.url_name or 'actual_production:attendance_input' in request.resolver_match.url_name or 'actual_production:attendance_display' in request.resolver_match.url_name or 'actual_production:company_input' in request.resolver_match.url_name or 'actual_production:production_transfer' in request.resolver_match.url_name %}show{% endif %}"
+    id="actualProductionSubmenu"
+  >
+    <a
+      class="nav-link {% if 'actual_production' in request.resolver_match.app_name %}active{% endif %}"
+      href="#"
+      data-bs-toggle="collapse"
+      data-bs-target="#actualProductionMasterSubmenu"
+    >
+      <i class="fas fa-database"></i>
+      マスター管理
+    </a>
+    <div
+      class="collapse submenu {% if 'actual_production:actual_production_item_master' in request.resolver_match.url_name or 'actual_production:attendance_select_master' in request.resolver_match.url_name %}show{% endif %}"
+      id="actualProductionMasterSubmenu"
+    >
+      <a
+        class="nav-link {% if 'actual_production:actual_production_item_master' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'actual_production:actual_production_item_master' %}"
+        hx-get="{% url 'actual_production:actual_production_item_master' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-building"></i>
+        実績品目管理
+      </a>
+      <a
+        class="nav-link {% if 'actual_production:attendance_select_master' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'actual_production:attendance_select_master' %}"
+        hx-get="{% url 'actual_production:attendance_select_master' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-clock"></i>
+        勤怠選択管理
+      </a>
+      <a
+        class="nav-link {% if 'actual_production:attendance_production_mapping_master' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'actual_production:attendance_production_mapping_master' %}"
+        hx-get="{% url 'actual_production:attendance_production_mapping_master' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-link"></i>
+        勤怠-実績紐づけ管理
+      </a>
+    </div>
+    <a
+      class="nav-link {% if 'actual_production:attendance_input' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'actual_production:attendance_input' %}"
+    >
+      <i class="fas fa-edit"></i>
+      勤怠入力
+    </a>
+    <a
+      class="nav-link {% if 'actual_production:attendance_display' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'actual_production:attendance_display' %}"
+      hx-get="{% url 'actual_production:attendance_display' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-table"></i>
+      勤怠データ
+    </a>
+    <a
+      class="nav-link {% if 'actual_production:company_input' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'actual_production:company_input' %}"
+      hx-get="{% url 'actual_production:company_input' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-building"></i>
+      Company入力用
+    </a>
+    <a
+      class="nav-link {% if 'actual_production:production_transfer' in request.resolver_match.url_name %}active{% endif %}"
+      href="{% url 'actual_production:production_transfer' %}"
+      hx-get="{% url 'actual_production:production_transfer' %}"
+      hx-target=".main-content"
+      hx-push-url="true"
+    >
+      <i class="fas fa-exchange-alt"></i>
+      実績管理への転機
+    </a>
+    </div>
+  </div>
+</li>

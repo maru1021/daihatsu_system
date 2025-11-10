@@ -1,0 +1,49 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-content">
+    {% block admin_actions %}
+    {% if user.is_active and user.is_staff %}
+    <div class="admin-actions">
+        <h2>{% translate 'Recent actions' %}</h2>
+        {% load log %}
+        {% get_admin_log 10 as admin_log for_user user %}
+        {% if not admin_log %}
+        <p>{% translate 'None available' %}</p>
+        {% else %}
+        <ul>
+        {% for entry in admin_log %}
+        <li>
+            {% if entry.is_addition %}
+                <span class="addlink">{% translate 'Added' %}</span>
+            {% elif entry.is_change %}
+                <span class="changelink">{% translate 'Changed' %}</span>
+            {% elif entry.is_deletion %}
+                <span class="deletelink">{% translate 'Deleted' %}</span>
+            {% endif %}
+            {% if entry.content_type %}
+                <span class="mini quiet">{% filter capfirst %}{{ entry.content_type.name }}{% endfilter %}</span>
+            {% else %}
+                <span class="mini quiet">{% translate 'Unknown content' %}</span>
+            {% endif %}
+            {% if entry.is_deletion or not entry.get_admin_url %}
+                {{ entry.object_repr }}
+            {% else %}
+                <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
+            {% endif %}
+        </li>
+        {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% endblock %}
+</div>
+{% endblock %} 

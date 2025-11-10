@@ -1,0 +1,29 @@
+<!-- 業務内容セクション -->
+<div>
+    <h3 style="margin-top: -50px;">業務内容(ライン業務以外がある時のみ入力)</h3>
+    <div id="non-production-tasks-container" class="tasks-grid">
+        <!-- 20項目の業務内容を最初から表示 -->
+        {% for i in "01234567890123456789"|make_list %}
+        <div class="task-item-grid">
+            <div class="task-select">
+                <select name="task_attendance_select" class="task-attendance-select select2">
+                    <option value="">選択してください</option>
+                    {% for attendance_select in attendance_selects %}
+                        <option value="{{ attendance_select.id }}"
+                                {% if forloop.parentloop.counter0 < attendance_selects|length and forloop.counter == forloop.parentloop.counter %}selected{% endif %}>
+                            {{ attendance_select.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="task-hours">
+                <input type="number" name="task_hours" step="0.5" min="0" max="24" placeholder="0.0">
+            </div>
+            <div class="task-overtime">
+                <label for="task_overtime_{{ forloop.counter0 }}">残業</label>
+                <input type="checkbox" name="task_overtime" id="task_overtime_{{ forloop.counter0 }}">
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>

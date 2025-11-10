@@ -1,0 +1,25 @@
+<!-- 編集用のフォーム -->
+<div class="mb-3">
+  <label for="id_attendance_select" class="form-label">勤怠選択肢 <span class="text-danger">*</span></label>
+  <select class="form-control select2" id="id_attendance_select" name="attendance_select">
+    <option value="">選択してください</option>
+    {% for attendance_select in attendance_selects %}
+      <option value="{{ attendance_select.id }}">{{ attendance_select.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="id_actual_production_item" class="form-label">実績生産品目 <span class="text-danger">*</span></label>
+  <select class="form-control select2" id="id_actual_production_item" name="actual_production_item">
+    <option value="">選択してください</option>
+    {% for item in actual_production_items %}
+      <option value="{{ item.id }}">{{ item.code }} - {{ item.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <div class="form-check">
+      <input type="checkbox" class="form-check-input" id="id_active" name="active">
+      <label class="form-check-label" for="id_active">有効</label>
+  </div>
+</div>

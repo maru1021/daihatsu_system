@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン - 製造管理システム</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, rgb(209, 234, 252) 0%, rgb(187, 208, 238) 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 60%);
+            animation: rotate 30s linear infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .login-container {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 2.5rem;
+            border-radius: 24px;
+            box-shadow: 0 15px 35px rgba(187, 208, 238, 0.2),
+                       0 5px 15px rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 480px;
+            backdrop-filter: blur(10px);
+            position: relative;
+            z-index: 1;
+            transform: translateY(0);
+            transition: transform 0.3s ease;
+        }
+
+        .login-container:hover {
+            transform: translateY(-5px);
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .logo h1 {
+            color: #2d3748;
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.5px;
+        }
+
+        .logo p {
+            color: #4a5568;
+            font-size: 0.9rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+            position: relative;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #2d3748;
+            font-weight: 500;
+            font-size: 0.95rem;
+            letter-spacing: 0.3px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 16px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.9);
+            color: #2d3748;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: rgb(107, 215, 222);
+            box-shadow: 0 0 0 4px rgba(107, 215, 222, 0.15);
+            background: #fff;
+        }
+
+        .form-group input::placeholder {
+            color: #a0aec0;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 0.75rem;
+            background: linear-gradient(135deg, rgb(107, 215, 222) 0%, #66a6ff 100%);
+            color: white;
+            border: none;
+            border-radius: 16px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .login-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.2),
+                transparent
+            );
+            transition: 0.5s;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(107, 215, 222, 0.4);
+            background: linear-gradient(135deg, rgb(117, 225, 232) 0%, #76b6ff 100%);
+        }
+
+        .login-btn:hover::before {
+            left: 100%;
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .error-message {
+            background: rgba(255, 245, 245, 0.95);
+            color: #e53e3e;
+            padding: 1.2rem;
+            border-radius: 16px;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid #e53e3e;
+            font-size: 0.9rem;
+            box-shadow: 0 4px 6px rgba(229, 62, 62, 0.1);
+            animation: slideIn 0.3s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .error-message::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(to bottom, #e53e3e, #fc8181);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-10px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .error-message ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .error-message li {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .error-message li:last-child {
+            margin-bottom: 0;
+        }
+
+        .error-message li::before {
+            content: '⚠️';
+            font-size: 1rem;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 2rem;
+            color: #718096;
+            font-size: 0.8rem;
+        }
+
+        /* レスポンシブデザイン */
+        @media (max-width: 480px) {
+            .login-container {
+                margin: 1rem;
+                padding: 1.5rem;
+            }
+
+            .logo h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>製造管理システム</h1>
+        </div>
+
+        {% if form.errors or form.non_field_errors %}
+            <div class="error-message">
+                <ul>
+                    {% if form.non_field_errors %}
+                        {% for error in form.non_field_errors %}
+                            <li>ユーザー名かパスワードが間違っています。</li>
+                        {% endfor %}
+                    {% endif %}
+                    {% for field, errors in form.errors.items %}
+                        {% for error in errors %}
+                            {% if field != '__all__' %}
+                                <li>
+                                    {% if field == 'username' %}
+                                        ユーザー名: {{ error }}
+                                    {% elif field == 'password' %}
+                                        パスワード: {{ error }}
+                                    {% else %}
+                                        {{ error }}
+                                    {% endif %}
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+
+            <div class="form-group">
+                <label for="id_username">ユーザー名</label>
+                <input type="text" id="id_username" name="username" required
+                       value="admin"
+                       placeholder="ユーザー名を入力してください"
+                       autofocus>
+            </div>
+
+            <div class="form-group">
+                <label for="id_password">パスワード</label>
+                <input type="password" id="id_password" name="password" required
+                       value="password"
+                       placeholder="パスワードを入力してください">
+            </div>
+
+            <button type="submit" class="login-btn">ログイン</button>
+        </form>
+    </div>
+</body>
+</html>
