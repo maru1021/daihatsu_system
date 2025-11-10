@@ -1,0 +1,470 @@
+/* ========================================
+   CSS変数定義
+   ======================================== */
+:root {
+    /* 基本色 */
+    --primary-blue: #2196F3;
+    --light-blue: #e3f2fd;
+    --dark-blue: #1565C0;
+    --border-color: #ddd;
+    --bg-gray: #f5f5f5;
+    --hover-gray: #f5f5f5;
+
+    /* 週末色 */
+    --weekend-bg: #e1f5fe;
+    --weekend-hover: #b3e5fc;
+
+    /* 夜勤色 */
+    --night-shift-bg: #f0f0f0;
+    --night-shift-hover: #e8e8e8;
+
+    /* 車種カラー */
+    --vehicle-vet: #e3f2fd;
+    --vehicle-vet2: #f3e5f5;
+    --vehicle-ve4: #fff3e0;
+    --vehicle-ve5: #e8f5e9;
+    --vehicle-ve7: #fce4ec;
+
+    /* サイズ */
+    --header-height-1: 20px;
+    --header-height-2: 20px;
+    --header-height-3: 20px;
+    --min-col-width: 28px;
+}
+
+/* ========================================
+   基本レイアウト
+   ======================================== */
+body {
+    font-family: Arial, sans-serif;
+    padding: 10px;
+    background-color: var(--bg-gray);
+}
+
+h1 {
+    color: #333;
+    text-align: left;
+    font-size: 18px;
+    margin: 10px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* 日付入力コンテナ */
+.date-input-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* 入力コンテナ */
+.input-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+}
+
+/* select2コンテナをflex対応 */
+.input-container .select2-container {
+    width: auto !important;
+    min-width: 150px;
+}
+
+/* select2の高さをmonth-inputに合わせる */
+.input-container .select2-container .select2-selection {
+    height: 38px !important;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.input-container .select2-container .select2-selection__rendered {
+    line-height: 26px;
+    padding-left: 10px;
+    padding-right: 20px;
+}
+
+.input-container .select2-container .select2-selection__arrow {
+    height: 36px;
+    right: 8px;
+    top: 1px;
+}
+
+.month-input {
+    padding: 5px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 14px;
+    height: 38px;
+    box-sizing: border-box;
+}
+
+.save-btn {
+    padding: 5px 20px;
+    background-color: var(--primary-blue);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    height: 38px;
+    box-sizing: border-box;
+}
+
+.save-btn:hover {
+    background-color: var(--dark-blue);
+}
+
+.save-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.auto-btn {
+    padding: 5px 20px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    height: 38px;
+    box-sizing: border-box;
+    margin-right: 10px;
+}
+
+.auto-btn:hover {
+    background-color: #218838;
+}
+
+.auto-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+/* 最終在庫入力 */
+.final-inventory-input {
+    width: 80px;
+    text-align: center;
+    border: 1px solid var(--border-color);
+    border-radius: 2px;
+    padding: 2px;
+    font-size: 9px;
+}
+
+.table-container {
+    overflow-x: auto;
+    background-color: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ========================================
+   テーブル基本スタイル
+   ======================================== */
+table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 10px;
+}
+
+th, td {
+    border: 1px solid var(--border-color);
+    padding: 2px 1px;
+    text-align: center;
+    font-size: 9px;
+}
+
+td {
+    background-color: white;
+}
+
+td.weekend {
+    background-color: var(--weekend-bg);
+}
+
+/* 夜勤行のスタイル */
+tr.night-shift td {
+    background-color: var(--night-shift-bg) !important;
+}
+
+tr.night-shift td.weekend {
+    background-color: var(--weekend-bg) !important;
+}
+
+tr.night-shift th {
+    background-color: var(--light-blue);
+}
+
+tr:hover td {
+    background-color: var(--hover-gray);
+}
+
+tr:hover td.weekend {
+    background-color: var(--weekend-hover);
+}
+
+tr.night-shift:hover td {
+    background-color: var(--night-shift-hover) !important;
+}
+
+tr.night-shift:hover td.weekend {
+    background-color: var(--weekend-hover) !important;
+}
+
+/* ========================================
+   ヘッダー（thead）スタイル
+   ======================================== */
+thead th {
+    min-width: var(--min-col-width);
+    background-color: var(--primary-blue);
+    color: white;
+    font-weight: bold;
+    position: sticky;
+    z-index: 10;
+}
+
+thead tr:first-child th {
+    top: 0;
+    height: var(--header-height-1);
+}
+
+thead tr:nth-child(2) th {
+    top: var(--header-height-1);
+}
+
+thead tr:nth-child(3) th {
+    top: calc(var(--header-height-1) + var(--header-height-2));
+}
+
+/* ========================================
+   行ヘッダー（tbody th）スタイル
+   ======================================== */
+tbody th {
+    background-color: var(--light-blue);
+    color: var(--dark-blue);
+    font-weight: bold;
+    text-align: center;
+    position: sticky;
+    z-index: 5;
+}
+
+/* カテゴリラベル（在庫数、出庫数など） */
+tbody th.category-label {
+    min-width: 24px;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    padding: 8px 3px;
+    font-size: 11px;
+    left: 0;
+}
+
+/* シフトラベル（日勤、夜勤） */
+tbody th.shift-label {
+    min-width: 20px;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    padding: 8px 2px;
+    font-size: 10px;
+    left: 24px;
+}
+
+/* 設備番号 */
+tbody th.facility-number {
+    min-width: 32px;
+    left: 44px;
+}
+
+/* 車種ラベル */
+tbody th.vehicle-label {
+    min-width: 48px;
+    left: 24px;
+}
+
+/* ========================================
+   入力フィールド共通スタイル
+   ======================================== */
+.operation-rate-input,
+.stop-time-input,
+.overtime-input,
+.vehicle-select {
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    padding: 1px;
+    font-size: 9px;
+}
+
+/* 稼働率入力 */
+.operation-rate-input {
+    width: 42px;
+    border-color: var(--primary-blue);
+    padding: 2px;
+    background-color: var(--light-blue);
+}
+
+/* 計画停止時間入力 */
+.stop-time-input {
+    width: 36px;
+}
+
+/* 残業時間入力 */
+.overtime-input {
+    width: 36px;
+}
+
+/* 在庫数入力 */
+.inventory-input {
+    width: 42px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    padding: 1px;
+    font-size: 9px;
+}
+
+/* 出庫数入力 */
+.delivery-input {
+    width: 42px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    padding: 1px;
+    font-size: 9px;
+}
+
+/* 生産計画コンテナ */
+.select-container {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    width: 100%;
+}
+
+/* ドラッグハンドル */
+.drag-handle {
+    display: inline-block;
+    cursor: grab;
+    font-size: 10px;
+    color: #666;
+    user-select: none;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+/* セクションドラッグハンドル */
+.section-drag-handle {
+    display: inline-block;
+    cursor: grab;
+    font-size: 16px;
+    color: #999;
+    user-select: none;
+    padding: 2px 4px;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.section-drag-handle:active {
+    cursor: grabbing;
+}
+
+.section-drag-handle:hover {
+    color: #333;
+}
+
+/* 生産計画セレクト */
+.vehicle-select {
+    flex: 1;
+    font-weight: bold;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 4px;
+    cursor: pointer;
+}
+
+/* ドラッグ中のスタイル */
+.select-container.dragging {
+    opacity: 0.5;
+}
+
+.select-container.dragging .drag-handle {
+    cursor: grabbing;
+}
+
+.select-container.drag-over {
+    background-color: var(--light-blue);
+    border: 1px dashed var(--primary-blue);
+    border-radius: 2px;
+}
+
+/* ========================================
+   車種カラー - tdセル用
+   ======================================== */
+.vehicle-vet { background-color: var(--vehicle-vet) !important; }
+.vehicle-vet2 { background-color: var(--vehicle-vet2) !important; }
+.vehicle-ve4 { background-color: var(--vehicle-ve4) !important; }
+.vehicle-ve5 { background-color: var(--vehicle-ve5) !important; }
+.vehicle-ve7 { background-color: var(--vehicle-ve7) !important; }
+
+/* 車種カラー - spanタグ用 */
+span.vehicle-vet,
+span.vehicle-vet2,
+span.vehicle-ve4,
+span.vehicle-ve5,
+span.vehicle-ve7 {
+    padding: 2px 4px;
+    border-radius: 3px;
+    display: inline-block;
+    font-weight: bold;
+}
+
+span.vehicle-vet { background-color: var(--vehicle-vet); }
+span.vehicle-vet2 { background-color: var(--vehicle-vet2); }
+span.vehicle-ve4 { background-color: var(--vehicle-ve4); }
+span.vehicle-ve5 { background-color: var(--vehicle-ve5); }
+span.vehicle-ve7 { background-color: var(--vehicle-ve7); }
+
+/* 車種カラー - selectタグ用 */
+.vehicle-select[data-vehicle="VET"] { background-color: var(--vehicle-vet); }
+.vehicle-select[data-vehicle="VET2"] { background-color: var(--vehicle-vet2); }
+.vehicle-select[data-vehicle="VE4"] { background-color: var(--vehicle-ve4); }
+.vehicle-select[data-vehicle="VE5"] { background-color: var(--vehicle-ve5); }
+.vehicle-select[data-vehicle="VE7"] { background-color: var(--vehicle-ve7); }
+
+/* ========================================
+   定時チェックセル
+   ======================================== */
+.check-cell {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding: 4px 2px;
+    height: 30px;
+    font-size: 10px;
+    font-weight: bold;
+    vertical-align: middle;
+    box-sizing: border-box;
+}
+
+/* ========================================
+   警告表示
+   ======================================== */
+/* 在庫がマイナスのセル */
+.negative-inventory {
+    color: #c62828 !important;
+    font-weight: bold;
+}
+
+/* 品番が変更されたセル */
+.item-changed {
+    background-color: #fff9c4 !important;
+}

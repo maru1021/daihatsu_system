@@ -324,7 +324,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
         for machine in machine_list:
             # この鋳造機に登録されている品番を取得
-            machine_items = CastingProductionItem.objects.filter(
+            machine_items = CastingItem.objects.filter(
                 line=line,
                 machine_id=machine['id'],
                 active=True
