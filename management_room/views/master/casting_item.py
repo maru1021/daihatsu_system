@@ -36,8 +36,8 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 'data': {
                   'id': data.id,
                   'name': data.name,
-                  'line': data.line.id if data.line else '',
-                  'machine': data.machine.id if data.machine else '',
+                  'line_id': data.line.id if data.line else '',
+                  'machine_id': data.machine.id if data.machine else '',
                   'tact': data.tact,
                   'yield_rate': data.yield_rate * 100 if data.yield_rate else 0,
                   'active': data.active,

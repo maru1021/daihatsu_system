@@ -1,18 +1,26 @@
 <div class="mb-3">
+  <label for="id_assembly_id" class="form-label line-select">組付ライン<span class="text-danger">*</span></label>
+  <select class="form-control select2" id="id_assembly_id" name="assembly_id">
+    {% for line in lines %}
+    <option value="{{ line.id }}">{{ line.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
   <label for="id_name" class="form-label">ライン名 <span class="text-danger">*</span></label>
   <input type="text" class="form-control" id="id_name" name="name">
 </div>
 <div class="mb-3">
   <label for="id_occupancy_rate" class="form-label">稼働率<span class="text-danger">*</span></label>
-  <input type="number" class="form-control" id="id_occupancy_rate" name="occupancy_rate" step=0.1 min="0" max="100">
+  <input type="number" class="form-control" id="id_occupancy_rate" name="occupancy_rate" step=0.01 min="0" max="100">
 </div>
 <div class="mb-3">
   <label for="id_tact" class="form-label">タクト<span class="text-danger">*</span></label>
-  <input type="number" class="form-control" id="id_tact" name="tact" step=0.1 min="0" max="100">
+  <input type="number" class="form-control" id="id_tact" name="tact" step=0.01 min="0" max="100">
 </div>
 <div class="mb-3">
   <label for="id_yield_rate" class="form-label">良品率<span class="text-danger">*</span></label>
-  <input type="number" class="form-control" id="id_yield_rate" name="yield_rate" step=0.1 min="0" max="100">
+  <input type="number" class="form-control" id="id_yield_rate" name="yield_rate" step=0.01 min="0" max="100">
 </div>
 <div class="mb-3">
   <div class="form-check">

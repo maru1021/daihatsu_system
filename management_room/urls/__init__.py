@@ -9,6 +9,8 @@ urlpatterns = [
     path('assembly-item-master/', include('management_room.urls.master.assembly_item')),
     path('machining-item-master/', include('management_room.urls.master.machining_item')),
     path('casting-item-master/', include('management_room.urls.master.casting_item')),
+    path('assembly-item-machining-item-map/', include('management_room.urls.master.assembly_item_machining_item_map')),
+    path('machining_item_casting_item_map/', include('management_room.urls.master.machining_item_casting_item_map')),
 
     path('production-plan/', include('management_room.urls.production_plan')),
     path('akashi-order-list/', include('management_room.urls.master.akashi_order_list')),

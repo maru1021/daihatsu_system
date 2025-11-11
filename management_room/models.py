@@ -121,7 +121,7 @@ class AssemblyItem(MasterMethodMixin, models.Model):
     class Meta:
         verbose_name = "完成品番"
         verbose_name_plural = "完成品番"
-        ordering = ['-active', 'name']
+        ordering = ['-active', 'line', 'name']
         indexes = [
             models.Index(fields=['active', 'name']),
         ]
@@ -165,6 +165,40 @@ class CastingItem(MasterMethodMixin, models.Model):
 
     def __str__(self):
         return f"{self.line.name} - {self.machine.name} - {self.name}"
+
+class AssemblyItemMachiningItemMap(models.Model):
+    assembly_item = models.ForeignKey(AssemblyItem, on_delete=models.CASCADE, verbose_name="完成品番", related_name='assembly_item_machining_items', db_index=True)
+    machining_item = models.ForeignKey(MachiningItem, on_delete=models.CASCADE, verbose_name="加工品番", related_name='assembly_item_machining_items', db_index=True)
+    active = models.BooleanField(verbose_name="有効", default=True)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "完成品番-加工品番紐付け"
+        verbose_name_plural = "完成品番-加工品番紐付け"
+        ordering = ['assembly_item', 'machining_item']
+        indexes = [
+            models.Index(fields=['assembly_item', 'machining_item']),
+        ]
+
+    def __str__(self):
+        return f"{self.assembly_item.name} - {self.machining_item.name}"
+
+class MachiningItemCastingItemMap(models.Model):
+    machining_item = models.ForeignKey(MachiningItem, on_delete=models.CASCADE, verbose_name="加工品番", related_name='machining_item_casting_items', db_index=True)
+    casting_item = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="鋳造品番", related_name='machining_item_casting_items', db_index=True)
+    active = models.BooleanField(verbose_name="有効", default=True)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "加工品番-鋳造品番紐付け"
+        verbose_name_plural = "加工品番-鋳造品番紐付け"
+        ordering = ['machining_item', 'casting_item']
+        indexes = [
+            models.Index(fields=['machining_item', 'casting_item']),
+        ]
+
+    def __str__(self):
+        return f"{self.machining_item.name} - {self.casting_item.name}"
 
 
 class DailyAssenblyProductionPlan(models.Model):

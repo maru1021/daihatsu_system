@@ -20,14 +20,13 @@
       </tr>
     </thead>
     <tbody>
-      {% for engine_item in engine_items %}
+      {% for assembly_item in assembly_items %}
       <tr>
         <td style="border-bottom:1px solid; padding:0.5em;">
-          {{ engine_item.name }}
-          <input type="hidden" name="engine_item_id_{{ forloop.counter0 }}" value="{{ engine_item.id }}">
+          {{ assembly_item.name }}
         </td>
         <td style="border-bottom:1px solid; padding:0.5em;">
-          <input type="number" name="planned_volume_{{ forloop.counter0 }}" min="0" style="width:100px;">
+          <input type="number" id="{{ assembly_item.id }}" class="form-control" name="planned_volume_{{ forloop.counter0 }}" min="0" style="width:100px;">
         </td>
       </tr>
       {% endfor %}
@@ -35,7 +34,7 @@
   </table>
 
   <div style="margin-top:1em;">
-    <button type="submit">保存</button>
+    <button class="btn btn-primary" type="submit">保存</button>
   </div>
 </form>
 

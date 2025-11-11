@@ -46,20 +46,47 @@ $(document).off(`htmx:beforeSwap.${BASE_JS_NAMESPACE}`).on(`htmx:beforeSwap.${BA
 });
 
 // モーダル表示前の処理
-$(document).off(`show.bs.modal.${BASE_JS_NAMESPACE}`, 'RegisterModal').on(`show.bs.modal.${BASE_JS_NAMESPACE}`, 'RegisterModal', function(evt) {
-    $('#RegisterModal .select2').val('').trigger('change');
+$(document).off(`show.bs.modal.${BASE_JS_NAMESPACE}`).on(`show.bs.modal.${BASE_JS_NAMESPACE}`, function(evt) {
+    // body直下の不要なselect2要素を削除（残骸のクリーンアップ）
+    $('.select2-container--open').remove();
+    $('.select2-dropdown').remove();
 });
 
 // モーダル表示後の処理
 $(document).off(`shown.bs.modal.${BASE_JS_NAMESPACE}`).on(`shown.bs.modal.${BASE_JS_NAMESPACE}`, function(evt) {
     const modalElement = $(evt.target);
     if (modalElement) {
-        focusFirstInput(modalElement);
-        if (modalElement.attr('id') === 'RegisterModal') {
+        const modalId = modalElement.attr('id');
+
+        // モーダル内のselect2を初期化
+        if (modalId === 'RegisterModal') {
             initializeRegisterModalSelect2();
-        } else if (modalElement.attr('id') === 'EditModal') {
-            initializeSelect2();
+        } else if (modalId === 'EditModal') {
+            // EditModalのselect2も同様に処理
+            const $modal = $('#EditModal');
+
+            $modal.find('.select2').each(function() {
+                const $element = $(this);
+
+                // 既存のインスタンスがある場合のみ破棄
+                if ($element.data('select2')) {
+                    $element.off('select2:opening select2:open select2:closing select2:close select2:selecting select2:select select2:unselecting select2:unselect');
+                    $element.select2('destroy');
+                    $element.next('.select2-container').remove();
+                }
+
+                // 新しいインスタンスを作成
+                $element.select2({
+                    theme: 'bootstrap-5',
+                    width: '100%',
+                    placeholder: '選択してください',
+                    allowClear: true,
+                    dropdownParent: $modal
+                });
+            });
         }
+
+        focusFirstInput(modalElement);
     }
 });
 
@@ -70,9 +97,16 @@ $(document).off(`hide.bs.modal.${BASE_JS_NAMESPACE}`).on(`hide.bs.modal.${BASE_J
 
 // モーダル非表示後の処理
 $(document).off(`hidden.bs.modal.${BASE_JS_NAMESPACE}`).on(`hidden.bs.modal.${BASE_JS_NAMESPACE}`, function(evt) {
-    focusSearchInput();
-    cleanupModalSelect2();
-    cleanupModals();
     const modalElement = $(evt.target);
+
+    // body直下の不要なselect2要素を削除
+    $('.select2-container--open').remove();
+    $('.select2-dropdown').remove();
+
+    // モーダル内のselect2をクリーンアップ
+    cleanupModalSelect2();
+
+    cleanupModals();
     clearFormErrors(modalElement);
+    focusSearchInput();
 });

@@ -130,6 +130,26 @@
         <i class="fas fa-database"></i>
         鋳造品番管理
       </a>
+      <a
+        class="nav-link {% if 'management_room:assembly_item_machining_item_map' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:assembly_item_machining_item_map' %}"
+        hx-get="{% url 'management_room:assembly_item_machining_item_map' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-database"></i>
+        完成品番-加工品番紐づけ
+      </a>
+      <a
+        class="nav-link {% if 'management_room:machining_item_casting_item_map' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:machining_item_casting_item_map' %}"
+        hx-get="{% url 'management_room:machining_item_casting_item_map' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-database"></i>
+        加工品番-鋳造品番紐づけ
+      </a>
       {% endif %}
       <!-- 工務も追加 -->
     </div>

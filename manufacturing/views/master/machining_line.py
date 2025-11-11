@@ -5,15 +5,15 @@ from daihatsu.views.basic_table_view import BasicTableView
 from daihatsu.views.excel_operation_view import ExcelOperationView
 from daihatsu.views.PDFcreate import PDFGenerator
 from manufacturing.auth_mixin import ManufacturingPermissionMixin
-from manufacturing.models import MachiningLine
+from manufacturing.models import MachiningLine, AssemblyLine
 
 
 class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
     title = '加工ライン'
     page_title = '加工ライン管理'
     crud_model = MachiningLine
-    table_model = MachiningLine.objects.only(
-        'id', 'name', 'occupancy_rate', 'tact', 'yield_rate', 'active', 'last_updated_user'
+    table_model = MachiningLine.objects.select_related('assembly').only(
+        'id', 'assembly__name', 'name', 'occupancy_rate', 'tact', 'yield_rate', 'active', 'last_updated_user'
     )
     form_dir = 'master/machining_line'
     form_action_url = 'manufacturing:machining_line_master'
@@ -22,9 +22,15 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
     excel_export_url = 'manufacturing:machining_line_export_excel'
     excel_import_url = 'manufacturing:machining_line_import_excel'
     pdf_export_url = 'manufacturing:machining_line_export_pdf'
-    admin_table_header = ['ライン名', 'タクト','稼働率', '良品率', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['ライン名', 'タクト','稼働率', '良品率', 'アクティブ']
+    admin_table_header = ['組付ライン', 'ライン名', 'タクト','稼働率', '良品率', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['組付ライン', 'ライン名', 'タクト','稼働率', '良品率', 'アクティブ']
     search_fields = ['name']
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['lines'] = AssemblyLine.get_active_names()
+
+        return context
 
     def get_edit_data(self, data):
         try:
@@ -32,6 +38,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
                 'status': 'success',
                 'data': {
                     'id': data.id,
+                    'assembly_id': data.assembly.id if data.assembly else '',
                     'name': data.name,
                     'occupancy_rate': data.occupancy_rate * 100,
                     'tact': data.tact,
@@ -52,9 +59,11 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
         try:
             errors = {}
             name = data.get('name').strip()
+            assembly_id = data.get('assembly_id')
             active = data.get('active') == 'on'
             if not name:
                 errors['name'] = 'ライン名は必須です。'
+            print(assembly_id)
 
             if active:
                 if self.crud_model.validate_name_unique(name, pk):
@@ -68,6 +77,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
     def create_model(self, data, user, files=None):
         try:
             return self.crud_model.objects.create(
+                assembly_id=data.get('assembly_id') if data.get('assembly_id') else None,
                 name=data.get('name').strip(),
                 occupancy_rate=float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0,
                 tact=float(data.get('tact')) if data.get('tact') else 0,
@@ -81,6 +91,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
 
     def update_model(self, model, data, user, files=None):
         try:
+            model.assembly_id = data.get('assembly_id') if data.get('assembly_id') else None
             model.name = data.get('name').strip()
             model.occupancy_rate = float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0
             model.tact = float(data.get('tact')) if data.get('tact') else 0
@@ -102,6 +113,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
                     formatted_data.append({
                         'id': row.id,
                         'fields': [
+                            row.assembly.name if row.assembly else '',
                             row.name,
                             float(row.occupancy_rate) * 100,
                             row.tact,
@@ -117,6 +129,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
                 for row in page_obj:
                     formatted_data.append({
                         'fields': [
+                            row.assembly.name if row.assembly else '',
                             row.name,
                             float(row.occupancy_rate) * 100,
                             row.tact,
