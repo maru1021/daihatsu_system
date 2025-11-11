@@ -24,7 +24,6 @@ class Line(MasterMethodMixin, models.Model):
 
 
 class AssemblyLine(Line):
-    yield_rate = models.FloatField('良品率', null=True, blank=True, default=0)
     tact = models.FloatField('タクト', null=True, blank=True, default=0)
 
     class Meta:
@@ -33,6 +32,7 @@ class AssemblyLine(Line):
 
 
 class MachiningLine(Line):
+    assembly = models.ForeignKey(AssemblyLine, on_delete=models.CASCADE, verbose_name='組付ライン', related_name='machining_lines', null=True, blank=True)
     yield_rate = models.FloatField('良品率', null=True, blank=True, default=0)
     tact = models.FloatField('タクト', null=True, blank=True, default=0)
 

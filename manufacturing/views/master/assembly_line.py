@@ -13,7 +13,7 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
     page_title = '組付ライン管理'
     crud_model = AssemblyLine
     table_model = AssemblyLine.objects.only(
-        'id', 'name', 'occupancy_rate', 'tact', 'yield_rate', 'active', 'last_updated_user'
+        'id', 'name', 'occupancy_rate', 'tact', 'active', 'last_updated_user'
     )
     form_dir = 'master/assembly_line'
     form_action_url = 'manufacturing:assembly_line_master'
@@ -22,8 +22,8 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
     excel_export_url = 'manufacturing:assembly_line_export_excel'
     excel_import_url = 'manufacturing:assembly_line_import_excel'
     pdf_export_url = 'manufacturing:assembly_line_export_pdf'
-    admin_table_header = ['ライン名', '稼働率', 'タクト', '良品率', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['ライン名', '稼働率', 'タクト', '良品率', 'アクティブ']
+    admin_table_header = ['ライン名', '稼働率', 'タクト', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['ライン名', '稼働率', 'タクト', 'アクティブ']
     search_fields = ['name']
 
     def get_edit_data(self, data):
@@ -35,7 +35,6 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
                     'name': data.name,
                     'occupancy_rate': data.occupancy_rate * 100,
                     'tact': data.tact,
-                    'yield_rate': data.yield_rate * 100,
                     'active': data.active
                 },
                 'edit_url': reverse(self.edit_url, kwargs={'pk': data.id}),
@@ -71,7 +70,6 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
                 name=data.get('name').strip(),
                 occupancy_rate=float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0,
                 tact=float(data.get('tact')) if data.get('tact') else 0,
-                yield_rate=float(data.get('yield_rate')) / 100 if data.get('yield_rate') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -84,7 +82,6 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
             model.name = data.get('name').strip()
             model.occupancy_rate = float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0
             model.tact = float(data.get('tact')) if data.get('tact') else 0
-            model.yield_rate = float(data.get('yield_rate')) / 100 if data.get('yield_rate') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
@@ -105,7 +102,6 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
                             row.name,
                             float(row.occupancy_rate) * 100,
                             row.tact,
-                            float(row.yield_rate) * 100,
                             '有効' if row.active else '無効',
                             row.last_updated_user
                         ],
@@ -120,7 +116,6 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
                             row.name,
                             float(row.occupancy_rate) * 100,
                             row.tact,
-                            float(row.yield_rate) * 100,
                             '有効' if row.active else '無効'
                         ],
                     })
@@ -144,7 +139,6 @@ class AssemblyLineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
                 'ライン名': model['name'],
                 '稼働率': float(model['occupancy_rate']) * 100,
                 'タクト': model['tact'],
-                '良品率': float(model['yield_rate']) * 100,
                 'アクティブ': '有効' if model['active'] else '無効'
             } for model in models
         ]
@@ -174,7 +168,6 @@ class AssemblyLineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
                     name=str(row.get('ライン名')).strip(),
                     occupancy_rate=float(row.get('稼働率')) / 100 if row.get('稼働率') else 0,
                     tact=float(row.get('タクト')) if row.get('タクト') else 0,
-                    yield_rate=float(row.get('良品率')) / 100 if row.get('良品率') else 0,
                     active=row.get('アクティブ') != '無効',
                     last_updated_user=user.username if user else None
                 )
@@ -196,7 +189,6 @@ class AssemblyLineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
                 obj.name = str(row['ライン名']).strip()
                 obj.occupancy_rate = float(row.get('稼働率')) / 100 if row.get('稼働率') else 0
                 obj.tact = float(row.get('タクト')) if row.get('タクト') else 0
-                obj.yield_rate = float(row.get('良品率')) / 100 if row.get('良品率') else 0
                 obj.active = row.get('アクティブ') != '無効'
                 obj.last_updated_user = user.username if user else None
                 update_objects.append(obj)
@@ -214,7 +206,7 @@ class AssemblyLineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
 class AssemblyLinePDFView(ManufacturingPermissionMixin, PDFGenerator):
     title = 'ライン一覧'
     data = AssemblyLine.objects.all()
-    headers = ['ID', 'ライン名', '稼働率', 'タクト', '良品率', 'アクティブ', '最終更新者', '作成日時', '更新日時']
+    headers = ['ID', 'ライン名', '稼働率', 'タクト', 'アクティブ', '最終更新者', '作成日時', '更新日時']
     file_name = 'line_master.pdf'
 
     def _format_data(self, data):
@@ -224,7 +216,6 @@ class AssemblyLinePDFView(ManufacturingPermissionMixin, PDFGenerator):
             str(data.name),
             str(data.occupancy_rate * 100),
             str(data.tact),
-            str(data.yield_rate * 100),
             '有効' if data.active else '無効',
             data.last_updated_user if data.last_updated_user else '',
         ]

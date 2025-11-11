@@ -1,12 +1,13 @@
-$BACKUP_DIR = "C:\Users\dkc15588\Desktop\backups"
-$DB_NAME = "daihatsu_kyushu_db"
-$DB_USER = "hogehoge"
+# $BACKUP_DIR = "\\krmfsv2\全社共有\久留米工場-管理室\久留米工場共有\★電子回覧フォルダ\技術課\S(先行検討)\〒まる丘\バックアップ"
+$BACKUP_DIR = "C:\Users\dkc\Desktop\backups"
+$DB_NAME = "dkc"
+$DB_USER = "dkc"
 $PG_BIN = "C:\Program Files\PostgreSQL\17\bin"
 $DATE = Get-Date -Format "yyyyMMdd_HHmmss"
 $BACKUP_FILE = "$BACKUP_DIR\${DB_NAME}_${DATE}.backup"
 $LOG_FILE = "$BACKUP_DIR\backup.log"
 $RETENTION_DAYS = 90
-$PUBLIC_KEY_FILE = "C:\Users\dkc15588\public_key.xml"
+$PUBLIC_KEY_FILE = "C:\Users\dkc\public_key.xml"
 
 # バックアップディレクトリ作成
 if (!(Test-Path $BACKUP_DIR)) {
@@ -14,7 +15,7 @@ if (!(Test-Path $BACKUP_DIR)) {
 }
 
 # PostgreSQLバックアップ実行
-$env:PGPASSWORD = "hugahuga"
+$env:PGPASSWORD = "dkc"
 & "$PG_BIN\pg_dump.exe" -U $DB_USER -F c -b -v --no-owner --no-acl -f $BACKUP_FILE $DB_NAME
 
 if ($LASTEXITCODE -eq 0) {

@@ -7,8 +7,8 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
     template_file = 'production_plan/production_volume_input.html'
 
     def get(self, request, *args, **kwargs):
-        engin_items = AssemblyItem.objects.filter(active=True).only('id', 'name')
+        assembly_items = AssemblyItem.objects.filter(active=True, line__name="#1").only('id', 'name').distinct
         context = {
-            'engine_items': engin_items,
+            'assembly_items': assembly_items,
         }
         return render(request, self.template_file, context)

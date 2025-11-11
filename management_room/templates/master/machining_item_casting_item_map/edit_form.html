@@ -1,0 +1,22 @@
+<div class="mb-3">
+  <label for="id__machining_item_id" class="form-label">加工品番<span class="text-danger">*</span></label>
+  <select class="form-control select2" id="id_machining_item_id" name="machining_item_id">
+    {% for machining_item in machining_items %}
+    <option value="{{ machining_item.id }}">{{ machining_item.line.name }} - {{ machining_item.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="id_casting_item_id" class="form-label">鋳造品番<span class="text-danger">*</span></label>
+  <select class="form-control select2" id="id_casting_item_id" name="casting_item_id">
+    {% for casting_item in casting_items %}
+    <option value="{{ casting_item.id }}">{{ casting_item.line.name }} - {{ casting_item.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <div class="form-check">
+      <input type="checkbox" class="form-check-input" id="id_active" name="active">
+      <label class="form-check-label" for="id_active">有効</label>
+  </div>
+</div>

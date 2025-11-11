@@ -27,9 +27,14 @@ function resetRegisterForm(form) {
         } else if ($(this).prop('type') === 'text' || $(this).prop('type') === 'textarea') {
             $(this).val('');
         } else if ($(this).prop('tagName') === 'SELECT') {
-            // セレクトボックスは最初のオプションを選択
-            if ($(this).find('option').length > 0) {
-                $(this).prop('selectedIndex', 0);
+            // select2の場合は専用のクリア方法を使用
+            if ($(this).hasClass('select2')) {
+                $(this).val('').trigger('change');
+            } else {
+                // 通常のセレクトボックスは最初のオプションを選択
+                if ($(this).find('option').length > 0) {
+                    $(this).prop('selectedIndex', 0);
+                }
             }
         }
     });

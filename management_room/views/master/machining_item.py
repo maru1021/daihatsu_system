@@ -33,7 +33,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 'data': {
                   'id': data.id,
                   'name': data.name,
-                  'line': data.line.id if data.line else '',
+                  'line_id': data.line.id if data.line else '',
                   'active': data.active,
                   'last_updated_user': data.last_updated_user,
               },
