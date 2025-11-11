@@ -9,7 +9,6 @@ class Line(MasterMethodMixin, models.Model):
     id = models.AutoField('ID', primary_key=True)
     name = models.CharField('ライン名', max_length=100, db_index=True)
     occupancy_rate = models.FloatField('稼働率', null=True, blank=True, default=0)
-    yield_rate = models.FloatField('良品率', null=True, blank=True, default=0)
     active = models.BooleanField('アクティブ', default=True)
     last_updated_user = models.CharField('最終更新者', max_length=100, null=True, blank=True)
 
@@ -25,12 +24,18 @@ class Line(MasterMethodMixin, models.Model):
 
 
 class AssemblyLine(Line):
+    yield_rate = models.FloatField('良品率', null=True, blank=True, default=0)
+    tact = models.FloatField('タクト', null=True, blank=True, default=0)
+
     class Meta:
         verbose_name = '組付ライン'
         verbose_name_plural = '組付ライン'
 
 
 class MachiningLine(Line):
+    yield_rate = models.FloatField('良品率', null=True, blank=True, default=0)
+    tact = models.FloatField('タクト', null=True, blank=True, default=0)
+
     class Meta:
         verbose_name = '加工ライン'
         verbose_name_plural = '加工ライン'

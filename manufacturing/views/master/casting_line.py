@@ -13,7 +13,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
     page_title = '鋳造ライン管理'
     crud_model = CastingLine
     table_model = CastingLine.objects.only(
-        'id', 'name', 'occupancy_rate', 'yield_rate', 'active', 'last_updated_user'
+        'id', 'name', 'occupancy_rate', 'active', 'last_updated_user'
     )
     form_dir = 'master/casting_line'
     form_action_url = 'manufacturing:casting_line_master'
@@ -22,8 +22,8 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
     excel_export_url = 'manufacturing:casting_line_export_excel'
     excel_import_url = 'manufacturing:casting_line_import_excel'
     pdf_export_url = 'manufacturing:casting_line_export_pdf'
-    admin_table_header = ['ライン名', '稼働率', '良品率', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['ライン名', '稼働率', '良品率', 'アクティブ']
+    admin_table_header = ['ライン名', '稼働率', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['ライン名', '稼働率', 'アクティブ']
     search_fields = ['name']
 
     def get_edit_data(self, data):
@@ -34,7 +34,6 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
                     'id': data.id,
                     'name': data.name,
                     'occupancy_rate': data.occupancy_rate * 100,
-                    'yield_rate': data.yield_rate * 100,
                     'active': data.active
                 },
                 'edit_url': reverse(self.edit_url, kwargs={'pk': data.id}),
@@ -69,7 +68,6 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
             return self.crud_model.objects.create(
                 name=data.get('name').strip(),
                 occupancy_rate=float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0,
-                yield_rate=float(data.get('yield_rate')) / 100 if data.get('yield_rate') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -81,7 +79,6 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
         try:
             model.name = data.get('name').strip()
             model.occupancy_rate = float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0
-            model.yield_rate = float(data.get('yield_rate')) / 100 if data.get('yield_rate') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
@@ -101,7 +98,6 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
                         'fields': [
                             row.name,
                             float(row.occupancy_rate) * 100,
-                            float(row.yield_rate) * 100,
                             '有効' if row.active else '無効',
                             row.last_updated_user
                         ],
@@ -115,7 +111,6 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
                         'fields': [
                             row.name,
                             float(row.occupancy_rate) * 100,
-                            float(row.yield_rate) * 100,
                             '有効' if row.active else '無効'
                         ],
                     })
@@ -138,7 +133,6 @@ class CastingLineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
                 'ID': model['id'],
                 'ライン名': model['name'],
                 '稼働率': float(model['occupancy_rate']) * 100,
-                '良品率': float(model['yield_rate']) * 100,
                 'アクティブ': '有効' if model['active'] else '無効'
             } for model in models
         ]
@@ -167,7 +161,6 @@ class CastingLineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
                 self.import_model(
                     name=str(row.get('ライン名')).strip(),
                     occupancy_rate=float(row.get('稼働率')) / 100 if row.get('稼働率') else 0,
-                    yield_rate=float(row.get('良品率')) / 100 if row.get('良品率') else 0,
                     active=row.get('アクティブ') != '無効',
                     last_updated_user=user.username if user else None
                 )
@@ -188,7 +181,6 @@ class CastingLineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
                 obj = update_models_dict[obj_id]
                 obj.name = str(row['ライン名']).strip()
                 obj.occupancy_rate = float(row.get('稼働率')) / 100 if row.get('稼働率') else 0
-                obj.yield_rate = float(row.get('良品率')) / 100 if row.get('良品率') else 0
                 obj.active = row.get('アクティブ') != '無効'
                 obj.last_updated_user = user.username if user else None
                 update_objects.append(obj)
@@ -206,7 +198,7 @@ class CastingLineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
 class CastingLinePDFView(ManufacturingPermissionMixin, PDFGenerator):
     title = 'ライン一覧'
     data = CastingLine.objects.all()
-    headers = ['ID', 'ライン名', '稼働率', '良品率', 'アクティブ', '最終更新者', '作成日時', '更新日時']
+    headers = ['ID', 'ライン名', '稼働率', 'アクティブ', '最終更新者', '作成日時', '更新日時']
     file_name = 'line_master.pdf'
 
     def _format_data(self, data):
@@ -215,7 +207,6 @@ class CastingLinePDFView(ManufacturingPermissionMixin, PDFGenerator):
             str(data.id),
             str(data.name),
             str(data.occupancy_rate * 100),
-            str(data.yield_rate * 100),
             '有効' if data.active else '無効',
             data.last_updated_user if data.last_updated_user else '',
         ]

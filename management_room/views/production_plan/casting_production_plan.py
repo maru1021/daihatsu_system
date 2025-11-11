@@ -373,7 +373,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
         item_data = {}
         for item_name in item_names:
             # 品番名で最初に見つかったアイテムのタクトと良品率を使用
-            item_obj = CastingProductionItem.objects.filter(
+            item_obj = CastingItem.objects.filter(
                 line=line,
                 name=item_name,
                 active=True
@@ -554,7 +554,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 品番を取得
                 production_item = None
                 if item_name:
-                    production_item = CastingProductionItem.objects.filter(
+                    production_item = CastingItem.objects.filter(
                         line=line,
                         machine=machine,
                         name=item_name,
@@ -629,7 +629,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 date = dates[date_index]
 
                 # 品番を取得
-                production_item = CastingProductionItem.objects.filter(
+                production_item = CastingItem.objects.filter(
                     line=line,
                     name=item_name,
                     active=True
@@ -668,7 +668,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 date = dates[date_index]
 
                 # この品番を生産している最初の鋳造機のレコードに生産台数を保存
-                production_item = CastingProductionItem.objects.filter(
+                production_item = CastingItem.objects.filter(
                     line=line,
                     name=item_name,
                     active=True
@@ -797,7 +797,7 @@ class AutoProductionPlanView(ManagementRoomPermissionMixin, View):
 
             # 品番マスタデータを取得（品番×鋳造機のペア）
             item_data = {}
-            items = CastingProductionItem.objects.filter(line=line, active=True)
+            items = CastingItem.objects.filter(line=line, active=True)
             for item in items:
                 # 品番と鋳造機のペアをキーにする
                 key = f"{item.name}_{item.machine.id}"
