@@ -3,21 +3,30 @@ from management_room.auth_mixin import ManagementRoomPermissionMixin
 from daihatsu.views.basic_table_view import BasicTableView
 from daihatsu.except_output import except_output
 from management_room.models import AssemblyItem
+from manufacturing.models import AssemblyLine
 
 class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     title = '完成品番'
     page_title = '完成品番管理'
     crud_model = AssemblyItem
     table_model = AssemblyItem.objects.only(
-        'id', 'name', 'is_oneline_only', 'active', 'last_updated_user'
+        'id', 'name', 'line', 'active', 'last_updated_user'
     )
     form_dir = 'master/assembly_item'
     form_action_url = 'management_room:assembly_item_master'
     edit_url = 'management_room:assembly_edit'
     delete_url = 'management_room:assembly_delete'
-    admin_table_header = ['エンジン名', '1ライン専用', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['エンジン名', '1ライン専用', 'アクティブ', '最終更新者']
+    admin_table_header = ['完成品番', 'ライン', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['完成品番', 'ライン', 'アクティブ', '最終更新者']
     search_fields = ['name']
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        lines = AssemblyLine.objects.filter(active=True).order_by('name')
+        machines = AssemblyLine.objects.filter(active=True).order_by('name')
+        context['lines'] = lines
+        context['machines'] = machines
+        return context
 
     def get_edit_data(self, data):
         try:
@@ -26,7 +35,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 'data': {
                     'id': data.id,
                     'name': data.name,
-                    'is_oneline_only': data.is_oneline_only,
+                    'line': data.line.id if data.line else '',
                     'active': data.active,
                     'last_updated_user': data.last_updated_user,
               },
@@ -45,13 +54,14 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             errors = {}
             name = data.get('name', '').strip()
             active = data.get('active') == 'on'
+            line_id = data.get('line_id', '').strip()
 
             if not name:
                 errors['name'] = '品番は必須です。'
 
             # 重複チェック
             if active:
-                query = self.crud_model.objects.filter(name=name, active=True)
+                query = self.crud_model.objects.filter(line_id=line_id, name=name, active=True)
                 if pk:
                     query = query.exclude(id=pk)
                 if query.exists():
@@ -66,7 +76,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
         try:
             return self.crud_model.objects.create(
                 name=data.get('name', '').strip(),
-                is_oneline_only=data.get('is_oneline_only') == 'on',
+                line=AssemblyLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -77,7 +87,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     def update_model(self, model, data, user, files=None):
         try:
             model.name = data.get('name').strip()
-            model.is_oneline_only = data.get('is_oneline_only') == 'on'
+            model.line = AssemblyLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
@@ -97,7 +107,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                         'id': row.id,
                         'fields': [
                             row.name,
-                            '〇' if row.is_oneline_only else '',
+                            row.line.name if row.line else '未設定',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],
@@ -110,7 +120,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     formatted_data.append({
                         'fields': [
                             row.name,
-                            '〇' if row.is_oneline_only else '',
+                            row.line.name if row.line else '未設定',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],

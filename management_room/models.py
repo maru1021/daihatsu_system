@@ -114,7 +114,7 @@ class AkashiOrderList(models.Model):
 
 class AssemblyItem(MasterMethodMixin, models.Model):
     name = models.CharField(verbose_name="完成品番", max_length=100, db_index=True)
-    is_oneline_only = models.BooleanField(verbose_name="1ライン専用", default=True)
+    line = models.ForeignKey('manufacturing.AssemblyLine', on_delete=models.CASCADE, verbose_name="組立ライン", null=True, blank=True, db_index=True)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
@@ -129,12 +129,29 @@ class AssemblyItem(MasterMethodMixin, models.Model):
     def __str__(self):
         return f"{self.name}"
 
+class MachiningItem(MasterMethodMixin, models.Model):
+    line = models.ForeignKey('manufacturing.MachiningLine', on_delete=models.CASCADE, verbose_name="加工ライン", null=True, blank=True, db_index=True)
+    name = models.CharField(verbose_name="品番", max_length=100, null=True, blank=True)
+    active = models.BooleanField(verbose_name="有効", default=True)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "加工品番"
+        verbose_name_plural = "加工品番"
+        ordering = ['-active', 'line', 'name']
+        indexes = [
+            models.Index(fields=['line', 'active', 'name']),
+        ]
+
+    def __str__(self):
+        return f"{self.line.name} - {self.name}"
+
 class CastingItem(MasterMethodMixin, models.Model):
     line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
     machine = models.ForeignKey('manufacturing.CastingMachine', on_delete=models.CASCADE, verbose_name="鋳造機", null=True, blank=True, db_index=True)
     name = models.CharField(verbose_name="品番", max_length=100, null=True, blank=True)
     tact = models.FloatField(verbose_name="タクト", null=True, blank=True, default=0)
-    good_rate = models.FloatField(verbose_name="良品率", null=True, blank=True, default=0)
+    yield_rate = models.FloatField(verbose_name="良品率", null=True, blank=True, default=0)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
@@ -148,6 +165,27 @@ class CastingItem(MasterMethodMixin, models.Model):
 
     def __str__(self):
         return f"{self.line.name} - {self.machine.name} - {self.name}"
+
+
+class DailyAssenblyProductionPlan(models.Model):
+    line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
+    production_item = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
+    date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
+    shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
+    holding_out_count = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "日別組付生産計画"
+        verbose_name_plural = "日別組付生産計画"
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['line', 'date','shift']),
+            models.Index(fields=['line', 'date', 'shift', 'production_item']),
+        ]
+
+    def __str__(self):
+        return f"{self.date} - {self.shift} - {self.production_item.name}"
 
 
 class DailyCastingProductionPlan(models.Model):
