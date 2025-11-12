@@ -317,6 +317,16 @@ tbody th.vehicle-label {
     width: 36px;
 }
 
+/* 生産数入力 */
+.production-input {
+    width: 36px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    padding: 1px;
+    font-size: 9px;
+}
+
 /* 在庫数入力 */
 .inventory-input {
     width: 42px;
