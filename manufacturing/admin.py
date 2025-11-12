@@ -1,10 +1,10 @@
 from django.contrib import admin
-import manufacturing.models
+from manufacturing import models
 
-admin.site.register(manufacturing.models.Line)
-admin.site.register(manufacturing.models.AssemblyLine)
-admin.site.register(manufacturing.models.MachiningLine)
-admin.site.register(manufacturing.models.CastingLine)
-admin.site.register(manufacturing.models.MachiningMachine)
-admin.site.register(manufacturing.models.MachiningToolNo)
-admin.site.register(manufacturing.models.CastingMachine)
+admin.site.register(models.Line)
+admin.site.register(models.AssemblyLine)
+admin.site.register(models.MachiningLine)
+admin.site.register(models.CastingLine)
+admin.site.register(models.MachiningMachine)
+admin.site.register(models.MachiningToolNo)
+admin.site.register(models.CastingMachine)

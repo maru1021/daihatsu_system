@@ -715,7 +715,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             }, status=400)
 
 
-class AutoProductionPlanView(ManagementRoomPermissionMixin, View):
+class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
     """自動生産計画生成"""
 
     def post(self, request, *args, **kwargs):

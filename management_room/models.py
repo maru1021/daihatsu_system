@@ -115,6 +115,7 @@ class AkashiOrderList(models.Model):
 class AssemblyItem(MasterMethodMixin, models.Model):
     name = models.CharField(verbose_name="完成品番", max_length=100, db_index=True)
     line = models.ForeignKey('manufacturing.AssemblyLine', on_delete=models.CASCADE, verbose_name="組立ライン", null=True, blank=True, db_index=True)
+    main_line = models.BooleanField(verbose_name="メインライン", default=False)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
@@ -201,12 +202,34 @@ class MachiningItemCastingItemMap(models.Model):
         return f"{self.machining_item.name} - {self.casting_item.name}"
 
 
+class MonthlyAssemblyProductionPlan(models.Model):
+    month = models.DateField(verbose_name="月", null=True, blank=True, db_index=True)
+    line = models.ForeignKey('manufacturing.AssemblyLine', on_delete=models.CASCADE, verbose_name="組付ライン", null=True, blank=True, db_index=True)
+    production_item = models.ForeignKey(AssemblyItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
+    Quantity = models.IntegerField(verbose_name="数量", null=True, blank=True, default=0)
+
+    class Meta:
+        verbose_name = "月別組付生産計画"
+        verbose_name_plural = "月別組付生産計画"
+        ordering = ['-month', 'line']
+        indexes = [
+            models.Index(fields=['line', 'month']),
+            models.Index(fields=['line', 'month', 'production_item']),
+        ]
+
+    def __str__(self):
+        return f"{self.month} - {self.line} - {self.production_item.name}"
+
+
 class DailyAssenblyProductionPlan(models.Model):
-    line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
-    production_item = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
+    line = models.ForeignKey('manufacturing.AssemblyLine', on_delete=models.CASCADE, verbose_name="組付ライン", null=True, blank=True, db_index=True)
+    production_item = models.ForeignKey(AssemblyItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
     date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
     shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
-    holding_out_count = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
+    production_quantity = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
+    stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
+    overtime = models.IntegerField(verbose_name="生産残業数", null=True, blank=True, default=0)
+    occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:

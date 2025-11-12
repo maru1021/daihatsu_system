@@ -32,14 +32,21 @@
         href="{% url 'management_room:production_volume_input' %}"
       >
         <i class="fas fa-database"></i>
-        生産台数入力
+        完成品番別生産台数入力
+      </a>
+            <a
+        class="nav-link {% if 'management_room:assembly_production_plan' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:assembly_production_plan' %}"
+      >
+        <i class="fas fa-database"></i>
+        組付生産計画
       </a>
       <a
         class="nav-link {% if 'management_room:casting_production_plan' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:casting_production_plan' %}"
       >
         <i class="fas fa-database"></i>
-        鋳造
+        鋳造生産計画
       </a>
       <a
         class="nav-link {% if 'management_room:akashi_order_list' in request.resolver_match.url_name %}active{% endif %}"

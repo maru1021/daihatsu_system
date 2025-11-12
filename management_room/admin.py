@@ -1,7 +1,11 @@
 from django.contrib import admin
-from .models import Department, Employee, DepartmentEmployee, AkashiOrderList
+from management_room import models
 
-admin.site.register(Department)
-admin.site.register(Employee)
-admin.site.register(DepartmentEmployee)
-admin.site.register(AkashiOrderList)
+admin.site.register(models.Department)
+admin.site.register(models.Employee)
+admin.site.register(models.DepartmentEmployee)
+admin.site.register(models.AkashiOrderList)
+admin.site.register(models.MonthlyAssemblyProductionPlan)
+admin.site.register(models.DailyAssenblyProductionPlan)
+admin.site.register(models.DailyCastingProductionPlan)
+admin.site.register(models.DailyMachineCastingProductionPlan)

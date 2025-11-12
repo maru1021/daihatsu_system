@@ -10,15 +10,15 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     page_title = '完成品番管理'
     crud_model = AssemblyItem
     table_model = AssemblyItem.objects.only(
-        'id', 'name', 'line', 'active', 'last_updated_user'
+        'id', 'name', 'line', 'main_line', 'active', 'last_updated_user'
     )
     form_dir = 'master/assembly_item'
     form_action_url = 'management_room:assembly_item_master'
     edit_url = 'management_room:assembly_edit'
     delete_url = 'management_room:assembly_delete'
-    admin_table_header = ['完成品番', 'ライン', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['完成品番', 'ライン', 'アクティブ', '最終更新者']
-    search_fields = ['name']
+    admin_table_header = ['完成品番', 'ライン', 'メイン', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['完成品番', 'ライン', 'メイン','アクティブ', '最終更新者']
+    search_fields = ['name', 'line__name']
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -36,6 +36,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     'id': data.id,
                     'name': data.name,
                     'line_id': data.line.id if data.line else '',
+                    'main_line': data.main_line,
                     'active': data.active,
                     'last_updated_user': data.last_updated_user,
               },
@@ -74,9 +75,14 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
 
     def create_model(self, data, user, files=None):
         try:
+            if data.get('main_line') == 'on':
+                # 同じ品番の他のラインのmain_lineをFalseにする
+                AssemblyItem.objects.filter(name=data.get('name', '').strip()).update(main_line=False)
+
             return self.crud_model.objects.create(
                 name=data.get('name', '').strip(),
                 line=AssemblyLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None,
+                main_line=data.get('main_line') == 'on',
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -86,8 +92,13 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
 
     def update_model(self, model, data, user, files=None):
         try:
+            if data.get('main_line') == 'on':
+                # 同じ品番の他のラインのmain_lineをFalseにする
+                AssemblyItem.objects.filter(name=data.get('name').strip()).exclude(id=model.id).update(main_line=False)
+
             model.name = data.get('name').strip()
             model.line = AssemblyLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None
+            model.main_line = data.get('main_line') == 'on'
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
@@ -108,6 +119,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                         'fields': [
                             row.name,
                             row.line.name if row.line else '未設定',
+                            '〇' if row.main_line else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],
@@ -121,6 +133,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                         'fields': [
                             row.name,
                             row.line.name if row.line else '未設定',
+                            '〇' if row.main_line else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],
