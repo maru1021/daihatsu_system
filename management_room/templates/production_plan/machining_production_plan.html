@@ -7,7 +7,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>組付生産スケジュール - {{ year }}年{{ month }}月</title>
+<title>加工生産スケジュール - {{ year }}年{{ month }}月</title>
 <link href="{% static 'css/vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet" />
 <link href="{% static 'css/vendor/select2/select2.min.css' %}" rel="stylesheet" />
 <link href="{% static 'css/vendor/select2/select2-bootstrap-5-theme.min.css' %}" rel="stylesheet" />
@@ -16,7 +16,7 @@
 <body class="assembly-plan">
 <div class="page-container">
     <div class="header-section">
-        <div class="page-title">組付生産スケジュール</div>
+        <div class="page-title">加工生産スケジュール</div>
         <div class="controls-wrapper">
             <div class="left-controls">
                 <div class="control-row">
@@ -33,27 +33,7 @@
                 </div>
             </div>
 
-            <div class="monthly-plan-card">
-                <div class="monthly-plan-title">📊 月別生産計画</div>
-                <div class="monthly-plan-grid">
-                    {% if monthly_plans %}
-                        {% for plan in monthly_plans %}
-                            <div class="monthly-plan-item" data-item-name="{{ plan.item_name }}">
-                                <div class="monthly-plan-item-name">{{ plan.item_name }}</div>
-                                <div class="monthly-plan-item-quantity">
-                                    {{ plan.quantity }} 台
-                                    <span class="monthly-plan-diff"></span>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    {% else %}
-                        <div class="monthly-plan-empty">データなし</div>
-                    {% endif %}
-                </div>
-            </div>
-
             <div class="right-controls">
-                <button type="button" id="auto-btn" class="auto-btn">自動</button>
                 <button type="button" id="save-btn" class="save-btn">保存</button>
                 <button type="button" id="main-btn" class="main-btn" onclick="window.location.href='/'">メインページ</button>
             </div>
@@ -66,7 +46,7 @@
 <th colspan="3" rowspan="3">完成品番</th>
 <!-- 定時、休出フラグ -->
 {% for date_info in dates_data %}
-<th class="check-cell" data-date="{{ month }}/{{ date_info.day }}" data-date-index="{{ forloop.counter0 }}" data-weekend="{% if date_info.is_weekend %}true{% else %}false{% endif %}" data-has-weekend-work="{% if date_info.has_data %}true{% else %}false{% endif %}" data-regular-hours="{% if date_info.regular_working_hours %}true{% else %}false{% endif %}" onclick="toggleCheck(this)">{% if date_info.regular_working_hours %}定時{% endif %}</th>
+<th class="check-cell" data-date="{{ month }}/{{ date_info.day }}" data-date-index="{{ forloop.counter0 }}" data-weekend="{% if date_info.is_weekend %}true{% else %}false{% endif %}" data-has-weekend-work="{% if date_info.has_data %}true{% else %}false{% endif %}" data-has-assembly-weekend-work="{% if date_info.has_assembly_weekend_work %}true{% else %}false{% endif %}" data-regular-hours="{% if date_info.regular_working_hours %}true{% else %}false{% endif %}" onclick="toggleCheck(this)">{% if date_info.regular_working_hours %}定時{% endif %}</th>
 {% endfor %}
 <th rowspan="3">月計(直)</th>
 <th rowspan="3">月計</th>
@@ -86,6 +66,47 @@
 </tr>
 </thead>
 <tbody>
+
+<!-- 出庫数 -->
+{% for item_name in item_names %}
+<tr data-section="shipment" data-shift="day" data-item="{{ item_name }}">
+  {% if forloop.first %}
+  <th class="category-label" rowspan="{{ production_total_rows }}" style="cursor:move;">
+    出庫数
+  </th>
+  <!-- 日勤 -->
+  <th class="shift-label" rowspan="{{ item_names|length }}">日勤</th>
+  {% endif %}
+  <th class="vehicle-label">{{ item_name }}</th>
+  {% for date_info in dates_data %}
+  {% with day_item=date_info.shifts.day.items|get_item:item_name %}
+  <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
+    <input type="number" class="production-input shipment-input" value="{% if day_item.shipment > 0 %}{{ day_item.shipment }}{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/>
+  </td>
+  {% endwith %}
+  {% endfor %}
+  <td class="monthly-total" data-item="{{ item_name }}"></td>
+  <td class="daily-total shipment-daily-total" data-item="{{ item_name }}"></td>
+</tr>
+{% endfor %}
+
+<!-- 夜勤 -->
+{% for item_name in item_names %}
+<tr class="night-shift" data-section="shipment" data-shift="night" data-item="{{ item_name }}">
+  {% if forloop.first %}
+  <th class="shift-label" rowspan="{{ item_names|length }}">夜勤</th>
+  {% endif %}
+  <th class="vehicle-label">{{ item_name }}</th>
+  {% for date_info in dates_data %}
+  {% with night_item=date_info.shifts.night.items|get_item:item_name %}
+  <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
+    <input type="number" class="production-input shipment-input" value="{% if night_item.shipment > 0 %}{{ night_item.shipment }}{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_info.is_weekend %} style="display:none;"{% endif %}/>
+  </td>
+  {% endwith %}
+  {% endfor %}
+  <td class="monthly-total"></td>
+</tr>
+{% endfor %}
 
 <!-- 生産数 -->
 {% for item_name in item_names %}
@@ -122,6 +143,47 @@
   {% with night_item=date_info.shifts.night.items|get_item:item_name %}
   <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
     <input type="number" class="production-input" value="{% if night_item.production_quantity > 0 %}{{ night_item.production_quantity }}{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_info.is_weekend %} style="display:none;"{% endif %}/>
+  </td>
+  {% endwith %}
+  {% endfor %}
+  <td class="monthly-total"></td>
+</tr>
+{% endfor %}
+
+<!-- 在庫数 -->
+{% for item_name in item_names %}
+<tr data-section="stock" data-shift="day" data-item="{{ item_name }}">
+  {% if forloop.first %}
+  <th class="category-label" rowspan="{{ production_total_rows }}" style="cursor:move;">
+    在庫数
+  </th>
+  <!-- 日勤 -->
+  <th class="shift-label" rowspan="{{ item_names|length }}">日勤</th>
+  {% endif %}
+  <th class="vehicle-label">{{ item_name }}</th>
+  {% for date_info in dates_data %}
+  {% with day_item=date_info.shifts.day.items|get_item:item_name %}
+  <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
+    <input type="number" class="production-input stock-input" value="{% if day_item.stock > 0 %}{{ day_item.stock }}{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/>
+  </td>
+  {% endwith %}
+  {% endfor %}
+  <td class="monthly-total" data-item="{{ item_name }}"></td>
+  <td class="daily-total stock-difference" data-item="{{ item_name }}"></td>
+</tr>
+{% endfor %}
+
+<!-- 夜勤 -->
+{% for item_name in item_names %}
+<tr class="night-shift" data-section="stock" data-shift="night" data-item="{{ item_name }}">
+  {% if forloop.first %}
+  <th class="shift-label" rowspan="{{ item_names|length }}">夜勤</th>
+  {% endif %}
+  <th class="vehicle-label">{{ item_name }}</th>
+  {% for date_info in dates_data %}
+  {% with night_item=date_info.shifts.night.items|get_item:item_name %}
+  <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
+    <input type="number" class="production-input stock-input" value="{% if night_item.stock > 0 %}{{ night_item.stock }}{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_info.is_weekend %} style="display:none;"{% endif %}/>
   </td>
   {% endwith %}
   {% endfor %}
@@ -200,10 +262,6 @@
 <script>
     // 品番データ（タクト）
     itemData = {{ item_data_json|safe }};
-    // 月別計画の品番ごとの割合
-    monthlyPlanRatios = {{ monthly_plan_ratios|safe }};
-    // 月別計画の品番ごとの数量
-    monthlyPlanQuantities = {{ monthly_plan_quantities|safe }};
 </script>
 
 <!-- 外部JavaScriptファイルを読み込む -->
@@ -211,6 +269,6 @@
 <script src="{% static 'js/vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
 <script src="{% static 'js/vendor/select2/select2.min.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
-<script src="{% static 'js/assembly_production_plan.js' %}"></script>
+<script src="{% static 'js/machining_production_plan.js' %}"></script>
 </body>
 </html>
