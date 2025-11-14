@@ -3,26 +3,28 @@ from management_room.auth_mixin import ManagementRoomPermissionMixin
 from daihatsu.views.basic_table_view import BasicTableView
 from daihatsu.except_output import except_output
 from management_room.models import MachiningItem
-from manufacturing.models import MachiningLine
+from manufacturing.models import AssemblyLine, MachiningLine
 
 class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     title = '加工品番'
     page_title = '加工品番管理'
     crud_model = MachiningItem
-    table_model = MachiningItem.objects.select_related('line').only(
-        'id', 'line__name', 'name', 'active', 'last_updated_user'
+    table_model = MachiningItem.objects.select_related('assembly_line', 'line').only(
+        'id', 'assembly_line__name', 'line__name', 'name', 'active', 'last_updated_user'
     )
     form_dir = 'master/machining_item'
     form_action_url = 'management_room:machining_item_master'
     edit_url = 'management_room:machining_item_edit'
     delete_url = 'management_room:machining_item_delete'
-    admin_table_header = ['ライン名', '品番', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['ライン名', '品番', 'アクティブ', '最終更新者']
-    search_fields = ['line__name', 'name']
+    admin_table_header = ['組付ライン', 'ライン名', '品番', 'メイン', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['組付ライン', 'ライン名', '品番', 'メイン', 'アクティブ', '最終更新者']
+    search_fields = ['assembly_line__name', 'line__name', 'name']
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        lines = MachiningLine.objects.filter(active=True).order_by('name')
+        assembly_lines = AssemblyLine.objects.filter(active=True)
+        lines = MachiningLine.objects.filter(active=True)
+        context['assembly_lines'] = assembly_lines
         context['lines'] = lines
         return context
 
@@ -33,7 +35,10 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 'data': {
                   'id': data.id,
                   'name': data.name,
+                  'assembly_line_id': data.assembly_line.id if data.assembly_line else '',
                   'line_id': data.line.id if data.line else '',
+                  'order': data.order,
+                  'main_line': data.main_line,
                   'active': data.active,
                   'last_updated_user': data.last_updated_user,
               },
@@ -53,6 +58,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             name = data.get('name', '').strip()
             active = data.get('active') == 'on'
             line_id = data.get('line_id', '').strip()
+            assembly_line_id = data.get('assembly_line_id', '').strip()
 
             if not line_id:
                 errors['line'] = 'ラインは必須です。'
@@ -61,7 +67,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
 
             # 重複チェック
             if active:
-                query = self.crud_model.objects.filter(line_id=line_id, name=name, active=True)
+                query = self.crud_model.objects.filter(assembly_line_id=assembly_line_id, line_id=line_id, name=name, active=True)
                 if pk:
                     query = query.exclude(id=pk)
                 if query.exists():
@@ -76,7 +82,10 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
         try:
             return self.crud_model.objects.create(
                 name=data.get('name', '').strip(),
+                assembly_line=AssemblyLine.objects.get(id=data.get('assembly_line_id', '').strip()) if data.get('assembly_line_id', '').strip() else None,
                 line=MachiningLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None,
+                order=data.get('order') if data.get('order') else 0,
+                main_line=data.get('main_line') == 'on',
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -87,7 +96,10 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     def update_model(self, model, data, user, files=None):
         try:
             model.name = data.get('name').strip()
+            model.assembly_line = AssemblyLine.objects.get(id=data.get('assembly_line_id', '').strip()) if data.get('assembly_line_id', '').strip() else None
             model.line = MachiningLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None
+            model.order = data.get('order') if data.get('order') else 0
+            model.main_line = data.get('main_line') == 'on'
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
@@ -106,8 +118,10 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     formatted_data.append({
                         'id': row.id,
                         'fields': [
+                            row.assembly_line.name if row.assembly_line else '未設定',
                             row.line.name if row.line else '未設定',
                             row.name,
+                            '〇' if row.main_line else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],
@@ -120,8 +134,10 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 for row in page_obj:
                     formatted_data.append({
                         'fields': [
+                            row.assembly_line.name if row.assembly_line else '未設定',
                             row.line.name if row.line else '未設定',
                             row.name,
+                            '〇' if row.main_line else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],

@@ -23,9 +23,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         lines = AssemblyLine.objects.filter(active=True).order_by('name')
-        machines = AssemblyLine.objects.filter(active=True).order_by('name')
         context['lines'] = lines
-        context['machines'] = machines
         return context
 
     def get_edit_data(self, data):
@@ -36,6 +34,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     'id': data.id,
                     'name': data.name,
                     'line_id': data.line.id if data.line else '',
+                    'order': data.order,
                     'main_line': data.main_line,
                     'active': data.active,
                     'last_updated_user': data.last_updated_user,
@@ -83,6 +82,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 name=data.get('name', '').strip(),
                 line=AssemblyLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None,
                 main_line=data.get('main_line') == 'on',
+                order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -100,6 +100,7 @@ class AssemblyItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             model.line = AssemblyLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None
             model.main_line = data.get('main_line') == 'on'
             model.active = data.get('active') == 'on'
+            model.order = data.get('order') if data.get('order') else 0
             model.last_updated_user = user.username if user else None
             model.save()
 

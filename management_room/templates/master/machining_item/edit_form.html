@@ -1,5 +1,13 @@
 <div class="mb-3">
-  <label for="id_line_id" class="form-label line-select">ライン<span class="text-danger">*</span></label>
+  <label for="id_assembly_line_id" class="form-label">組付ライン<span class="text-danger">*</span></label>
+  <select class="form-control select2" id="id_assembly_line_id" name="assembly_line_id">
+    {% for assembly_line in assembly_lines %}
+    <option value="{{ assembly_line.id }}">{{ assembly_line.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="id_line_id" class="form-label">ライン<span class="text-danger">*</span></label>
   <select class="form-control select2" id="id_line_id" name="line_id">
     {% for line in lines %}
     <option value="{{ line.id }}">{{ line.name }}</option>
@@ -9,6 +17,16 @@
 <div class="mb-3">
   <label for="id_name" class="form-label">品番<span class="text-danger">*</span></label>
   <input type="text" class="form-control" id="id_name" name="name">
+</div>
+<div class="mb-3">
+  <label for="id_order" class="form-label">並び順<span class="text-danger">*</span></label>
+  <input type="number" class="form-control" id="id_order" name="order">
+</div>
+<div class="mb-3">
+  <div class="form-check">
+      <input type="checkbox" class="form-check-input" id="id_main_line" name="main_line">
+      <label class="form-check-label" for="id_main_line">メイン</label>
+  </div>
 </div>
 <div class="mb-3">
   <div class="form-check">

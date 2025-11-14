@@ -29,7 +29,6 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
         return context
 
     def get_edit_data(self, data):
-        print(data.machine)
         try:
             response_data = {
                 'status': 'success',
@@ -40,6 +39,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                   'machine_id': data.machine.id if data.machine else '',
                   'tact': data.tact,
                   'yield_rate': data.yield_rate * 100 if data.yield_rate else 0,
+                  'order': data.order,
                   'active': data.active,
                   'last_updated_user': data.last_updated_user,
               },
@@ -89,6 +89,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 machine=CastingMachine.objects.get(id=data.get('machine_id', '').strip()) if data.get('machine_id', '').strip() else None,
                 tact=data.get('tact', '').strip() if data.get('tact', '').strip() else 0,
                 yield_rate=float(data.get('yield_rate', '').strip()) / 100 if data.get('yield_rate', '').strip() else 0,
+                order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -103,6 +104,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             model.machine = CastingMachine.objects.get(id=data.get('machine_id', '').strip()) if data.get('machine_id', '').strip() else None
             model.tact = data.get('tact', '').strip() if data.get('tact', '').strip() else 0
             model.yield_rate = float(data.get('yield_rate', '').strip()) / 100 if data.get('yield_rate', '').strip() else 0
+            model.order = data.get('order') if data.get('order') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
