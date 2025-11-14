@@ -77,11 +77,11 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                     key = (date, shift, item_name)
                     if key in plans_map:
                         plan = plans_map[key]
-                        # 品番データ（生産数、在庫数、出庫数を含む）
+                        # 品番データ（データベースに保存されている値をそのまま使用）
                         date_info['shifts'][shift]['items'][item_name] = {
-                            'production_quantity': plan.production_quantity or 0,
-                            'stock': plan.stock or 0,
-                            'shipment': plan.shipment or 0
+                            'production_quantity': plan.production_quantity if plan.production_quantity is not None else 0,
+                            'stock': plan.stock if plan.stock is not None else 0,
+                            'shipment': plan.shipment if plan.shipment is not None else 0
                         }
                         # データがあることを記録
                         date_info['has_data'] = True
@@ -94,11 +94,11 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                         if first_plan_for_shift is None:
                             first_plan_for_shift = plan
                     else:
-                        # データがない場合
+                        # データがない場合はNone
                         date_info['shifts'][shift]['items'][item_name] = {
-                            'production_quantity': 0,
-                            'stock': 0,
-                            'shipment': 0
+                            'production_quantity': None,
+                            'stock': None,
+                            'shipment': None
                         }
 
                 # シフトごとのデータ（stop_time、overtime）
@@ -221,6 +221,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             # JSONデータを取得
             data = json.loads(request.body)
             dates_data = data.get('dates_data', [])
+            dates_to_delete = data.get('dates_to_delete', [])
 
             # 対象期間を取得
             if request.GET.get('year') and request.GET.get('month'):
@@ -245,6 +246,15 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
             # ユーザー名を取得
             username = request.user.username if request.user.is_authenticated else 'system'
+
+            # 削除対象の日付のデータを削除
+            deleted_count = 0
+            if dates_to_delete:
+                delete_dates = [dates[idx] for idx in dates_to_delete if idx < len(dates)]
+                deleted_count = DailyMachiningProductionPlan.objects.filter(
+                    line=line,
+                    date__in=delete_dates
+                ).delete()[0]
 
             # 既存データを取得（一括取得）
             existing_plans_list = DailyMachiningProductionPlan.objects.filter(
@@ -331,9 +341,19 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             if plans_to_create:
                 DailyMachiningProductionPlan.objects.bulk_create(plans_to_create)
 
+            message_parts = []
+            if deleted_count > 0:
+                message_parts.append(f'削除: {deleted_count}件')
+            if len(plans_to_update) > 0:
+                message_parts.append(f'更新: {len(plans_to_update)}件')
+            if len(plans_to_create) > 0:
+                message_parts.append(f'新規: {len(plans_to_create)}件')
+
+            message = '保存しました（' + '、'.join(message_parts) + '）' if message_parts else '保存しました'
+
             return JsonResponse({
                 'status': 'success',
-                'message': f'保存しました（更新: {len(plans_to_update)}件、新規: {len(plans_to_create)}件）'
+                'message': message
             })
 
         except Exception as e:

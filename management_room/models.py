@@ -116,13 +116,14 @@ class AssemblyItem(MasterMethodMixin, models.Model):
     name = models.CharField(verbose_name="完成品番", max_length=100, db_index=True)
     line = models.ForeignKey('manufacturing.AssemblyLine', on_delete=models.CASCADE, verbose_name="組立ライン", null=True, blank=True, db_index=True)
     main_line = models.BooleanField(verbose_name="メインライン", default=False)
+    order = models.IntegerField(verbose_name="表示順", null=True, blank=True, default=0)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
         verbose_name = "完成品番"
         verbose_name_plural = "完成品番"
-        ordering = ['-active', 'line', 'name']
+        ordering = ['-active', 'line', 'order']
         indexes = [
             models.Index(fields=['active', 'name']),
         ]
@@ -131,17 +132,20 @@ class AssemblyItem(MasterMethodMixin, models.Model):
         return f"{self.name}"
 
 class MachiningItem(MasterMethodMixin, models.Model):
+    assembly_line = models.ForeignKey('manufacturing.AssemblyLine', on_delete=models.CASCADE, verbose_name="組付ライン", null=True, blank=True, db_index=True)
     line = models.ForeignKey('manufacturing.MachiningLine', on_delete=models.CASCADE, verbose_name="加工ライン", null=True, blank=True, db_index=True)
     name = models.CharField(verbose_name="品番", max_length=100, null=True, blank=True)
+    main_line = models.BooleanField(verbose_name="メインライン", default=False)
+    order = models.IntegerField(verbose_name="表示順", null=True, blank=True, default=0)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
         verbose_name = "加工品番"
         verbose_name_plural = "加工品番"
-        ordering = ['-active', 'line', 'name']
+        ordering = ['-active', 'assembly_line', 'line', 'name']
         indexes = [
-            models.Index(fields=['line', 'active', 'name']),
+            models.Index(fields=['line', 'active', 'order']),
         ]
 
     def __str__(self):
@@ -153,13 +157,14 @@ class CastingItem(MasterMethodMixin, models.Model):
     name = models.CharField(verbose_name="品番", max_length=100, null=True, blank=True)
     tact = models.FloatField(verbose_name="タクト", null=True, blank=True, default=0)
     yield_rate = models.FloatField(verbose_name="良品率", null=True, blank=True, default=0)
+    order = models.IntegerField(verbose_name="表示順", null=True, blank=True, default=0)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
         verbose_name = "鋳造品番"
         verbose_name_plural = "鋳造品番"
-        ordering = ['-active', 'line', 'machine', 'name']
+        ordering = ['-active', 'line', 'machine', 'order']
         indexes = [
             models.Index(fields=['line', 'machine', 'active', 'name']),
         ]

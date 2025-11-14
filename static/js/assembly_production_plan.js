@@ -96,7 +96,8 @@ function updateProductionQuantity(dateIndex, shift, itemName, forceUpdate = fals
     if (!productionInput || productionInput.style.display === 'none') return;
 
     // 強制更新フラグがfalseで既にデータが入力されている場合はスキップ
-    if (!forceUpdate && productionInput.value && parseInt(productionInput.value) > 0) {
+    // 値が空文字列でなければデータが入力されていると判断（0も含む）
+    if (!forceUpdate && productionInput.value !== '') {
         return;
     }
 
@@ -314,36 +315,49 @@ function setOvertimeLimit(dateIndex, shift, max) {
     }
 }
 
-// 週末の休出状態を初期化
+// 週末の休出状態と平日の定時状態を初期化
 function initializeWeekendWorkingStatus() {
     document.querySelectorAll('.check-cell').forEach((checkCell, index) => {
+        const dateIndex = index;
         const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
-        if (!isWeekend) return;
+        const isRegularHours = checkCell.getAttribute('data-regular-hours') === 'true';
 
-        const hasWeekendWork = checkCell.getAttribute('data-has-weekend-work') === 'true';
+        if (isWeekend) {
+            // 週末の場合
+            const hasWeekendWork = checkCell.getAttribute('data-has-weekend-work') === 'true';
 
-        if (hasWeekendWork) {
-            checkCell.textContent = '休出';
-            checkCell.setAttribute('data-regular-hours', 'false');
-        } else {
-            checkCell.textContent = '';
-            checkCell.setAttribute('data-regular-hours', 'false');
-            const dateIndex = index;
+            if (hasWeekendWork) {
+                checkCell.textContent = '休出';
+                checkCell.setAttribute('data-regular-hours', 'false');
+                // 休出状態を適用（初期化フラグをtrueに）
+                updateWorkingDayStatus(dateIndex, true);
+            } else {
+                checkCell.textContent = '';
+                checkCell.setAttribute('data-regular-hours', 'false');
 
-            // 稼働率の入力フィールドを非表示
-            const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
-            if (occupancyRateInput) {
-                occupancyRateInput.style.display = 'none';
+                // 稼働率の入力フィールドを非表示
+                const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
+                if (occupancyRateInput) {
+                    occupancyRateInput.style.display = 'none';
+                }
+
+                toggleInputs(dateIndex, 'day', false);
+                toggleInputs(dateIndex, 'night', false);
             }
-
-            toggleInputs(dateIndex, 'day', false);
-            toggleInputs(dateIndex, 'night', false);
+        } else {
+            // 平日の場合
+            if (isRegularHours) {
+                checkCell.textContent = '定時';
+                checkCell.setAttribute('data-regular-hours', 'true');
+                // 定時状態を適用（初期化フラグをtrueに）
+                updateWorkingDayStatus(dateIndex, true);
+            }
         }
     });
 }
 
 // 稼働日状態の更新
-function updateWorkingDayStatus(dateIndex) {
+function updateWorkingDayStatus(dateIndex, isInitializing = false) {
     const checkCells = document.querySelectorAll('.check-cell');
     const checkCell = checkCells[dateIndex];
     if (!checkCell) return;
@@ -364,12 +378,12 @@ function updateWorkingDayStatus(dateIndex) {
         toggleInputs(dateIndex, 'day', isWorking);
         toggleInputs(dateIndex, 'night', false); // 夜勤は週末は常に非表示
 
-        // 残業計画の上限値を設定
-        setOvertimeLimit(dateIndex, 'day', isWorking ? null : 0);
-        setOvertimeLimit(dateIndex, 'night', isWorking ? null : 0);
+        // 残業計画の上限値を設定（休出は残業0）
+        setOvertimeLimit(dateIndex, 'day', isWorking ? 0 : 0);
+        setOvertimeLimit(dateIndex, 'night', isWorking ? 0 : 0);
 
-        // 休出の場合、生産数の初期値を計算
-        if (isWorking) {
+        // 休出の場合、初期化時以外は生産数を計算
+        if (isWorking && !isInitializing) {
             updateAllItemsProduction(dateIndex, ['day'], false);
         }
     } else {
@@ -381,8 +395,10 @@ function updateWorkingDayStatus(dateIndex) {
             setOvertimeLimit(dateIndex, 'day', 0);
             setOvertimeLimit(dateIndex, 'night', OVERTIME_MAX_NIGHT);
 
-            // 定時時に日勤の生産数を再計算（残業0で）
-            updateAllItemsProduction(dateIndex, ['day'], true);
+            // 初期化時以外は日勤の生産数を再計算（残業0で）
+            if (!isInitializing) {
+                updateAllItemsProduction(dateIndex, ['day'], true);
+            }
         } else {
             // 定時でない場合は上限を元に戻す
             setOvertimeLimit(dateIndex, 'day', OVERTIME_MAX_DAY);
@@ -423,12 +439,20 @@ function saveProductionPlan() {
     const dateCount = document.querySelectorAll('.operation-rate-input').length;
     const itemNames = getItemNames();
     const datesData = [];
+    const datesToDelete = []; // 削除する日付のインデックス
 
     for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
         const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
         const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"]`);
         const checkText = checkCell ? checkCell.textContent.trim() : '';
         const isWeekend = checkCell ? checkCell.getAttribute('data-weekend') === 'true' : false;
+        const hadWeekendWork = checkCell ? checkCell.getAttribute('data-has-weekend-work') === 'true' : false;
+
+        // 週末で元々休出があったが、今は休出がない場合は削除対象
+        if (isWeekend && hadWeekendWork && checkText !== '休出') {
+            datesToDelete.push(dateIndex);
+            continue;
+        }
 
         // 週末で休出がない場合はスキップ
         if (isWeekend && checkText !== '休出') {
@@ -460,8 +484,17 @@ function saveProductionPlan() {
                 const productionInput = getInputElement(
                     `.production-input[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"]`
                 );
-                if (productionInput && productionInput.style.display !== 'none') {
-                    shiftData.items[itemName] = parseInt(productionInput.value) || 0;
+                // 休出の場合は表示状態に関わらず値を取得
+                if (productionInput) {
+                    // 値が空の場合は0、それ以外はparseIntで変換
+                    const value = productionInput.value === '' ? 0 : parseInt(productionInput.value);
+                    // 週末の休出の場合、または平日で表示されている場合
+                    if ((isWeekend && checkText === '休出') || (!isWeekend && productionInput.style.display !== 'none')) {
+                        shiftData.items[itemName] = value;
+                    } else if (productionInput.style.display !== 'none') {
+                        // 上記以外で表示されている場合も値を取得
+                        shiftData.items[itemName] = value;
+                    }
                 }
             });
 
@@ -485,6 +518,12 @@ function saveProductionPlan() {
     const targetMonth = $('#target-month').val();
     const [year, month] = targetMonth.split('-');
 
+    // デバッグ用：送信データを確認
+    console.log('保存データ:', {
+        dates_data: datesData,
+        dates_to_delete: datesToDelete
+    });
+
     // 保存リクエスト送信
     fetch(`?line=${lineId}&year=${year}&month=${month}`, {
         method: 'POST',
@@ -492,7 +531,10 @@ function saveProductionPlan() {
             'Content-Type': 'application/json',
             'X-CSRFToken': csrfToken
         },
-        body: JSON.stringify({ dates_data: datesData })
+        body: JSON.stringify({
+            dates_data: datesData,
+            dates_to_delete: datesToDelete
+        })
     })
         .then(response => response.json())
         .then(data => {
