@@ -41,6 +41,14 @@
         <i class="fas fa-database"></i>
         組付生産計画
       </a>
+      </a>
+            <a
+        class="nav-link {% if 'management_room:machining_production_plan' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:machining_production_plan' %}"
+      >
+        <i class="fas fa-database"></i>
+        加工生産計画
+      </a>
       <a
         class="nav-link {% if 'management_room:casting_production_plan' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:casting_production_plan' %}"

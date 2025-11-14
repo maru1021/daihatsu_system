@@ -206,7 +206,7 @@ class MonthlyAssemblyProductionPlan(models.Model):
     month = models.DateField(verbose_name="月", null=True, blank=True, db_index=True)
     line = models.ForeignKey('manufacturing.AssemblyLine', on_delete=models.CASCADE, verbose_name="組付ライン", null=True, blank=True, db_index=True)
     production_item = models.ForeignKey(AssemblyItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
-    Quantity = models.IntegerField(verbose_name="数量", null=True, blank=True, default=0)
+    quantity = models.IntegerField(verbose_name="数量", null=True, blank=True, default=0)
 
     class Meta:
         verbose_name = "月別組付生産計画"
@@ -230,6 +230,7 @@ class DailyAssenblyProductionPlan(models.Model):
     stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
     overtime = models.IntegerField(verbose_name="生産残業数", null=True, blank=True, default=0)
     occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
+    regular_working_hours = models.BooleanField(verbose_name="定時", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
@@ -243,6 +244,33 @@ class DailyAssenblyProductionPlan(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.shift} - {self.production_item.name}"
+
+
+class DailyMachiningProductionPlan(models.Model):
+    line = models.ForeignKey('manufacturing.MachiningLine', on_delete=models.CASCADE, verbose_name="加工ライン", null=True, blank=True, db_index=True)
+    production_item = models.ForeignKey(MachiningItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
+    date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
+    shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
+    production_quantity = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
+    stock = models.IntegerField(verbose_name="在庫数", null=True, blank=True, default=0)
+    shipment = models.IntegerField(verbose_name="出荷数", null=True, blank=True, default=0)
+    stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
+    overtime = models.IntegerField(verbose_name="生産残業数", null=True, blank=True, default=0)
+    occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
+    regular_working_hours = models.BooleanField(verbose_name="定時", default=True)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "日別加工生産計画"
+        verbose_name_plural = "日別加工生産計画"
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['line', 'date','shift']),
+            models.Index(fields=['line', 'date', 'shift', 'production_item']),
+        ]
+
+    def __str__(self):
+        return f"{self.date} - {self.shift} - { self.line.name} - {self.production_item.name}"
 
 
 class DailyCastingProductionPlan(models.Model):

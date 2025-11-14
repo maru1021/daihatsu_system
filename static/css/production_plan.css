@@ -3,7 +3,7 @@
    ======================================== */
 :root {
     /* 基本色 */
-    --primary-blue: #2196F3;
+    --primary-blue: #81c3f9;
     --light-blue: #e3f2fd;
     --dark-blue: #1565C0;
     --border-color: #ddd;
@@ -39,6 +39,15 @@ body {
     font-family: Arial, sans-serif;
     padding: 10px;
     background-color: var(--bg-gray);
+}
+
+/* 組付生産計画用のbodyスタイル */
+body.assembly-plan {
+    background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
+    min-height: 100vh;
+    padding: 20px;
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 h1 {
@@ -172,7 +181,8 @@ table {
     font-size: 10px;
 }
 
-th, td {
+th,
+td {
     border: 1px solid var(--border-color);
     padding: 2px 1px;
     text-align: center;
@@ -208,12 +218,20 @@ tr:hover td.weekend {
     background-color: var(--weekend-hover);
 }
 
+tr:hover th.vehicle-label {
+    background-color: #fff9c4 !important;
+}
+
 tr.night-shift:hover td {
     background-color: var(--night-shift-hover) !important;
 }
 
 tr.night-shift:hover td.weekend {
     background-color: var(--weekend-hover) !important;
+}
+
+tr.night-shift:hover th.vehicle-label {
+    background-color: #fff9c4 !important;
 }
 
 /* ========================================
@@ -283,6 +301,8 @@ tbody th.facility-number {
 tbody th.vehicle-label {
     min-width: 48px;
     left: 24px;
+    background-color: #dbeafe;
+    font-weight: 700;
 }
 
 /* ========================================
@@ -419,11 +439,25 @@ tbody th.vehicle-label {
 /* ========================================
    車種カラー - tdセル用
    ======================================== */
-.vehicle-vet { background-color: var(--vehicle-vet) !important; }
-.vehicle-vet2 { background-color: var(--vehicle-vet2) !important; }
-.vehicle-ve4 { background-color: var(--vehicle-ve4) !important; }
-.vehicle-ve5 { background-color: var(--vehicle-ve5) !important; }
-.vehicle-ve7 { background-color: var(--vehicle-ve7) !important; }
+.vehicle-vet {
+    background-color: var(--vehicle-vet) !important;
+}
+
+.vehicle-vet2 {
+    background-color: var(--vehicle-vet2) !important;
+}
+
+.vehicle-ve4 {
+    background-color: var(--vehicle-ve4) !important;
+}
+
+.vehicle-ve5 {
+    background-color: var(--vehicle-ve5) !important;
+}
+
+.vehicle-ve7 {
+    background-color: var(--vehicle-ve7) !important;
+}
 
 /* 車種カラー - spanタグ用 */
 span.vehicle-vet,
@@ -437,18 +471,46 @@ span.vehicle-ve7 {
     font-weight: bold;
 }
 
-span.vehicle-vet { background-color: var(--vehicle-vet); }
-span.vehicle-vet2 { background-color: var(--vehicle-vet2); }
-span.vehicle-ve4 { background-color: var(--vehicle-ve4); }
-span.vehicle-ve5 { background-color: var(--vehicle-ve5); }
-span.vehicle-ve7 { background-color: var(--vehicle-ve7); }
+span.vehicle-vet {
+    background-color: var(--vehicle-vet);
+}
+
+span.vehicle-vet2 {
+    background-color: var(--vehicle-vet2);
+}
+
+span.vehicle-ve4 {
+    background-color: var(--vehicle-ve4);
+}
+
+span.vehicle-ve5 {
+    background-color: var(--vehicle-ve5);
+}
+
+span.vehicle-ve7 {
+    background-color: var(--vehicle-ve7);
+}
 
 /* 車種カラー - selectタグ用 */
-.vehicle-select[data-vehicle="VET"] { background-color: var(--vehicle-vet); }
-.vehicle-select[data-vehicle="VET2"] { background-color: var(--vehicle-vet2); }
-.vehicle-select[data-vehicle="VE4"] { background-color: var(--vehicle-ve4); }
-.vehicle-select[data-vehicle="VE5"] { background-color: var(--vehicle-ve5); }
-.vehicle-select[data-vehicle="VE7"] { background-color: var(--vehicle-ve7); }
+.vehicle-select[data-vehicle="VET"] {
+    background-color: var(--vehicle-vet);
+}
+
+.vehicle-select[data-vehicle="VET2"] {
+    background-color: var(--vehicle-vet2);
+}
+
+.vehicle-select[data-vehicle="VE4"] {
+    background-color: var(--vehicle-ve4);
+}
+
+.vehicle-select[data-vehicle="VE5"] {
+    background-color: var(--vehicle-ve5);
+}
+
+.vehicle-select[data-vehicle="VE7"] {
+    background-color: var(--vehicle-ve7);
+}
 
 /* ========================================
    定時チェックセル
@@ -477,4 +539,232 @@ span.vehicle-ve7 { background-color: var(--vehicle-ve7); }
 /* 品番が変更されたセル */
 .item-changed {
     background-color: #fff9c4 !important;
+}
+
+/* ========================================
+   組付生産計画専用スタイル
+   ======================================== */
+.page-container {
+    max-width: 98%;
+    margin: 0 auto;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+    padding: 30px;
+}
+
+.header-section {
+    margin-bottom: 30px;
+}
+
+.page-title {
+    font-size: 1.8em;
+    font-weight: 700;
+    color: #1e40af;
+    margin-bottom: 20px;
+    text-align: left;
+    letter-spacing: 1px;
+}
+
+.controls-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 30px;
+    flex-wrap: wrap;
+}
+
+.left-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.control-row label {
+    font-weight: 600;
+    color: #4a5568;
+    min-width: 80px;
+}
+
+.monthly-plan-card {
+    background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
+    border: 2px solid #93c5fd;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 10px rgba(147, 197, 253, 0.3);
+    color: #1e40af;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    max-width: 900px;
+}
+
+.monthly-plan-title {
+    font-size: 1.2em;
+    font-weight: 700;
+    margin-bottom: 15px;
+    text-align: center;
+    border-bottom: 2px solid #93c5fd;
+    padding-bottom: 10px;
+    color: #1e3a8a;
+    margin-top: 0;
+}
+
+.monthly-plan-grid {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.monthly-plan-item {
+    background: white;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 100px;
+}
+
+.monthly-plan-item-name {
+    font-weight: 600;
+    font-size: 0.85em;
+    margin-bottom: 4px;
+    color: #1e40af;
+}
+
+.monthly-plan-item-quantity {
+    font-size: 1em;
+    font-weight: 700;
+    color: #2563eb;
+}
+
+.monthly-plan-empty {
+    text-align: center;
+    color: #9ca3af;
+    font-style: italic;
+    width: 100%;
+}
+
+.right-controls {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.line-select, .month-input {
+    padding: 8px 15px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 1em;
+    transition: all 0.3s;
+    min-width: 200px;
+}
+
+.line-select:focus, .month-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ボタンスタイルの上書き（組付生産計画用） */
+.auto-btn {
+    padding: 10px 25px;
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 1em;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    height: auto;
+    margin-right: 0;
+}
+
+.auto-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(245, 158, 11, 0.4);
+    background: linear-gradient(135deg, #d97706 0%, #ea580c 100%);
+}
+
+.auto-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    background: #ccc;
+}
+
+.save-btn {
+    padding: 10px 25px;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 1em;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    height: auto;
+}
+
+.save-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(59, 130, 246, 0.4);
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+.save-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.main-btn {
+    padding: 10px 25px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 1em;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.main-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(16, 185, 129, 0.4);
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+}
+
+/* 月別合計セル */
+.monthly-total {
+    background-color: #fff9c4 !important;
+    font-weight: bold;
+}
+
+/* 夜勤行の月別合計セル */
+tr.night-shift .monthly-total {
+    background-color: #fff9c4 !important;
+}
+
+/* 日別合計セル */
+.daily-total {
+    background-color: #e1f5fe !important;
+    font-weight: bold;
 }

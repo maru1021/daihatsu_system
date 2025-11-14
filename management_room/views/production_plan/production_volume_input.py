@@ -5,9 +5,9 @@ from django.contrib import messages
 from django.http import JsonResponse
 from management_room.models import AssemblyItem, MonthlyAssemblyProductionPlan
 from manufacturing.models import AssemblyLine
-from collections import defaultdict
 from datetime import date, datetime
 import json
+import pandas as pd
 
 class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
     template_file = 'production_plan/production_volume_input.html'
@@ -20,21 +20,22 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
                 year, month = map(int, target_month.split('-'))
                 month_date = date(year, month, 1)
 
-                # その月の生産計画を取得
+                # その月の生産計画を取得してDataFrameに変換
                 plans = MonthlyAssemblyProductionPlan.objects.filter(
                     month=month_date
-                ).select_related('production_item', 'line')
+                ).select_related('production_item', 'line').values(
+                    'production_item__name', 'line_id', 'quantity'
+                )
 
-                # データを整形
-                data = {}
-                for plan in plans:
-                    item_name = plan.production_item.name
-                    line_id = str(plan.line.id)
-
-                    if item_name not in data:
-                        data[item_name] = {}
-
-                    data[item_name][line_id] = plan.Quantity
+                if plans:
+                    df = pd.DataFrame(plans)
+                    df.columns = ['item_name', 'line_id', 'quantity']
+                    # ピボットテーブルで整形
+                    data = df.set_index('item_name').groupby('item_name').apply(
+                        lambda x: dict(zip(x['line_id'].astype(str), x['quantity']))
+                    ).to_dict()
+                else:
+                    data = {}
 
                 return JsonResponse({'data': data})
 
@@ -47,62 +48,62 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
         # 全てのアクティブなAssemblyLineを取得
         assembly_lines = AssemblyLine.objects.filter(active=True).order_by('name')
 
-        # 全てのアクティブなAssemblyItemを取得
-        assembly_items = AssemblyItem.objects.filter(active=True).select_related('line').order_by('name')
+        # 全てのアクティブなAssemblyItemを取得してDataFrameに変換
+        assembly_items = AssemblyItem.objects.filter(active=True).select_related('line').values(
+            'id', 'name', 'line__id', 'line__name', 'line__tact', 'main_line'
+        ).order_by('name')
 
-        # 品番ごとにグループ化
-        item_dict = defaultdict(list)
-        for item in assembly_items:
-            item_dict[item.name].append(item)
+        # DataFrameに変換
+        df_items = pd.DataFrame(assembly_items)
+        df_items.columns = ['item_id', 'name', 'line_id', 'line_name', 'tact', 'main_line']
 
         # その月の生産計画を取得
         plans = MonthlyAssemblyProductionPlan.objects.filter(
             month=month_date
-        ).select_related('production_item', 'line')
-
-        # 品番×ラインごとの数量を辞書化
-        plan_dict = {}
-        for plan in plans:
-            key = f"{plan.production_item.name}_{plan.line.id}"
-            plan_dict[key] = plan.Quantity
+        ).select_related('production_item', 'line').values(
+            'production_item__name', 'line_id', 'quantity'
+        )
+        df_plans = pd.DataFrame(plans) if plans else pd.DataFrame(columns=['production_item__name', 'line_id', 'quantity'])
 
         # 品番リストを作成
         item_list = []
-        for name, items in sorted(item_dict.items()):
-            # 各ラインの情報を個別のフィールドとして保持
+        for name, group in df_items.groupby('name'):
             item_data = {'name': name}
             available_lines = []
             available_line_ids = []
             main_line_name = None
-            total_quantity = 0
-            line_quantities = {}  # {line_id: quantity}
+            line_quantities = {}
 
-            for item in items:
-                if item.line:
-                    line_name = item.line.name
-                    line_id = item.line.id
+            for _, row in group.iterrows():
+                if pd.notna(row['line_id']):
+                    line_name = row['line_name']
+                    line_id = int(row['line_id'])
+
                     # ラインごとの情報をフラットに展開
-                    item_data[f'{line_name}_item_id'] = item.id
-                    item_data[f'{line_name}_tact'] = item.line.tact
+                    item_data[f'{line_name}_item_id'] = int(row['item_id'])
+                    item_data[f'{line_name}_tact'] = row['tact']
                     available_lines.append(line_name)
                     available_line_ids.append(str(line_id))
 
                     # 既存の数量を取得
-                    plan_key = f"{name}_{line_id}"
-                    if plan_key in plan_dict:
-                        quantity = plan_dict[plan_key]
-                        line_quantities[str(line_id)] = quantity
-                        total_quantity += quantity
+                    if not df_plans.empty:
+                        plan_row = df_plans[
+                            (df_plans['production_item__name'] == name) &
+                            (df_plans['line_id'] == line_id)
+                        ]
+                        if not plan_row.empty:
+                            line_quantities[str(line_id)] = int(plan_row.iloc[0]['quantity'])
 
                     # メインラインの設定
-                    if item.main_line:
+                    if row['main_line']:
                         main_line_name = line_name
 
+            total_quantity = sum(line_quantities.values())
             item_data['available_lines'] = available_lines
             item_data['available_line_ids'] = available_line_ids
             item_data['main_line'] = main_line_name
             item_data['planned_volume'] = total_quantity if total_quantity > 0 else None
-            item_data['line_quantities'] = json.dumps(line_quantities)  # JSON文字列に変換
+            item_data['line_quantities'] = json.dumps(line_quantities)
             item_list.append(item_data)
 
         context = {
@@ -158,7 +159,7 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
                         month=month_date,
                         line=assembly_line,
                         production_item=assembly_item,
-                        Quantity=quantity
+                        quantity=quantity
                     )
                     created_count += 1
 
@@ -168,7 +169,7 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
                     continue
 
             messages.success(request, f'{target_month}の生産計画を登録しました。（{created_count}件）')
-            return redirect('management_room:production_volume_input')
+            return redirect('/management_room/production-plan/assembly-production-plan/')
 
         except Exception as e:
             messages.error(request, f'登録に失敗しました: {str(e)}')

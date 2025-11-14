@@ -198,10 +198,17 @@ Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
 ### 指定したIP以外からのリモートデスクトップを遮断する
 管理者powershellで
 
-最初のユーザー時
-New-NetFirewallRule -DisplayName "Allow RDP from ipアドレス" `
-    -Direction Inbound -Protocol TCP -LocalPort 3389 `
-    -RemoteAddress ipアドレス -Action Allow
+許可するIPの追加
+New-NetFirewallRule -DisplayName "Allow RDP from 10.69.176.176" `
+      -Direction Inbound `
+      -Protocol TCP `
+      -LocalPort 3389 `
+      -RemoteAddress 10.69.176.176 `
+      -Action Allow `
+      -Enabled True `
+      -Profile Any `
+      -Program Any `
+      -EdgeTraversalPolicy Block
 
 
 ユーザー削除時
