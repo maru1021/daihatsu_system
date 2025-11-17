@@ -23,7 +23,9 @@
                     <label for="line-select">ライン：</label>
                     <select id="line-select" class="line-select select2">
                         {% for line_item in lines %}
-                        <option value="{{ line_item.id }}" {% if line_item.id == line.id %}selected{% endif %}>{{ line_item.assembly_name }} - {{ line_item.name }}</option>
+                        <option value="{{ line_item.id }}" {% if line_item.id == line.id %}selected{% endif %}>
+                            {% if line_item.assembly_name %}{{ line_item.assembly_name }} - {% endif %}{{ line_item.name }}
+                        </option>
                         {% endfor %}
                     </select>
                 </div>

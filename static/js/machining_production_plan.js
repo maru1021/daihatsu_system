@@ -202,7 +202,6 @@ function updateDailyTotals() {
 // 在庫数を計算（前日在庫 + 生産数 - 出庫数）
 // DB基準値 + 通常計算
 function updateStockQuantities() {
-    console.log('updateStockQuantities called');
     const itemNames = getItemNames();
     const dateCount = document.querySelectorAll('.operation-rate-input').length;
 
@@ -211,7 +210,6 @@ function updateStockQuantities() {
         let calculatedStock = (typeof previousMonthStocks !== 'undefined' && previousMonthStocks[itemName])
             ? previousMonthStocks[itemName]
             : 0;
-        console.log(`Item: ${itemName}, Starting stock: ${calculatedStock}`);
 
         for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
             // 日勤の生産数、出庫数、在庫数を取得
@@ -229,21 +227,13 @@ function updateStockQuantities() {
                 const dayProduction = dayProductionInput ? (parseInt(dayProductionInput.value) || 0) : 0;
                 const dayShipment = dayShipmentInput ? (parseInt(dayShipmentInput.value) || 0) : 0;
 
-                // 通常計算: 前日在庫 + 生産数 - 出庫数
                 calculatedStock = calculatedStock + dayProduction - dayShipment;
 
-                // DB基準値を取得して加算
                 const dbStockBase = dayStockInput.dataset.dbStockBase
                     ? parseInt(dayStockInput.dataset.dbStockBase)
                     : 0;
 
-                const finalStock = calculatedStock + dbStockBase;
-                dayStockInput.value = finalStock;
-
-                console.log(`Date ${dateIndex} Day: calculated=${calculatedStock}, dbBase=${dbStockBase}, final=${finalStock}`);
-
-                // 次の日のために、計算値を更新（DB基準値は加えない）
-                // calculatedStockはそのまま
+                dayStockInput.value = calculatedStock + dbStockBase;
             }
 
             // 夜勤の在庫計算
@@ -251,19 +241,13 @@ function updateStockQuantities() {
                 const nightProduction = nightProductionInput ? (parseInt(nightProductionInput.value) || 0) : 0;
                 const nightShipment = nightShipmentInput ? (parseInt(nightShipmentInput.value) || 0) : 0;
 
-                // 通常計算: 日勤終了時在庫 + 生産数 - 出庫数
                 calculatedStock = calculatedStock + nightProduction - nightShipment;
 
-                // DB基準値を取得して加算
                 const dbStockBase = nightStockInput.dataset.dbStockBase
                     ? parseInt(nightStockInput.dataset.dbStockBase)
                     : 0;
 
-                const finalStock = calculatedStock + dbStockBase;
-                nightStockInput.value = finalStock;
-
-                // 次の日のために、計算値を更新（DB基準値は加えない）
-                // calculatedStockはそのまま
+                nightStockInput.value = calculatedStock + dbStockBase;
             }
         }
     });
@@ -412,10 +396,9 @@ function toggleCheck(element) {
     const dateIndex = Array.from(element.parentElement.children).indexOf(element) - 1;
     debouncedUpdateWorkingDayStatus(dateIndex);
 
-    // 合計と在庫を更新（表示状態が変更された後に実行）
+    // 合計を更新（在庫はupdateWorkingDayStatus内で更新される）
     setTimeout(() => {
         updateRowTotals();
-        updateStockQuantities();
     }, 150);
 }
 
@@ -531,23 +514,54 @@ function updateWorkingDayStatus(dateIndex, isInitializing = false) {
             // 休出あり: すべての入力フィールドを表示
             toggleInputs(dateIndex, 'day', true);
             toggleInputs(dateIndex, 'night', false); // 夜勤は週末常に非表示
+
+            // 休出の場合、初期化時以外は生産数を計算して在庫を再計算
+            if (!isInitializing) {
+                updateAllItemsProduction(dateIndex, ['day'], false);
+                updateStockQuantities();
+            }
         } else {
-            // 休出なし: 出庫数のみ表示
+            // 休出なし: 出庫数と在庫のみ表示
             toggleInputs(dateIndex, 'day', false);
             toggleInputs(dateIndex, 'night', false);
+
+            // 出庫数がある場合は出庫数と在庫を表示、ない場合は出庫数のみ表示
+            const hasShipment = Array.from(
+                document.querySelectorAll(`.shipment-input[data-shift="day"][data-date-index="${dateIndex}"]`)
+            ).some(input => parseInt(input.value || 0) > 0);
+
             document.querySelectorAll(`.shipment-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
                 input.style.display = '';
             });
+
+            if (hasShipment) {
+                // 出庫数がある場合は在庫も表示
+                document.querySelectorAll(`.stock-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
+                    input.style.display = '';
+                });
+            }
+
+            // 休出を消した場合は生産数を0にクリアして在庫を再計算
+            if (!isInitializing) {
+                document.querySelectorAll(`.production-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
+                    input.value = '0';
+                });
+
+                if (!hasShipment) {
+                    // 出庫数がない場合は在庫を0にクリア
+                    document.querySelectorAll(`.stock-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
+                        input.value = '0';
+                    });
+                }
+
+                // 在庫を再計算
+                updateStockQuantities();
+            }
         }
 
         // 残業計画の上限値を設定（休出は残業0）
         setOvertimeLimit(dateIndex, 'day', isWorking ? 0 : 0);
         setOvertimeLimit(dateIndex, 'night', isWorking ? 0 : 0);
-
-        // 休出の場合、初期化時以外は生産数を計算
-        if (isWorking && !isInitializing) {
-            updateAllItemsProduction(dateIndex, ['day'], false);
-        }
     } else {
         // 平日の場合
         const isWorking = checkText === '定時';
@@ -884,12 +898,6 @@ function saveProductionPlan() {
     const targetMonth = $('#target-month').val();
     const [year, month] = targetMonth.split('-');
 
-    // デバッグ用：送信データを確認
-    console.log('保存データ:', {
-        dates_data: datesData,
-        dates_to_delete: datesToDelete
-    });
-
     // 保存リクエスト送信
     fetch(`?line=${lineId}&year=${year}&month=${month}`, {
         method: 'POST',
@@ -912,7 +920,6 @@ function saveProductionPlan() {
             }
         })
         .catch(error => {
-            console.error('Error:', error);
             showToast('error', '保存中にエラーが発生しました');
         })
         .finally(() => {
@@ -1129,20 +1136,20 @@ $(document).ready(function () {
     // イベントリスナーを設定
     setupEventListeners();
 
-    // 初期表示時にすべての生産数を計算
-    updateAllProductionQuantities();
-
     // 在庫数の元のDB値をdata-db-stock-base属性に保存（計算時に加算する基準値）
     // data-has-db-value 属性がある場合のみ保存（DBに実際にデータがある場合）
+    // これを生産数計算より先に実行する必要がある
     document.querySelectorAll('.stock-input').forEach(input => {
         if (input.dataset.hasDbValue === 'true') {
             input.dataset.dbStockBase = input.value;
-            console.log(`Saved DB stock base for ${input.dataset.item} date ${input.dataset.dateIndex}: ${input.value}`);
         } else {
             input.dataset.dbStockBase = '0';
         }
     });
 
-    // 在庫数はページ読み込み時には計算しない（データベースの値をそのまま使用）
-    // 生産数・出庫数変更時のイベントリスナーで計算される
+    // 初期表示時にすべての生産数を計算
+    updateAllProductionQuantities();
+
+    // ページ読み込み時に在庫数を計算
+    updateStockQuantities();
 });

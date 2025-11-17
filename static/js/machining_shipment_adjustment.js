@@ -589,6 +589,8 @@ function balanceOvertimeForDate(dateIndex, itemNames, lineNames, enableLog = fal
     const line1Name = lineNames.find(name => name.includes('#1'));
     const line2Name = lineNames.find(name => name.includes('#2'));
 
+    if (!line1Name || !line2Name) return;
+
     // 日勤と夜勤それぞれで均等化
     ['day', 'night'].forEach(shift => {
         balanceOvertimeForShift(dateIndex, itemNames, line1Name, line2Name, shift, occupancyRates, enableLog);
@@ -1129,7 +1131,11 @@ function calculateOvertimesByShift(dateIndex, line1Name, line2Name, shift, occup
 
     [line1Name, line2Name].forEach((lineName, index) => {
         const tact = tactsData[lineName];
+        if (!tact || tact <= 0) return;
+
         const occupancyRate = occupancyRates[lineName] / 100;
+        if (!occupancyRate || occupancyRate <= 0) return;
+
         const sectionName = `line_${lineName.replace('#', '')}_shipment`;
 
         // 指定された直の生産数を集計
@@ -1138,16 +1144,13 @@ function calculateOvertimesByShift(dateIndex, line1Name, line2Name, shift, occup
             total += parseInt(input.value || 0);
         });
 
-        // 残業時間を計算（加工生産スケジュールと同じロジック）
-        // 定時間で生産できる台数を計算（切り上げ）
+        // 残業時間を計算
         const regularTotalProduction = regularTime > 0
             ? Math.ceil(regularTime / tact * occupancyRate)
             : 0;
 
-        // 残業で必要な追加生産数
         const additionalProduction = total - regularTotalProduction;
 
-        // 残業時間を逆算
         const overtime = additionalProduction > 0
             ? (additionalProduction * tact) / occupancyRate
             : 0;
@@ -1593,17 +1596,17 @@ function saveData() {
         },
         body: JSON.stringify(data)
     })
-    .then(response => response.json())
-    .then(result => {
-        if (result.success) {
-            showToast('success', result.message || '保存しました');
-        } else {
-            showToast('error', result.message || '保存に失敗しました');
-        }
-    })
-    .catch(error => {
-        showToast('error', '保存中にエラーが発生しました: ' + error.message);
-    });
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                showToast('success', result.message || '保存しました');
+            } else {
+                showToast('error', result.message || '保存に失敗しました');
+            }
+        })
+        .catch(error => {
+            showToast('error', '保存中にエラーが発生しました: ' + error.message);
+        });
 }
 
 /**
@@ -1704,7 +1707,7 @@ function setupEventListeners() {
 
     // 入力値変更時
     document.querySelectorAll('.production-input').forEach(input => {
-        input.addEventListener('input', function() {
+        input.addEventListener('input', function () {
             updateMonthlyTotals();
             updateCellColors();
         });
@@ -1742,7 +1745,7 @@ function handleMonthChange() {
 // ========================================
 // 初期化
 // ========================================
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Select2初期化
     $('.select2').select2({
         theme: 'bootstrap-5',

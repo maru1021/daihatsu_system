@@ -10,20 +10,20 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     page_title = '加工品番管理'
     crud_model = MachiningItem
     table_model = MachiningItem.objects.select_related('assembly_line', 'line').only(
-        'id', 'assembly_line__name', 'line__name', 'name', 'active', 'last_updated_user'
+        'id', 'assembly_line__name', 'line__name', 'name', 'optimal_inventory', 'active', 'last_updated_user'
     ).order_by('assembly_line__order', 'line__order', 'order')
     form_dir = 'master/machining_item'
     form_action_url = 'management_room:machining_item_master'
     edit_url = 'management_room:machining_item_edit'
     delete_url = 'management_room:machining_item_delete'
-    admin_table_header = ['組付ライン', 'ライン名', '品番', 'メイン', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['組付ライン', 'ライン名', '品番', 'メイン', 'アクティブ', '最終更新者']
+    admin_table_header = ['組付ライン', 'ライン名', '品番', 'メイン', '適正在庫', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['組付ライン', 'ライン名', '品番', 'メイン', '適正在庫', 'アクティブ', '最終更新者']
     search_fields = ['assembly_line__name', 'line__name', 'name']
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         assembly_lines = AssemblyLine.objects.filter(active=True)
-        lines = MachiningLine.objects.select_related('assembly').filter(active=True)
+        lines = MachiningLine.objects.select_related('assembly').filter(active=True).order_by('assembly__order', 'order')
         context['assembly_lines'] = assembly_lines
         context['lines'] = lines
         return context
@@ -37,6 +37,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                   'name': data.name,
                   'assembly_line_id': data.assembly_line.id if data.assembly_line else '',
                   'line_id': data.line.id if data.line else '',
+                  'optimal_inventory': data.optimal_inventory,
                   'order': data.order,
                   'main_line': data.main_line,
                   'active': data.active,
@@ -88,6 +89,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 name=data.get('name', '').strip(),
                 assembly_line=AssemblyLine.objects.get(id=data.get('assembly_line_id', '').strip()) if data.get('assembly_line_id', '').strip() else None,
                 line=MachiningLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None,
+                optimal_inventory=data.get('optimal_inventory') if data.get('optimal_inventory') else 0,
                 order=data.get('order') if data.get('order') else 0,
                 main_line=data.get('main_line') == 'on',
                 active=data.get('active') == 'on',
@@ -102,6 +104,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             model.name = data.get('name').strip()
             model.assembly_line = AssemblyLine.objects.get(id=data.get('assembly_line_id', '').strip()) if data.get('assembly_line_id', '').strip() else None
             model.line = MachiningLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None
+            model.optimal_inventory = data.get('optimal_inventory') if data.get('optimal_inventory') else 0
             model.order = data.get('order') if data.get('order') else 0
             model.main_line = data.get('main_line') == 'on'
             model.active = data.get('active') == 'on'
@@ -126,6 +129,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                             row.line.name if row.line else '',
                             row.name,
                             '〇' if row.main_line else '',
+                            row.optimal_inventory,
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],
@@ -142,6 +146,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                             row.line.name if row.line else '',
                             row.name,
                             '〇' if row.main_line else '',
+                            row.optimal_inventory,
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],

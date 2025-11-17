@@ -22,8 +22,8 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
     excel_export_url = 'manufacturing:machining_line_export_excel'
     excel_import_url = 'manufacturing:machining_line_import_excel'
     pdf_export_url = 'manufacturing:machining_line_export_pdf'
-    admin_table_header = ['組付ライン', 'ライン名', 'タクト','稼働率', '良品率', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['組付ライン', 'ライン名', 'タクト','稼働率', '良品率', 'アクティブ']
+    admin_table_header = ['組付ライン', 'ライン名', '稼働率', 'タクト', '良品率', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['組付ライン', 'ライン名', '稼働率', 'タクト', '良品率', 'アクティブ']
     search_fields = ['name']
 
     def get_context_data(self, **kwargs):

@@ -27,7 +27,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
         if request.GET.get('line'):
             line = MachiningLine.objects.get(id=request.GET.get('line'))
         else:
-            line = MachiningLine.objects.filter(active=True).order_by('name').first()
+            line = MachiningLine.objects.filter(active=True).first()
 
         # 品番を取得（このラインの品番）
         items = MachiningItem.objects.filter(line=line, active=True).values('name').distinct()
@@ -233,7 +233,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             else:
                 previous_month_stocks[item_name] = 0
 
-        lines = MachiningLine.objects.select_related('assembly').filter(active=True)
+        lines = MachiningLine.objects.select_related('assembly').filter(active=True).order_by('assembly__order', 'order')
         lines_list = [{'id': l.id, 'name': l.name, 'assembly_name': l.assembly.name if l.assembly else None} for l in lines]
 
         # 生産数セクションの行数を計算
