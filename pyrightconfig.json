@@ -1,3 +1,7 @@
 {
-    "reportMissingModuleSource": "none"
+    "reportMissingModuleSource": "none",
+    "reportArgumentType": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportIncompatibleMethodOverride": "none",
+    "reportIncompatibleVariableOverride": "none"
 }

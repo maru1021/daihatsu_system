@@ -1,4 +1,4 @@
-from management_room.models import DailyMachiningProductionPlan, MachiningItem, AssemblyItemMachiningItemMap, DailyAssenblyProductionPlan
+from management_room.models import DailyMachiningProductionPlan, MachiningItem, AssemblyItemMachiningItemMap, DailyAssenblyProductionPlan, MachiningStock
 from manufacturing.models import MachiningLine
 from management_room.auth_mixin import ManagementRoomPermissionMixin
 from django.views import View
@@ -30,7 +30,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             line = MachiningLine.objects.filter(active=True).order_by('name').first()
 
         # 品番を取得（このラインの品番）
-        items = MachiningItem.objects.filter(line=line, active=True).values('name').distinct().order_by('name')
+        items = MachiningItem.objects.filter(line=line, active=True).values('name').distinct()
         item_names = [item['name'] for item in items]
 
         # 全データを1回のクエリで取得
@@ -77,13 +77,13 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                     key = (date, shift, item_name)
                     if key in plans_map:
                         plan = plans_map[key]
+                        production_qty = plan.production_quantity if plan.production_quantity is not None else 0
                         # 品番データ（データベースに保存されている値をそのまま使用）
                         date_info['shifts'][shift]['items'][item_name] = {
-                            'production_quantity': plan.production_quantity if plan.production_quantity is not None else 0,
-                            'stock': plan.stock if plan.stock is not None else 0,
+                            'production_quantity': production_qty,
                             'shipment': plan.shipment if plan.shipment is not None else 0
                         }
-                        # データがあることを記録
+                        # DailyMachiningProductionPlanにレコードが存在すれば休出として扱う
                         date_info['has_data'] = True
 
                         # 最初に見つかったプラン（共通データ用、dayまたはnightで最初の1つのみ）
@@ -97,7 +97,6 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                         # データがない場合はNone
                         date_info['shifts'][shift]['items'][item_name] = {
                             'production_quantity': None,
-                            'stock': None,
                             'shipment': None
                         }
 
@@ -114,7 +113,38 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
             dates_data.append(date_info)
 
-        # 出庫数を計算（AssemblyItemMachiningItemMapを使用）
+        # 在庫データを取得（MachiningStockから）
+        stock_records = MachiningStock.objects.filter(
+            line_name=line.name,
+            date__gte=date_list[0],
+            date__lte=date_list[-1],
+            item_name__in=item_names
+        )
+
+        # 在庫データをマップ化: {(date, shift, item_name): stock}
+        stock_map = {
+            (stock.date, stock.shift, stock.item_name): stock.stock
+            for stock in stock_records
+            if stock.date and stock.shift and stock.item_name
+        }
+
+        # 在庫データを日付データに反映
+        for date_info in dates_data:
+            date = date_info['date']
+            for shift in ['day', 'night']:
+                for item_name in item_names:
+                    stock_key = (date, shift, item_name)
+                    stock_value = stock_map.get(stock_key, None)
+                    if item_name in date_info['shifts'][shift]['items']:
+                        date_info['shifts'][shift]['items'][item_name]['stock'] = stock_value
+                    else:
+                        date_info['shifts'][shift]['items'][item_name] = {
+                            'production_quantity': None,
+                            'shipment': None,
+                            'stock': stock_value
+                        }
+
+        # 組付側の休出日をチェック（出庫数入力のため）
         # 加工品番ごとに紐づいた完成品番を取得
         machining_items_obj = MachiningItem.objects.filter(line=line, active=True, name__in=item_names)
         assembly_mappings = AssemblyItemMachiningItemMap.objects.filter(
@@ -132,7 +162,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                 machining_to_assembly_map[machining_name] = []
             machining_to_assembly_map[machining_name].append((assembly_name, assembly_line_id))
 
-        # 組付生産計画データを取得
+        # 組付生産計画データを取得（休出チェック用のみ）
         assembly_items_info = [(name, line_id) for items in machining_to_assembly_map.values() for name, line_id in items]
         assembly_item_names = [name for name, _ in assembly_items_info]
 
@@ -149,12 +179,11 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             if plan.production_item and plan.shift and plan.line_id
         }
 
-        # 出庫数を計算して日付データに反映
-        # 組付側の休出日も記録
+        # 組付側の休出チェック（週末に出庫数入力のみ表示するため）
         for date_info in dates_data:
             date = date_info['date']
 
-            # 組付側に休出があるかチェック
+            # 組付側の生産数が0より大きい場合のみ休出と判定
             has_assembly_weekend_work = False
             for shift in ['day', 'night']:
                 for item_name in item_names:
@@ -162,8 +191,9 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                     for assembly_item_name, assembly_line_id in assembly_items:
                         key = (date, shift, assembly_line_id, assembly_item_name)
                         if key in assembly_plans_map:
-                            # 組付側でデータがある = 休出がある
-                            if date_info['is_weekend']:
+                            assembly_plan = assembly_plans_map[key]
+                            # 週末かつ組付側の生産数が1以上の場合
+                            if date_info['is_weekend'] and assembly_plan.production_quantity and assembly_plan.production_quantity > 0:
                                 has_assembly_weekend_work = True
                                 break
                     if has_assembly_weekend_work:
@@ -174,30 +204,37 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             # 組付側の休出フラグを保存
             date_info['has_assembly_weekend_work'] = has_assembly_weekend_work
 
-            for shift in ['day', 'night']:
-                for item_name in item_names:
-                    # この加工品番に紐づく完成品番を取得（ラインIDも含む）
-                    assembly_items = machining_to_assembly_map.get(item_name, [])
-
-                    # 紐づいた完成品番の生産数を合計
-                    total_shipment = 0
-                    for assembly_item_name, assembly_line_id in assembly_items:
-                        key = (date, shift, assembly_line_id, assembly_item_name)
-                        if key in assembly_plans_map:
-                            assembly_plan = assembly_plans_map[key]
-                            total_shipment += assembly_plan.production_quantity or 0
-
-                    # 出庫数を上書き
-                    if item_name in date_info['shifts'][shift]['items']:
-                        date_info['shifts'][shift]['items'][item_name]['shipment'] = total_shipment
-
         # タクトはライン単位（品番ごとではない）
         item_data = {
             'tact': line.tact if line.tact else 0
         }
 
-        lines = MachiningLine.objects.filter(active=True).order_by('name')
-        lines_list = [{'id': l.id, 'name': l.name} for l in lines]
+        # 前月末の在庫を取得
+        from datetime import date
+        from dateutil.relativedelta import relativedelta
+
+        # 前月の最終日を計算
+        first_day_of_month = date(year, month, 1)
+        last_day_of_previous_month = first_day_of_month - relativedelta(days=1)
+
+        # 前月末の在庫データを取得（品番ごと）
+        previous_month_stocks = {}
+        for item_name in item_names:
+            # 前月の最終稼働日の在庫を取得（日付降順で最初のレコード）
+            # 夜勤を優先して検索
+            last_stock = MachiningStock.objects.filter(
+                line_name=line.name,
+                item_name=item_name,
+                date__lt=first_day_of_month  # 当月より前
+            ).order_by('-date', '-shift').first()  # 日付降順、shift降順（night > day）
+
+            if last_stock and last_stock.stock is not None:
+                previous_month_stocks[item_name] = last_stock.stock
+            else:
+                previous_month_stocks[item_name] = 0
+
+        lines = MachiningLine.objects.select_related('assembly').filter(active=True)
+        lines_list = [{'id': l.id, 'name': l.name, 'assembly_name': l.assembly.name if l.assembly else None} for l in lines]
 
         # 生産数セクションの行数を計算
         production_total_rows = len(item_names) * 2  # 日勤 + 夜勤
@@ -211,6 +248,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             'lines': lines_list,
             'production_total_rows': production_total_rows,
             'item_data_json': json.dumps(item_data),
+            'previous_month_stocks_json': json.dumps(previous_month_stocks),
         }
 
         return render(request, self.template_file, context)
@@ -296,7 +334,6 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                             continue
 
                         production_quantity = item_data.get('production_quantity', 0) if isinstance(item_data, dict) else item_data
-                        stock = item_data.get('stock', 0) if isinstance(item_data, dict) else 0
                         shipment = item_data.get('shipment', 0) if isinstance(item_data, dict) else 0
 
                         # 既存データのキー
@@ -306,7 +343,6 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                         if existing_plan:
                             # 更新
                             existing_plan.production_quantity = production_quantity
-                            existing_plan.stock = stock
                             existing_plan.shipment = shipment
                             existing_plan.stop_time = stop_time
                             existing_plan.overtime = overtime
@@ -322,7 +358,6 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                                 date=date_obj,
                                 shift=shift_name,
                                 production_quantity=production_quantity,
-                                stock=stock,
                                 shipment=shipment,
                                 stop_time=stop_time,
                                 overtime=overtime,
@@ -335,11 +370,85 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             if plans_to_update:
                 DailyMachiningProductionPlan.objects.bulk_update(
                     plans_to_update,
-                    ['production_quantity', 'stock', 'shipment', 'stop_time', 'overtime', 'occupancy_rate', 'regular_working_hours', 'last_updated_user']
+                    ['production_quantity', 'shipment', 'stop_time', 'overtime', 'occupancy_rate', 'regular_working_hours', 'last_updated_user']
                 )
 
             if plans_to_create:
                 DailyMachiningProductionPlan.objects.bulk_create(plans_to_create)
+
+            # 在庫データを保存（MachiningStock）
+            # 既存の在庫データを取得
+            existing_stocks_list = MachiningStock.objects.filter(
+                line_name=line.name,
+                date__in=dates,
+                item_name__in=item_dict.keys()
+            )
+
+            # 複合キーで辞書化
+            existing_stocks = {
+                (stock.date, stock.shift, stock.item_name): stock
+                for stock in existing_stocks_list
+            }
+
+            stocks_to_update = []
+            stocks_to_create = []
+
+            # 日付ベースで在庫データを処理
+            for date_info in dates_data:
+                date_index = date_info.get('date_index')
+                if date_index >= len(dates):
+                    continue
+
+                date_obj = dates[date_index]
+                shifts = date_info.get('shifts', {})
+
+                for shift_name, shift_data in shifts.items():
+                    items_data = shift_data.get('items', {})
+
+                    for item_name, item_data in items_data.items():
+                        if item_name not in item_dict:
+                            continue
+
+                        # 在庫データを取得
+                        stock_value = item_data.get('stock') if isinstance(item_data, dict) else None
+
+                        # stock_valueがNoneの場合はスキップ
+                        if stock_value is None:
+                            continue
+
+                        # 既存データのキー
+                        key = (date_obj, shift_name, item_name)
+                        existing_stock = existing_stocks.get(key)
+
+                        if existing_stock:
+                            # 更新
+                            existing_stock.stock = stock_value
+                            existing_stock.last_updated_user = username
+                            stocks_to_update.append(existing_stock)
+                        else:
+                            # 新規作成
+                            stocks_to_create.append(MachiningStock(
+                                line_name=line.name,
+                                item_name=item_name,
+                                date=date_obj,
+                                shift=shift_name,
+                                stock=stock_value,
+                                last_updated_user=username
+                            ))
+
+            # 在庫データの一括更新・作成
+            stock_updated_count = 0
+            stock_created_count = 0
+            if stocks_to_update:
+                MachiningStock.objects.bulk_update(
+                    stocks_to_update,
+                    ['stock', 'last_updated_user']
+                )
+                stock_updated_count = len(stocks_to_update)
+
+            if stocks_to_create:
+                MachiningStock.objects.bulk_create(stocks_to_create)
+                stock_created_count = len(stocks_to_create)
 
             message_parts = []
             if deleted_count > 0:
@@ -348,6 +457,10 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                 message_parts.append(f'更新: {len(plans_to_update)}件')
             if len(plans_to_create) > 0:
                 message_parts.append(f'新規: {len(plans_to_create)}件')
+            if stock_updated_count > 0:
+                message_parts.append(f'在庫更新: {stock_updated_count}件')
+            if stock_created_count > 0:
+                message_parts.append(f'在庫新規: {stock_created_count}件')
 
             message = '保存しました（' + '、'.join(message_parts) + '）' if message_parts else '保存しました'
 

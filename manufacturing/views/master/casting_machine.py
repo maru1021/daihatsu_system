@@ -147,7 +147,7 @@ class CastingMachineExcelView(ManufacturingPermissionMixin, ExcelOperationView):
         return data_list
 
     def extra_select(self, select_list):
-        line_names = MachiningLine.get_active_names(model=False)
+        line_names = CastingLine.get_active_names(model=False)
 
         select_list.append({
             'column': 'C',

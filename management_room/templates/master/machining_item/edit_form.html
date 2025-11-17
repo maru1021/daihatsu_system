@@ -10,7 +10,7 @@
   <label for="id_line_id" class="form-label">ライン<span class="text-danger">*</span></label>
   <select class="form-control select2" id="id_line_id" name="line_id">
     {% for line in lines %}
-    <option value="{{ line.id }}">{{ line.name }}</option>
+    <option value="{{ line.id }}">{{ line.assembly.name }} - {{ line.name }}</option>
     {% endfor %}
   </select>
 </div>

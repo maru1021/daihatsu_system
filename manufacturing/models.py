@@ -9,13 +9,14 @@ class Line(MasterMethodMixin, models.Model):
     id = models.AutoField('ID', primary_key=True)
     name = models.CharField('ライン名', max_length=100, db_index=True)
     occupancy_rate = models.FloatField('稼働率', null=True, blank=True, default=0)
+    order = models.IntegerField('表示順', null=True, blank=True, default=0)
     active = models.BooleanField('アクティブ', default=True)
     last_updated_user = models.CharField('最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
         verbose_name = 'ライン'
         verbose_name_plural = 'ライン'
-        ordering = ['-active', 'name']
+        ordering = ['-active', 'order', 'name']
         indexes = [
             # 必要最小限のインデックス
             models.Index(fields=['name']),
@@ -50,13 +51,14 @@ class Machine(MasterMethodMixin, models.Model):
     id = models.AutoField('ID', primary_key=True)
     name = models.CharField('設備名', max_length=100, db_index=True)
     line = models.ForeignKey(Line, on_delete=models.CASCADE, verbose_name='ライン', related_name='machines')
+    order = models.IntegerField('表示順', null=True, blank=True, default=0)
     active = models.BooleanField('アクティブ', default=True)
     last_updated_user = models.CharField('最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
         verbose_name = '設備'
         verbose_name_plural = '設備'
-        ordering = ['-active', 'line__name', 'name']
+        ordering = ['-active', 'line__order', 'order', 'name']
         indexes = [
             # 必要最小限のインデックス
             models.Index(fields=['name']),

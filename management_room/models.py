@@ -257,7 +257,6 @@ class DailyMachiningProductionPlan(models.Model):
     date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
     shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
     production_quantity = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
-    stock = models.IntegerField(verbose_name="在庫数", null=True, blank=True, default=0)
     shipment = models.IntegerField(verbose_name="出荷数", null=True, blank=True, default=0)
     stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
     overtime = models.IntegerField(verbose_name="生産残業数", null=True, blank=True, default=0)
@@ -320,3 +319,24 @@ class DailyMachineCastingProductionPlan(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.shift} - {self.line.name if self.line else ''} - {self.machine.name if self.machine else ''} - {self.production_item.name if self.production_item else ''} - {self.production_count}"
+
+
+class MachiningStock(models.Model):
+    line_name = models.CharField(verbose_name="ライン名", max_length=100, null=True, blank=True, db_index=True)
+    item_name = models.CharField(verbose_name="品番名", max_length=100, null=True, blank=True, db_index=True)
+    date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
+    shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
+    stock = models.IntegerField(verbose_name="在庫数", null=True, blank=True, default=0)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "加工在庫"
+        verbose_name_plural = "加工在庫"
+        ordering = ['-date', 'shift']
+        indexes = [
+            models.Index(fields=['line_name', 'date', 'shift']),
+            models.Index(fields=['line_name', 'date', 'shift', 'item_name']),
+        ]
+
+    def __str__(self):
+        return f"{self.date} - {self.shift} - {self.line_name} - {self.item_name} - {self.stock}"

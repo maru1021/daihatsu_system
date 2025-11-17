@@ -23,7 +23,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         assembly_lines = AssemblyLine.objects.filter(active=True)
-        lines = MachiningLine.objects.filter(active=True)
+        lines = MachiningLine.objects.select_related('assembly').filter(active=True)
         context['assembly_lines'] = assembly_lines
         context['lines'] = lines
         return context
@@ -118,8 +118,8 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     formatted_data.append({
                         'id': row.id,
                         'fields': [
-                            row.assembly_line.name if row.assembly_line else '未設定',
-                            row.line.name if row.line else '未設定',
+                            row.assembly_line.name if row.assembly_line else '',
+                            row.line.name if row.line else '',
                             row.name,
                             '〇' if row.main_line else '',
                             '有効' if row.active else '無効',
@@ -134,8 +134,8 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 for row in page_obj:
                     formatted_data.append({
                         'fields': [
-                            row.assembly_line.name if row.assembly_line else '未設定',
-                            row.line.name if row.line else '未設定',
+                            row.assembly_line.name if row.assembly_line else '',
+                            row.line.name if row.line else '',
                             row.name,
                             '〇' if row.main_line else '',
                             '有効' if row.active else '無効',

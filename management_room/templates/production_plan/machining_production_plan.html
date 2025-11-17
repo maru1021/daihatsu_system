@@ -23,7 +23,7 @@
                     <label for="line-select">ライン：</label>
                     <select id="line-select" class="line-select select2">
                         {% for line_item in lines %}
-                        <option value="{{ line_item.id }}" {% if line_item.id == line.id %}selected{% endif %}>{{ line_item.name }}</option>
+                        <option value="{{ line_item.id }}" {% if line_item.id == line.id %}selected{% endif %}>{{ line_item.assembly_name }} - {{ line_item.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -46,7 +46,7 @@
 <th colspan="3" rowspan="3">完成品番</th>
 <!-- 定時、休出フラグ -->
 {% for date_info in dates_data %}
-<th class="check-cell" data-date="{{ month }}/{{ date_info.day }}" data-date-index="{{ forloop.counter0 }}" data-weekend="{% if date_info.is_weekend %}true{% else %}false{% endif %}" data-has-weekend-work="{% if date_info.has_data %}true{% else %}false{% endif %}" data-has-assembly-weekend-work="{% if date_info.has_assembly_weekend_work %}true{% else %}false{% endif %}" data-regular-hours="{% if date_info.regular_working_hours %}true{% else %}false{% endif %}" onclick="toggleCheck(this)">{% if date_info.regular_working_hours %}定時{% endif %}</th>
+<th class="check-cell" data-date="{{ month }}/{{ date_info.day }}" data-date-index="{{ forloop.counter0 }}" data-weekend="{% if date_info.is_weekend %}true{% else %}false{% endif %}" data-has-weekend-work="{% if date_info.has_data %}true{% else %}false{% endif %}" data-has-assembly-weekend-work="{% if date_info.has_assembly_weekend_work %}true{% else %}false{% endif %}" data-regular-hours="{% if date_info.regular_working_hours %}true{% else %}false{% endif %}" onclick="toggleCheck(this)">{% if date_info.regular_working_hours %}定時{% elif date_info.is_weekend and date_info.has_data %}休出{% endif %}</th>
 {% endfor %}
 <th rowspan="3">月計(直)</th>
 <th rowspan="3">月計</th>
@@ -81,7 +81,7 @@
   {% for date_info in dates_data %}
   {% with day_item=date_info.shifts.day.items|get_item:item_name %}
   <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-    <input type="number" class="production-input shipment-input" value="{% if day_item.shipment is not None %}{{ day_item.shipment }}{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/>
+    <input type="number" class="shipment-input" value="{% if day_item.shipment is not None %}{{ day_item.shipment }}{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/>
   </td>
   {% endwith %}
   {% endfor %}
@@ -100,7 +100,7 @@
   {% for date_info in dates_data %}
   {% with night_item=date_info.shifts.night.items|get_item:item_name %}
   <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-    <input type="number" class="production-input shipment-input" value="{% if night_item.shipment is not None %}{{ night_item.shipment }}{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_info.is_weekend %} style="display:none;"{% endif %}/>
+    <input type="number" class="shipment-input" value="{% if night_item.shipment is not None %}{{ night_item.shipment }}{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_info.is_weekend %} style="display:none;"{% endif %}/>
   </td>
   {% endwith %}
   {% endfor %}
@@ -164,7 +164,7 @@
   {% for date_info in dates_data %}
   {% with day_item=date_info.shifts.day.items|get_item:item_name %}
   <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-    <input type="number" class="production-input stock-input" value="{% if day_item.stock is not None %}{{ day_item.stock }}{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0" readonly/>
+    <input type="number" class="stock-input" value="{% if day_item.stock is not None %}{{ day_item.stock }}{% endif %}"{% if day_item.stock is not None %} data-has-db-value="true"{% endif %} data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0" readonly/>
   </td>
   {% endwith %}
   {% endfor %}
@@ -183,7 +183,7 @@
   {% for date_info in dates_data %}
   {% with night_item=date_info.shifts.night.items|get_item:item_name %}
   <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-    <input type="number" class="production-input stock-input" value="{% if night_item.stock is not None %}{{ night_item.stock }}{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_info.is_weekend %} style="display:none;"{% endif %} readonly/>
+    <input type="number" class="stock-input" value="{% if night_item.stock is not None %}{{ night_item.stock }}{% endif %}"{% if night_item.stock is not None %} data-has-db-value="true"{% endif %} data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_info.is_weekend %} style="display:none;"{% endif %} readonly/>
   </td>
   {% endwith %}
   {% endfor %}
@@ -262,6 +262,8 @@
 <script>
     // 品番データ（タクト）
     itemData = {{ item_data_json|safe }};
+    // 前月末の在庫データ
+    previousMonthStocks = {{ previous_month_stocks_json|safe }};
 </script>
 
 <!-- 外部JavaScriptファイルを読み込む -->

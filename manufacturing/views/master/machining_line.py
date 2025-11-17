@@ -63,12 +63,13 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
             active = data.get('active') == 'on'
             if not name:
                 errors['name'] = 'ライン名は必須です。'
-            print(assembly_id)
 
             if active:
-                if self.crud_model.validate_name_unique(name, pk):
+                query = self.crud_model.objects.filter(assembly_id=assembly_id, name=name, active=True)
+                if pk:
+                    query = query.exclude(id=pk)
+                if query.exists():
                     errors['name'] = f'{str(self.crud_model.get_by_name(name))}は既に登録されています。'
-
             return errors
         except Exception as e:
             except_output('Validate data error', e)

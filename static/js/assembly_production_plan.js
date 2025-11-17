@@ -1515,6 +1515,17 @@ $(document).ready(function () {
     $('#save-btn').on('click', saveProductionPlan);
     $('#auto-btn').on('click', autoCalculateOvertime);
 
+    // 加工出庫調整ボタンのイベントリスナー
+    $('#shipment-adjustment-btn').on('click', function () {
+        const targetMonth = $('#target-month').val();
+        if (targetMonth) {
+            const [year, month] = targetMonth.split('-');
+            window.location.href = `/management_room/production-plan/machining-shipment-adjustment/?year=${year}&month=${month}`;
+        } else {
+            window.location.href = '/management_room/production-plan/machining-shipment-adjustment/';
+        }
+    });
+
     // 週末の休出状態を初期化
     initializeWeekendWorkingStatus();
 
