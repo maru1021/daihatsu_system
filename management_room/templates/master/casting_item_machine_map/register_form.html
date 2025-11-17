@@ -1,0 +1,38 @@
+<div class="mb-3">
+  <label for="line_id" class="form-label">鋳造ライン<span class="text-danger">*</span></label>
+  <select class="form-control select2" id="line_id" name="line_id">
+    {% for line in lines %}
+    <option value="{{ line.id }}">{{ line.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="machine_id" class="form-label">鋳造機<span class="text-danger">*</span></label>
+  <select class="form-control select2" id="machine_id" name="machine_id">
+    {% for machine in machines %}
+    <option value="{{ machine.id }}">{{ machine.line.name }} - {{ machine.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="casting_item_id" class="form-label">鋳造品番<span class="text-danger">*</span></label>
+  <select class="form-control select2" id="casting_item_id" name="casting_item_id">
+    {% for casting_item in casting_items %}
+    <option value="{{ casting_item.id }}">{{ casting_item.line.name }} - {{ casting_item.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="tact" class="form-label">タクト</label>
+  <input type="number" class="form-control" id="tact" name="tact" step="0.01" min="0" value="0">
+</div>
+<div class="mb-3">
+  <label for="yield_rate" class="form-label">良品率</label>
+  <input type="number" class="form-control" id="yield_rate" name="yield_rate" step="0.01" min="0" max="1" value="0">
+</div>
+<div class="mb-3">
+  <div class="form-check">
+      <input type="checkbox" class="form-check-input" id="active" name="active" checked>
+      <label class="form-check-label" for="active">有効</label>
+  </div>
+</div>

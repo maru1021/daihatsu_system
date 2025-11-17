@@ -386,6 +386,33 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
         lines = CastingLine.objects.filter(active=True).order_by('name')
         lines_list = [{'id': l.id, 'name': l.name} for l in lines]
 
+        # 適正在庫と月末在庫を比較
+        inventory_comparison = []
+        for item_name in item_names:
+            # 鋳造品番の適正在庫を取得
+            casting_item = CastingItem.objects.filter(
+                line=line,
+                name=item_name,
+                active=True
+            ).first()
+
+            optimal_inventory = casting_item.optimal_inventory if casting_item and casting_item.optimal_inventory is not None else 0
+
+            # 月末在庫を取得（最終在庫入力フィールドの値、またはデータベースから）
+            # 注: 鋳造では最終在庫入力があるため、その値を使用
+            # ページ読み込み時点では0として、JavaScriptで更新
+            end_of_month_inventory = 0
+
+            # 差分を計算
+            difference = end_of_month_inventory - optimal_inventory
+
+            inventory_comparison.append({
+                'name': item_name,
+                'optimal_inventory': optimal_inventory,
+                'end_of_month_inventory': end_of_month_inventory,
+                'difference': difference
+            })
+
         context = {
             'year': year,
             'month': month,
@@ -409,6 +436,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             'previous_month_inventory_json': json.dumps(previous_month_inventory),
             'previous_month_production_plans_json': json.dumps(previous_month_production_plans),
             'lines': lines_list,
+            'inventory_comparison': inventory_comparison,
         }
 
         return render(request, self.template_file, context)

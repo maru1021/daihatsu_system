@@ -640,7 +640,7 @@ function calculateProduction(dateIndex, shift) {
 
         // 生産台数 = (稼働時間 / タクト) × 稼働率 × 良品率 × 設備数
         const production = Math.floor(
-            (workingTime / data.tact) * operationRate * data.good_rate * stats.machineCount
+            (workingTime / data.tact) * operationRate * data.yield_rate * stats.machineCount
         );
 
         // 生産台数セルに値を設定
@@ -1126,7 +1126,8 @@ function initialize() {
     initializeWeekendWorkingStatus();  // 週末の出勤状態を初期化
     updateWorkingDayStatus();  // 稼働日状態を初期化
     performInitialCalculations();
-    setupSectionDrag();  // セクションドラッグ機能を初期化
+    setupInventoryComparisonListeners();  // 月末在庫カード更新のリスナーを設定
+    updateInventoryComparisonCard();  // 初期表示時にカードを更新
 
     // 保存ボタンのイベントリスナー
     saveBtn.addEventListener('click', saveProductionPlan);
@@ -1199,98 +1200,57 @@ function initialize() {
 }
 
 // ========================================
-// セクションドラッグ&ドロップ機能
+// セクションドラッグ&ドロップ機能は削除されました
 // ========================================
-let draggedSection = null;
-let draggedSectionRows = [];
 
-function setupSectionDrag() {
-    // 各セクションの最初の行にドラッグ機能を追加
-    const tbody = document.querySelector('tbody');
-    if (!tbody) return;
+// ========================================
+// 月末在庫カード更新機能
+// ========================================
+function updateInventoryComparisonCard() {
+    // 全ての最終在庫入力フィールドを取得
+    const finalInventoryInputs = document.querySelectorAll('.final-inventory-input');
 
-    const allRows = Array.from(tbody.querySelectorAll('tr'));
+    finalInventoryInputs.forEach(input => {
+        const itemName = input.dataset.item;
+        const endOfMonthInventory = parseInt(input.value) || 0;
 
-    // セクションごとにグループ化
-    const sections = ['inventory', 'production_plan', 'overtime', 'stop_time', 'delivery', 'production'];
+        // 対応する月末在庫カードを取得
+        const inventoryCard = document.querySelector(`.monthly-plan-item[data-item-name="${itemName}"]`);
+        if (inventoryCard) {
+            const inventorySpan = inventoryCard.querySelector('.end-of-month-inventory');
+            if (inventorySpan) {
+                inventorySpan.textContent = endOfMonthInventory;
 
-    sections.forEach(sectionName => {
-        // このセクションの全行を取得
-        const sectionRows = allRows.filter(row => row.getAttribute('data-section') === sectionName);
+                // 適正在庫をdata属性から取得
+                const optimalInventory = parseInt(inventoryCard.dataset.optimalInventory) || 0;
 
-        if (sectionRows.length === 0) return;
+                // 差分を計算
+                const difference = endOfMonthInventory - optimalInventory;
 
-        // 最初の行（日勤の最初の行）にdraggableを設定
-        const firstRow = sectionRows[0];
-        firstRow.setAttribute('draggable', 'true');
-        firstRow.style.cursor = 'move';
+                // カードの背景色を変更
+                inventoryCard.classList.remove('shortage', 'excess');
+                if (difference < 0) {
+                    inventoryCard.classList.add('shortage');
+                } else if (difference > 0) {
+                    inventoryCard.classList.add('excess');
+                }
 
-        // ドラッグイベント
-        firstRow.addEventListener('dragstart', function(e) {
-            draggedSection = sectionName;
-            draggedSectionRows = sectionRows;
-            e.dataTransfer.effectAllowed = 'move';
-            // セクション全体を半透明に
-            sectionRows.forEach(row => row.style.opacity = '0.5');
-        });
-
-        firstRow.addEventListener('dragend', function(e) {
-            // 元の透明度に戻す
-            sectionRows.forEach(row => row.style.opacity = '1');
-            draggedSection = null;
-            draggedSectionRows = [];
-
-            // ドロップ後に全体を再計算
-            const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
-            for (let i = 0; i < dateCount; i++) {
-                calculateProduction(i, 'day');
-                calculateProduction(i, 'night');
+                // 差分を更新
+                const diffSpan = inventoryCard.querySelector('.monthly-plan-diff');
+                if (diffSpan) {
+                    diffSpan.textContent = '(' + (difference > 0 ? '+' : '') + difference + ')';
+                }
             }
-            recalculateAllInventory();
-            checkItemChanges();
-        });
+        }
+    });
+}
 
-        // ドラッグオーバーとドロップを全行に設定
-        sectionRows.forEach(row => {
-            row.addEventListener('dragover', function(e) {
-                e.preventDefault();
-                if (!draggedSection || draggedSection === sectionName) return;
+// 最終在庫入力フィールドにイベントリスナーを設定
+function setupInventoryComparisonListeners() {
+    const finalInventoryInputs = document.querySelectorAll('.final-inventory-input');
 
-                // ドロップ先のセクションの全行をハイライト
-                const targetSection = row.getAttribute('data-section');
-                const targetRows = allRows.filter(r => r.getAttribute('data-section') === targetSection);
-                targetRows.forEach(r => r.style.backgroundColor = '#e3f2fd');
-            });
-
-            row.addEventListener('dragleave', function(e) {
-                if (!draggedSection) return;
-
-                const targetSection = row.getAttribute('data-section');
-                const targetRows = allRows.filter(r => r.getAttribute('data-section') === targetSection);
-                targetRows.forEach(r => r.style.backgroundColor = '');
-            });
-
-            row.addEventListener('drop', function(e) {
-                e.preventDefault();
-                if (!draggedSection) return;
-
-                const targetSection = row.getAttribute('data-section');
-                if (draggedSection === targetSection) return;
-
-                const targetRows = allRows.filter(r => r.getAttribute('data-section') === targetSection);
-
-                // 背景色をリセット
-                targetRows.forEach(r => r.style.backgroundColor = '');
-
-                // セクションを入れ替え
-                const targetFirstRow = targetRows[0];
-
-                // ドラッグされたセクションをターゲットの前に挿入
-                draggedSectionRows.forEach(dragRow => {
-                    tbody.insertBefore(dragRow, targetFirstRow);
-                });
-            });
-        });
+    finalInventoryInputs.forEach(input => {
+        input.addEventListener('input', updateInventoryComparisonCard);
     });
 }
 

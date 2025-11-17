@@ -6,26 +6,56 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>設備別生産スケジュール - {{ year }}年{{ month }}月</title>
+<title>鋳造生産スケジュール - {{ year }}年{{ month }}月</title>
 <link href="{% static 'css/vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet" />
 <link href="{% static 'css/vendor/select2/select2.min.css' %}" rel="stylesheet" />
 <link href="{% static 'css/vendor/select2/select2-bootstrap-5-theme.min.css' %}" rel="stylesheet" />
-<link rel="stylesheet" href="{% static 'management_room/css/casting_production_plan.css' %}">
+<link rel="stylesheet" href="{% static 'css/production_plan.css' %}">
 </head>
-<body>
-<h1>設備別生産スケジュール
-    <div class="input-container">
-        <label for="target-month">対象月：</label>
-        <select id="line-select" class="line-select select2">
-            {% for line_item in lines %}
-            <option value="{{ line_item.id }}" {% if line_item.id == line.id %}selected{% endif %}>{{ line_item.name }}</option>
-            {% endfor %}
-        </select>
-        <input type="month" id="target-month" class="month-input" value="{{ year }}-{{ month|stringformat:'02d' }}">
-        <button type="button" id="auto-btn" class="auto-btn">自動</button>
-        <button type="button" id="save-btn" class="save-btn">保存</button>
+<body class="assembly-plan">
+<div class="page-container">
+    <div class="header-section">
+        <div class="page-title">鋳造生産スケジュール</div>
+        <div class="controls-wrapper">
+            <div class="left-controls">
+                <div class="control-row">
+                    <label for="line-select">ライン：</label>
+                    <select id="line-select" class="line-select select2">
+                        {% for line_item in lines %}
+                        <option value="{{ line_item.id }}" {% if line_item.id == line.id %}selected{% endif %}>{{ line_item.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="control-row">
+                    <label for="target-month">対象月：</label>
+                    <input type="month" id="target-month" class="month-input" value="{{ year }}-{{ month|stringformat:'02d' }}">
+                </div>
+            </div>
+
+            <div class="monthly-plan-card">
+                <div class="monthly-plan-title">📦 月末在庫</div>
+                <div class="monthly-plan-grid">
+                    {% for item in inventory_comparison %}
+                        <div class="monthly-plan-item {% if item.difference < 0 %}shortage{% elif item.difference > 0 %}excess{% endif %}" data-item-name="{{ item.name }}" data-optimal-inventory="{{ item.optimal_inventory|default:0 }}">
+                            <div class="monthly-plan-item-name">{{ item.name }}</div>
+                            <div class="monthly-plan-item-quantity">
+                                <span class="end-of-month-inventory">{{ item.end_of_month_inventory|default:0 }}</span> 台
+                                <span class="monthly-plan-diff">
+                                    ({% if item.difference > 0 %}+{% endif %}{{ item.difference|default:0 }})
+                                </span>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="right-controls">
+                <button type="button" id="auto-btn" class="auto-btn">自動</button>
+                <button type="button" id="save-btn" class="save-btn">保存</button>
+                <button type="button" id="main-btn" class="main-btn" onclick="window.location.href='/'">メインページ</button>
+            </div>
+        </div>
     </div>
-</h1>
 <div class="table-container" id="schedule-table">
 <table>
 <thead>
@@ -45,27 +75,30 @@
 </tr>
 </thead>
 <tbody>
-<!-- inventory section -->
-{% for row in inventory_data_day %}<tr data-section="inventory" data-shift="day">{% if forloop.first %}<th class="category-label" rowspan="10" style="cursor:move;"><span class="section-drag-handle">⋮⋮</span> 在庫数</th><th class="shift-label" rowspan="5">日勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="inventory-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}"><input type="number" class="inventory-input" value="{{ cell.value }}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/></td>{% endfor %}<td class="final-inventory-cell"><input type="number" class="final-inventory-input" data-item="{{ row.item_name }}" placeholder="最終在庫"></td></tr>{% endfor %}
-{% for row in inventory_data_night %}<tr class="night-shift" data-section="inventory" data-shift="night">{% if forloop.first %}<th class="shift-label" rowspan="5">夜勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="inventory-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}"><input type="number" class="inventory-input" value="{{ cell.value }}" data-shift="night" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if cell.is_weekend %} style="display:none;"{% endif %}/></td>{% endfor %}<td></td></tr>{% endfor %}
-<!-- production_plan section -->
-{% for row in production_plan_data_day %}<tr data-section="production_plan" data-shift="day" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="category-label" rowspan="8" style="cursor:move;"><span class="section-drag-handle">⋮⋮</span> 生産計画</th><th class="shift-label" rowspan="4">日勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}<!-- DEBUG: items={{ cell.items }}, selected={{ cell.selected }} --></th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" {% if forloop.counter0 == 27 %}data-debug-selected="{{ cell.selected }}"{% endif %}>{% if cell.items %}<div class="select-container" draggable="true"><span class="drag-handle">⋮⋮</span><select class="vehicle-select" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-vehicle="{{ cell.selected }}"><option value="">-</option>{% for item in cell.items %}<option value="{{ item }}"{% if item == cell.selected %} selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>{% endif %}</td>{% endfor %}<td></td></tr>{% endfor %}
-{% for row in production_plan_data_night %}<tr class="night-shift" data-section="production_plan" data-shift="night" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="shift-label" rowspan="4">夜勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">{% if not cell.is_weekend and cell.items %}<div class="select-container" draggable="true"><span class="drag-handle">⋮⋮</span><select class="vehicle-select" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-vehicle="{{ cell.selected }}"><option value="">-</option>{% for item in cell.items %}<option value="{{ item }}"{% if item == cell.selected %} selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>{% endif %}</td>{% endfor %}<td></td></tr>{% endfor %}
-<!-- overtime section -->
-{% for row in overtime_data_day %}<tr data-section="overtime" data-shift="day" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="category-label" rowspan="8" style="cursor:move;"><span class="section-drag-handle">⋮⋮</span> 残業計画</th><th class="shift-label" rowspan="4">日勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"><input class="overtime-input" max="120" min="0" step="5" type="number" value="{{ cell.value }}" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"/></td>{% endfor %}<td></td></tr>{% endfor %}
-{% for row in overtime_data_night %}<tr class="night-shift" data-section="overtime" data-shift="night" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="shift-label" rowspan="4">夜勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">{% if not cell.is_weekend %}<input class="overtime-input" max="60" min="0" step="5" type="number" value="{{ cell.value }}" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"/>{% endif %}</td>{% endfor %}<td></td></tr>{% endfor %}
-<!-- stop_time section -->
-{% for row in stop_time_data_day %}<tr data-section="stop_time" data-shift="day" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="category-label" rowspan="8" style="cursor:move;"><span class="section-drag-handle">⋮⋮</span> 計画停止</th><th class="shift-label" rowspan="4">日勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"><input class="stop-time-input" max="480" min="0" step="5" type="number" value="{{ cell.value }}" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"/></td>{% endfor %}<td></td></tr>{% endfor %}
-{% for row in stop_time_data_night %}<tr class="night-shift" data-section="stop_time" data-shift="night" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="shift-label" rowspan="4">夜勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">{% if not cell.is_weekend %}<input class="stop-time-input" max="480" min="0" step="5" type="number" value="{{ cell.value }}" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"/>{% endif %}</td>{% endfor %}<td></td></tr>{% endfor %}
-<!-- delivery section -->
-{% for row in delivery_data_day %}<tr data-section="delivery" data-shift="day">{% if forloop.first %}<th class="category-label" rowspan="10" style="cursor:move;"><span class="section-drag-handle">⋮⋮</span> 出庫数</th><th class="shift-label" rowspan="5">日勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="delivery-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}"><input type="number" class="delivery-input" value="{{ cell.value }}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/></td>{% endfor %}<td></td></tr>{% endfor %}
+<!-- 出庫 -->
+{% for row in delivery_data_day %}<tr data-section="delivery" data-shift="day">{% if forloop.first %}<th class="category-label" rowspan="10">出庫数</th><th class="shift-label" rowspan="5">日勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="delivery-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}"><input type="number" class="delivery-input" value="{{ cell.value }}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/></td>{% endfor %}<td></td></tr>{% endfor %}
 {% for row in delivery_data_night %}<tr class="night-shift" data-section="delivery" data-shift="night">{% if forloop.first %}<th class="shift-label" rowspan="5">夜勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="delivery-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}"><input type="number" class="delivery-input" value="{{ cell.value }}" data-shift="night" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if cell.is_weekend %} style="display:none;"{% endif %}/></td>{% endfor %}<td></td></tr>{% endfor %}
-<!-- production section -->
-{% for row in production_data_day %}<tr data-section="production" data-shift="day">{% if forloop.first %}<th class="category-label" rowspan="10" style="cursor:move;"><span class="section-drag-handle">⋮⋮</span> 生産台数</th><th class="shift-label" rowspan="5">日勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="production-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}">{{ cell.value }}</td>{% endfor %}<td></td></tr>{% endfor %}
+<!-- 生産台数 -->
+{% for row in production_data_day %}<tr data-section="production" data-shift="day">{% if forloop.first %}<th class="category-label" rowspan="10">生産台数</th><th class="shift-label" rowspan="5">日勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="production-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}">{{ cell.value }}</td>{% endfor %}<td></td></tr>{% endfor %}
 {% for row in production_data_night %}<tr class="night-shift" data-section="production" data-shift="night">{% if forloop.first %}<th class="shift-label" rowspan="5">夜勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="production-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}">{{ cell.value }}</td>{% endfor %}<td></td></tr>{% endfor %}
+<!-- 在庫 -->
+{% for row in inventory_data_day %}<tr data-section="inventory" data-shift="day">{% if forloop.first %}<th class="category-label" rowspan="10">在庫数</th><th class="shift-label" rowspan="5">日勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="inventory-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}"><input type="number" class="inventory-input" value="{{ cell.value }}" data-shift="day" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/></td>{% endfor %}<td class="final-inventory-cell"><input type="number" class="final-inventory-input" data-item="{{ row.item_name }}" placeholder="最終在庫"></td></tr>{% endfor %}
+{% for row in inventory_data_night %}<tr class="night-shift" data-section="inventory" data-shift="night">{% if forloop.first %}<th class="shift-label" rowspan="5">夜勤</th>{% endif %}<th class="vehicle-label">{{ row.item_name }}</th>{% for cell in row.cells %}<td class="inventory-cell{% if cell.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}"><input type="number" class="inventory-input" value="{{ cell.value }}" data-shift="night" data-item="{{ row.item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if cell.is_weekend %} style="display:none;"{% endif %}/></td>{% endfor %}<td></td></tr>{% endfor %}
+<!-- 生産計画 -->
+{% for row in production_plan_data_day %}<tr data-section="production_plan" data-shift="day" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="category-label" rowspan="8">生産計画</th><th class="shift-label" rowspan="4">日勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">{% if cell.items %}<div class="select-container" draggable="true"><span class="drag-handle">⋮⋮</span><select class="vehicle-select" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-vehicle="{{ cell.selected }}"><option value="">-</option>{% for item in cell.items %}<option value="{{ item }}"{% if item == cell.selected %} selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>{% endif %}</td>{% endfor %}<td></td></tr>{% endfor %}
+{% for row in production_plan_data_night %}<tr class="night-shift" data-section="production_plan" data-shift="night" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="shift-label" rowspan="4">夜勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">{% if not cell.is_weekend and cell.items %}<div class="select-container" draggable="true"><span class="drag-handle">⋮⋮</span><select class="vehicle-select" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-vehicle="{{ cell.selected }}"><option value="">-</option>{% for item in cell.items %}<option value="{{ item }}"{% if item == cell.selected %} selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>{% endif %}</td>{% endfor %}<td></td></tr>{% endfor %}
+<!-- 残業時間 -->
+{% for row in overtime_data_day %}<tr data-section="overtime" data-shift="day" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="category-label" rowspan="8">残業計画</th><th class="shift-label" rowspan="4">日勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"><input class="overtime-input" max="120" min="0" step="5" type="number" value="{{ cell.value }}" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"/></td>{% endfor %}<td></td></tr>{% endfor %}
+{% for row in overtime_data_night %}<tr class="night-shift" data-section="overtime" data-shift="night" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="shift-label" rowspan="4">夜勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">{% if not cell.is_weekend %}<input class="overtime-input" max="60" min="0" step="5" type="number" value="{{ cell.value }}" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"/>{% endif %}</td>{% endfor %}<td></td></tr>{% endfor %}
+<!-- 計画停止 -->
+{% for row in stop_time_data_day %}<tr data-section="stop_time" data-shift="day" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="category-label" rowspan="8">計画停止</th><th class="shift-label" rowspan="4">日勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"><input class="stop-time-input" max="480" min="0" step="5" type="number" value="{{ cell.value }}" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"/></td>{% endfor %}<td></td></tr>{% endfor %}
+{% for row in stop_time_data_night %}<tr class="night-shift" data-section="stop_time" data-shift="night" data-machine-index="{{ forloop.counter0 }}">{% if forloop.first %}<th class="shift-label" rowspan="4">夜勤</th>{% endif %}<th class="facility-number">{{ row.machine_name }}</th>{% for cell in row.cells %}<td{% if cell.is_weekend %} class="weekend"{% endif %} data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">{% if not cell.is_weekend %}<input class="stop-time-input" max="480" min="0" step="5" type="number" value="{{ cell.value }}" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}"/>{% endif %}</td>{% endfor %}<td></td></tr>{% endfor %}
 </tbody>
 </table>
 </div>
+</div>
+
+{% include 'components/toast.html' %}
 
 <!-- CSRFトークン -->
 {% csrf_token %}
@@ -84,7 +117,9 @@
 
 <!-- 外部JavaScriptファイルを読み込む -->
 <script src="{% static 'js/vendor/jquery/jquery-3.7.1.min.js' %}"></script>
+<script src="{% static 'js/vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
 <script src="{% static 'js/vendor/select2/select2.min.js' %}"></script>
-<script src="{% static 'management_room/js/casting_production_plan.js' %}"></script>
+<script src="{% static 'js/toast.js' %}"></script>
+<script src="{% static 'js/casting_production_plan.js' %}"></script>
 </body>
 </html>

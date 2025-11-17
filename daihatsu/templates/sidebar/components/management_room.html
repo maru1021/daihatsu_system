@@ -152,6 +152,16 @@
         鋳造品番管理
       </a>
       <a
+        class="nav-link {% if 'management_room:casting_item_machine_map' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:casting_item_machine_map' %}"
+        hx-get="{% url 'management_room:casting_item_machine_map' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-database"></i>
+        鋳造品番-設備紐づけ
+      </a>
+      <a
         class="nav-link {% if 'management_room:assembly_item_machining_item_map' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:assembly_item_machining_item_map' %}"
         hx-get="{% url 'management_room:assembly_item_machining_item_map' %}"
