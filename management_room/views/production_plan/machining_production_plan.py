@@ -239,6 +239,38 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
         # 生産数セクションの行数を計算
         production_total_rows = len(item_names) * 2  # 日勤 + 夜勤
 
+        # 月末在庫と適正在庫を比較
+        inventory_comparison = []
+        for item_name in item_names:
+            # 加工品番の適正在庫を取得
+            machining_item = MachiningItem.objects.filter(
+                line=line,
+                name=item_name,
+                active=True
+            ).first()
+
+            optimal_inventory = machining_item.optimal_inventory if machining_item and machining_item.optimal_inventory is not None else 0
+
+            # 月末在庫を取得（月の最終日の最後のシフトの在庫）
+            last_day_of_month = date_list[-1]
+            end_of_month_stock_record = MachiningStock.objects.filter(
+                line_name=line.name,
+                item_name=item_name,
+                date=last_day_of_month
+            ).order_by('-shift').first()  # night > day
+
+            end_of_month_stock = end_of_month_stock_record.stock if end_of_month_stock_record and end_of_month_stock_record.stock is not None else 0
+
+            # 差分を計算（月末在庫 - 適正在庫）
+            difference = end_of_month_stock - optimal_inventory
+
+            inventory_comparison.append({
+                'name': item_name,
+                'optimal_inventory': optimal_inventory,
+                'end_of_month_stock': end_of_month_stock,
+                'difference': difference
+            })
+
         context = {
             'year': year,
             'month': month,
@@ -249,6 +281,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             'production_total_rows': production_total_rows,
             'item_data_json': json.dumps(item_data),
             'previous_month_stocks_json': json.dumps(previous_month_stocks),
+            'inventory_comparison': inventory_comparison,
         }
 
         return render(request, self.template_file, context)

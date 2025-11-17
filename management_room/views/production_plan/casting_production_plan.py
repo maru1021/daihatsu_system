@@ -381,7 +381,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             if item_obj:
                 item_data[item_name] = {
                     'tact': item_obj.tact if item_obj.tact else 0,
-                    'good_rate': item_obj.good_rate if item_obj.good_rate else 0
+                    'yield_rate': item_obj.yield_rate if item_obj.yield_rate else 0
                 }
         lines = CastingLine.objects.filter(active=True).order_by('name')
         lines_list = [{'id': l.id, 'name': l.name} for l in lines]
@@ -804,7 +804,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 item_data[key] = {
                     'name': item.name,
                     'tact': item.tact or 0,
-                    'good_rate': item.good_rate or 0,
+                    'yield_rate': item.yield_rate or 0,
                     'machine': item.machine,
                     'machine_id': item.machine.id
                 }
@@ -1006,7 +1006,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     if data['tact'] > 0:
                         working_time = BASE_TIME[shift] + plan['overtime']
                         production = math.floor(
-                            (working_time / data['tact']) * occupancy_rate * data['good_rate']
+                            (working_time / data['tact']) * occupancy_rate * data['yield_rate']
                         )
 
                         if item_name in production_this_shift:

@@ -16,14 +16,14 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     form_action_url = 'management_room:casting_item_master'
     edit_url = 'management_room:casting_item_edit'
     delete_url = 'management_room:casting_item_delete'
-    admin_table_header = ['ライン名', '鋳造機名', '品番', 'タクト', '良品率', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['ライン名', '鋳造機名', '品番', 'タクト', '良品率', 'アクティブ', '最終更新者']
+    admin_table_header = ['ライン名', '鋳造機名', '品番', 'タクト', '良品率', '適正在庫', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['ライン名', '鋳造機名', '品番', 'タクト', '良品率', '適正在庫', 'アクティブ', '最終更新者']
     search_fields = ['line__name', 'machine__name', 'name']
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        lines = CastingLine.objects.filter(active=True).order_by('name')
-        machines = CastingMachine.objects.filter(active=True).order_by('name')
+        lines = CastingLine.objects.filter(active=True)
+        machines = CastingMachine.objects.select_related('line').filter(active=True)
         context['lines'] = lines
         context['machines'] = machines
         return context
@@ -40,6 +40,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                   'tact': data.tact,
                   'yield_rate': data.yield_rate * 100 if data.yield_rate else 0,
                   'order': data.order,
+                  'optimal_inventory': data.optimal_inventory,
                   'active': data.active,
                   'last_updated_user': data.last_updated_user,
               },
@@ -89,6 +90,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 machine=CastingMachine.objects.get(id=data.get('machine_id', '').strip()) if data.get('machine_id', '').strip() else None,
                 tact=data.get('tact', '').strip() if data.get('tact', '').strip() else 0,
                 yield_rate=float(data.get('yield_rate', '').strip()) / 100 if data.get('yield_rate', '').strip() else 0,
+                optimal_inventory=data.get('optimal_inventory', '').strip() if data.get('optimal_inventory', '').strip() else 0,
                 order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
@@ -104,6 +106,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             model.machine = CastingMachine.objects.get(id=data.get('machine_id', '').strip()) if data.get('machine_id', '').strip() else None
             model.tact = data.get('tact', '').strip() if data.get('tact', '').strip() else 0
             model.yield_rate = float(data.get('yield_rate', '').strip()) / 100 if data.get('yield_rate', '').strip() else 0
+            model.optimal_inventory = data.get('optimal_inventory', '').strip() if data.get('optimal_inventory', '').strip() else 0
             model.order = data.get('order') if data.get('order') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
@@ -123,11 +126,12 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     formatted_data.append({
                         'id': row.id,
                         'fields': [
-                            row.line.name if row.line else '未設定',
-                            row.machine.name if row.machine else '未設定',
+                            row.line.name if row.line else '',
+                            row.machine.name if row.machine else '',
                             row.name,
                             row.tact if row.tact else '',
                             row.yield_rate * 100 if row.yield_rate else '',
+                            row.optimal_inventory if row.optimal_inventory else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],
@@ -141,11 +145,12 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 for row in page_obj:
                     formatted_data.append({
                         'fields': [
-                            row.line.name if row.line else '未設定',
-                            row.machine.name if row.machine else '未設定',
+                            row.line.name if row.line else '',
+                            row.machine.name if row.machine else '',
                             row.name,
                             row.tact if row.tact else '',
                             row.yield_rate * 100 if row.yield_rate else '',
+                            row.optimal_inventory if row.optimal_inventory else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],

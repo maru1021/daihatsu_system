@@ -11,7 +11,7 @@
   <label for="machine_id" class="form-label machine-select">鋳造機<span class="text-danger">*</span></label>
   <select class="form-control select2" id="machine_id" name="machine_id">
     {% for machine in machines %}
-    <option value="{{ machine.id }}">{{ machine.name }}</option>
+    <option value="{{ machine.id }}">{{ machine.line.name }} - {{ machine.name }}</option>
     {% endfor %}
   </select>
 </div>
@@ -30,6 +30,10 @@
 <div class="mb-3">
   <label for="order" class="form-label">並び順<span class="text-danger">*</span></label>
   <input type="number" class="form-control" id="order" name="order">
+</div>
+<div class="mb-3">
+  <label for="optimal_inventory" class="form-label">適正在庫<span class="text-danger">*</span></label>
+  <input type="number" class="form-control" id="optimal_inventory" name="optimal_inventory">
 </div>
 <div class="mb-3">
   <div class="form-check">

@@ -211,6 +211,8 @@ function updateStockQuantities() {
             ? previousMonthStocks[itemName]
             : 0;
 
+        let lastVisibleStock = null;
+
         for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
             // 日勤の生産数、出庫数、在庫数を取得
             const dayProductionInput = getInputElement(`.production-input[data-shift="day"][data-item="${itemName}"][data-date-index="${dateIndex}"]`);
@@ -234,6 +236,7 @@ function updateStockQuantities() {
                     : 0;
 
                 dayStockInput.value = calculatedStock + dbStockBase;
+                lastVisibleStock = calculatedStock + dbStockBase;
             }
 
             // 夜勤の在庫計算
@@ -248,6 +251,36 @@ function updateStockQuantities() {
                     : 0;
 
                 nightStockInput.value = calculatedStock + dbStockBase;
+                lastVisibleStock = calculatedStock + dbStockBase;
+            }
+        }
+
+        // 月末在庫カードを更新
+        const inventoryCard = document.querySelector(`.monthly-plan-item[data-item-name="${itemName}"]`);
+        if (inventoryCard && lastVisibleStock !== null) {
+            const stockSpan = inventoryCard.querySelector('.end-of-month-stock');
+            if (stockSpan) {
+                stockSpan.textContent = lastVisibleStock;
+
+                // 適正在庫をdata属性から取得
+                const optimalInventory = parseInt(inventoryCard.dataset.optimalInventory) || 0;
+
+                // 差分を計算
+                const difference = lastVisibleStock - optimalInventory;
+
+                // カードの背景色を変更
+                inventoryCard.classList.remove('shortage', 'excess');
+                if (difference < 0) {
+                    inventoryCard.classList.add('shortage');
+                } else if (difference > 0) {
+                    inventoryCard.classList.add('excess');
+                }
+
+                // 差分を更新
+                const diffSpan = inventoryCard.querySelector('.monthly-plan-diff');
+                if (diffSpan) {
+                    diffSpan.textContent = '(' + (difference > 0 ? '+' : '') + difference + ')';
+                }
             }
         }
     });

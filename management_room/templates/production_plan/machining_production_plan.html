@@ -35,8 +35,26 @@
                 </div>
             </div>
 
+            <div class="monthly-plan-card">
+                <div class="monthly-plan-title">📦 月末在庫</div>
+                <div class="monthly-plan-grid">
+                    {% for item in inventory_comparison %}
+                        <div class="monthly-plan-item {% if item.difference < 0 %}shortage{% elif item.difference > 0 %}excess{% endif %}" data-item-name="{{ item.name }}" data-optimal-inventory="{{ item.optimal_inventory|default:0 }}">
+                            <div class="monthly-plan-item-name">{{ item.name }}</div>
+                            <div class="monthly-plan-item-quantity">
+                                <span class="end-of-month-stock">{{ item.end_of_month_stock|default:0 }}</span> 台
+                                <span class="monthly-plan-diff">
+                                    ({% if item.difference > 0 %}+{% endif %}{{ item.difference|default:0 }})
+                                </span>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
             <div class="right-controls">
                 <button type="button" id="save-btn" class="save-btn">保存</button>
+                <button type="button" class="casting-plan-btn" onclick="window.location.href='{% url 'management_room:casting_production_plan' %}'">鋳造生産計画</button>
                 <button type="button" id="main-btn" class="main-btn" onclick="window.location.href='/'">メインページ</button>
             </div>
         </div>

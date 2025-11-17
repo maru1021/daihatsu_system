@@ -660,6 +660,16 @@ span.vehicle-ve7 {
     min-width: 80px;
 }
 
+.monthly-plan-item.shortage {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    border-color: #fca5a5;
+}
+
+.monthly-plan-item.excess {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border-color: #fcd34d;
+}
+
 .monthly-plan-item-name {
     font-weight: 600;
     font-size: 0.8em;
@@ -808,6 +818,25 @@ span.vehicle-ve7 {
     transform: translateY(-2px);
     box-shadow: 0 10px 20px rgba(245, 158, 11, 0.4);
     background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+}
+
+.casting-plan-btn {
+    padding: 8px 10px;
+    background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: all 0.3s;
+    letter-spacing: 0.5px;
+}
+
+.casting-plan-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(6, 182, 212, 0.4);
+    background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
 }
 
 .main-btn {

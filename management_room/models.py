@@ -137,7 +137,7 @@ class MachiningItem(MasterMethodMixin, models.Model):
     name = models.CharField(verbose_name="品番", max_length=100, null=True, blank=True)
     main_line = models.BooleanField(verbose_name="メインライン", default=False)
     order = models.IntegerField(verbose_name="表示順", null=True, blank=True, default=0)
-    optimal_inventory = models.IntegerField(verbose_name="最適在庫数", null=True, blank=True, default=0)
+    optimal_inventory = models.IntegerField(verbose_name="適正在庫数", null=True, blank=True, default=0)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
@@ -159,6 +159,7 @@ class CastingItem(MasterMethodMixin, models.Model):
     tact = models.FloatField(verbose_name="タクト", null=True, blank=True, default=0)
     yield_rate = models.FloatField(verbose_name="良品率", null=True, blank=True, default=0)
     order = models.IntegerField(verbose_name="表示順", null=True, blank=True, default=0)
+    optimal_inventory = models.IntegerField(verbose_name="適正在庫数", null=True, blank=True, default=0)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
