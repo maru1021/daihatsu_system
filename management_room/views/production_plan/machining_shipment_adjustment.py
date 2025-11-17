@@ -37,7 +37,7 @@ class MachiningShipmentAdjustmentView(ManagementRoomPermissionMixin, View):
         """ラインタイプ一覧と選択されたラインタイプを取得"""
         line_type_counts = MachiningLine.objects.filter(active=True).values('name').annotate(
             count=Count('id')
-        ).filter(count__gte=2).order_by('name')
+        ).filter(count__gte=2).order_by('order')
 
         line_types = [item['name'] for item in line_type_counts]
         default_line_type = line_types[0] if line_types else None

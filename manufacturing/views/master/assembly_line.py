@@ -35,6 +35,7 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
                     'name': data.name,
                     'occupancy_rate': data.occupancy_rate * 100,
                     'tact': data.tact,
+                    'order': data.order,
                     'active': data.active
                 },
                 'edit_url': reverse(self.edit_url, kwargs={'pk': data.id}),
@@ -70,6 +71,7 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
                 name=data.get('name').strip(),
                 occupancy_rate=float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0,
                 tact=float(data.get('tact')) if data.get('tact') else 0,
+                order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -82,6 +84,7 @@ class AssemblyLineView(ManufacturingPermissionMixin, BasicTableView):
             model.name = data.get('name').strip()
             model.occupancy_rate = float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0
             model.tact = float(data.get('tact')) if data.get('tact') else 0
+            model.order = data.get('order') if data.get('order') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()

@@ -8,28 +8,27 @@ class AssemblyItemMachiningItemMapView(ManagementRoomPermissionMixin, BasicTable
     title = '完成品番-加工品番紐づけ'
     page_title = '完成品番管理-加工品番紐づけ'
     crud_model = AssemblyItemMachiningItemMap
-    table_model = AssemblyItemMachiningItemMap.objects.select_related('assembly_item', 'machining_item').only(
+    table_model = AssemblyItemMachiningItemMap.objects.select_related('machining_item__line').only(
         'id', 'assembly_item', 'machining_item', 'active', 'last_updated_user'
-    )
+    ).order_by('machining_item__assembly_line__order', 'machining_item__line__order')
     form_dir = 'master/assembly_item_machining_item_map'
     form_action_url = 'management_room:assembly_item_machining_item_map'
     edit_url = 'management_room:assembly_item_machining_item_map_edit'
     delete_url = 'management_room:assembly_item_machining_item_map_delete'
     admin_table_header = ['完成品番', '加工品番', 'アクティブ', '最終更新者', '操作']
     user_table_header = ['完成品番', '加工品番', 'アクティブ', '最終更新者']
-    search_fields = ['assembly_item__name', 'machining_item__name']
+    search_fields = ['assembly_item__line__name', 'assembly_item__name', 'machining_item__line__name', 'machining_item__name']
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        assembly_items = AssemblyItem.objects.select_related('line').filter(active=True).order_by('name')
-        machining_items = MachiningItem.objects.select_related('line').filter(active=True).order_by('name')
+        assembly_items = AssemblyItem.objects.select_related('line').filter(active=True).order_by('order')
+        machining_items = MachiningItem.objects.select_related('line__assembly').filter(active=True).order_by('assembly_line__order','order')
         context['assembly_items'] = assembly_items
         context['machining_items'] = machining_items
         return context
 
     def get_edit_data(self, data):
         try:
-            print(data)
             response_data = {
                 'status': 'success',
                 'data': {
@@ -106,11 +105,15 @@ class AssemblyItemMachiningItemMapView(ManagementRoomPermissionMixin, BasicTable
             formatted_data = []
             if is_admin:
                 for row in page_obj:
+                    if row.machining_item.assembly_line:
+                        assembly_line_name = row.machining_item.assembly_line.name
+                    else:
+                        assembly_line_name = ''
                     formatted_data.append({
                         'id': row.id,
                         'fields': [
-                            f"{row.assembly_item.line.name} - {row.assembly_item.name}" if row.assembly_item else '未設定',
-                            f"{row.machining_item.line.name} - {row.machining_item.name}" if row.machining_item else '未設定',
+                            f"{row.assembly_item.line.name} - {row.assembly_item.name}" if row.assembly_item else '',
+                            f"{ assembly_line_name} - {row.machining_item.line.name} - {row.machining_item.name}" if row.machining_item else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],

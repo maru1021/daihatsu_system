@@ -11,7 +11,7 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     crud_model = MachiningItem
     table_model = MachiningItem.objects.select_related('assembly_line', 'line').only(
         'id', 'assembly_line__name', 'line__name', 'name', 'active', 'last_updated_user'
-    )
+    ).order_by('assembly_line__order', 'line__order', 'order')
     form_dir = 'master/machining_item'
     form_action_url = 'management_room:machining_item_master'
     edit_url = 'management_room:machining_item_edit'
@@ -67,7 +67,11 @@ class MachiningItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
 
             # 重複チェック
             if active:
-                query = self.crud_model.objects.filter(assembly_line_id=assembly_line_id, line_id=line_id, name=name, active=True)
+                if assembly_line_id and line_id and name:
+                    query = self.crud_model.objects.filter(assembly_line_id=assembly_line_id, line_id=line_id, name=name, active=True)
+                else:
+                    query = self.crud_model.objects.filter(line_id=line_id, name=name, active=True)
+
                 if pk:
                     query = query.exclude(id=pk)
                 if query.exists():

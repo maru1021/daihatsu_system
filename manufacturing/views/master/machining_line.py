@@ -14,7 +14,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
     crud_model = MachiningLine
     table_model = MachiningLine.objects.select_related('assembly').only(
         'id', 'assembly__name', 'name', 'occupancy_rate', 'tact', 'yield_rate', 'active', 'last_updated_user'
-    )
+    ).order_by('assembly__order', 'order')
     form_dir = 'master/machining_line'
     form_action_url = 'manufacturing:machining_line_master'
     edit_url = 'manufacturing:machining_line_edit'
@@ -43,6 +43,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
                     'occupancy_rate': data.occupancy_rate * 100,
                     'tact': data.tact,
                     'yield_rate': data.yield_rate * 100,
+                    'order': data.order,
                     'active': data.active
                 },
                 'edit_url': reverse(self.edit_url, kwargs={'pk': data.id}),
@@ -83,6 +84,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
                 occupancy_rate=float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0,
                 tact=float(data.get('tact')) if data.get('tact') else 0,
                 yield_rate=float(data.get('yield_rate')) / 100 if data.get('yield_rate') else 0,
+                order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -97,6 +99,7 @@ class MachiningLineView(ManufacturingPermissionMixin, BasicTableView):
             model.occupancy_rate = float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0
             model.tact = float(data.get('tact')) if data.get('tact') else 0
             model.yield_rate = float(data.get('yield_rate')) / 100 if data.get('yield_rate') else 0
+            model.order = data.get('order') if data.get('order') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()

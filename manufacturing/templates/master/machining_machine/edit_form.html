@@ -2,13 +2,17 @@
   <label for="id_line_id" class="form-label line-select">ライン<span class="text-danger">*</span></label>
   <select class="form-control select2" id="id_line_id" name="line_id">
     {% for line in lines %}
-    <option value="{{ line.id }}">{{ line.name }}</option>
+    <option value="{{ line.id }}">{{ line.assembly.name }} - {{ line.name }}</option>
     {% endfor %}
   </select>
 </div>
 <div class="mb-3">
   <label for="id_name" class="form-label">設備名 <span class="text-danger">*</span></label>
   <input type="text" class="form-control" id="id_name" name="name">
+</div>
+<div class="mb-3">
+  <label for="id_order" class="form-label">並び順<span class="text-danger">*</span></label>
+  <input type="number" class="form-control" id="id_order" name="order" min="0">
 </div>
 <div class="mb-3">
   <div class="form-check">

@@ -25,7 +25,7 @@ class MachiningMachineView(ManufacturingPermissionMixin, BasicTableView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['lines'] = MachiningLine.get_active_names()
+        context['lines'] = MachiningLine.get_active_names().select_related('assembly').order_by('assembly__order', 'order')
 
         return context
 
@@ -75,6 +75,7 @@ class MachiningMachineView(ManufacturingPermissionMixin, BasicTableView):
             return self.crud_model.objects.create(
                 line_id=data.get('line_id'),
                 name=data.get('name', '').strip(),
+                order=data.get('order'),
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -86,6 +87,7 @@ class MachiningMachineView(ManufacturingPermissionMixin, BasicTableView):
         try:
             model.line_id = data.get('line_id')
             model.name = data.get('name').strip()
+            model.order = data.get('order')
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()

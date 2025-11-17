@@ -3,5 +3,6 @@
     "reportArgumentType": "none",
     "reportAttributeAccessIssue": "none",
     "reportIncompatibleMethodOverride": "none",
-    "reportIncompatibleVariableOverride": "none"
+    "reportIncompatibleVariableOverride": "none",
+    "reportOptionalMemberAccess": "none"
 }

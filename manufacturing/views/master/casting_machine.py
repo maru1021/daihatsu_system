@@ -11,7 +11,7 @@ class CastingMachineView(ManufacturingPermissionMixin, BasicTableView):
     crud_model = CastingMachine
     table_model = CastingMachine.objects.select_related('line').only(
         'id', 'line__name', 'name', 'active', 'last_updated_user'
-    )
+    ).order_by('line__order', 'order')
     form_dir = 'master/casting_machine'
     form_action_url = 'manufacturing:casting_machine_master'
     edit_url = 'manufacturing:casting_machine_edit'
@@ -38,6 +38,7 @@ class CastingMachineView(ManufacturingPermissionMixin, BasicTableView):
                     'line_name': data.line.name if data.line else '未設定',
                     'id': data.id,
                     'name': data.name,
+                    'order': data.order,
                     'active': data.active
                 },
                 'edit_url': reverse(self.edit_url, kwargs={'pk': data.id}),
@@ -75,6 +76,7 @@ class CastingMachineView(ManufacturingPermissionMixin, BasicTableView):
             return self.crud_model.objects.create(
                 line_id=data.get('line_id'),
                 name=data.get('name', '').strip(),
+                order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -87,6 +89,7 @@ class CastingMachineView(ManufacturingPermissionMixin, BasicTableView):
             model.line_id = data.get('line_id')
             model.name = data.get('name').strip()
             model.active = data.get('active') == 'on'
+            model.order = data.get('order') if data.get('order') else 0
             model.last_updated_user = user.username if user else None
             model.save()
         except Exception as e:

@@ -34,6 +34,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
                     'id': data.id,
                     'name': data.name,
                     'occupancy_rate': data.occupancy_rate * 100,
+                    'order': data.order,
                     'active': data.active
                 },
                 'edit_url': reverse(self.edit_url, kwargs={'pk': data.id}),
@@ -68,6 +69,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
             return self.crud_model.objects.create(
                 name=data.get('name').strip(),
                 occupancy_rate=float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0,
+                order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -79,6 +81,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
         try:
             model.name = data.get('name').strip()
             model.occupancy_rate = float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0
+            model.order = data.get('order') if data.get('order') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
