@@ -8,22 +8,21 @@ class MachiningItemCastingItemMapView(ManagementRoomPermissionMixin, BasicTableV
     title = '加工品番-鋳造品番紐づけ'
     page_title = '加工品番-鋳造品番紐づけ'
     crud_model = MachiningItemCastingItemMap
-    table_model = MachiningItemCastingItemMap.objects.select_related('machining_item', 'casting_item').only(
-        'id', 'machining_item', 'casting_item', 'active', 'last_updated_user'
-    ).order_by('machining_item__assembly_line__order', 'machining_item__line__order',
-                'machining_item__order', 'casting_item__line__order', 'casting_item__order')
+    table_model = MachiningItemCastingItemMap.objects.all().order_by(
+        'machining_line_name', 'machining_item_name', 'casting_line_name', 'casting_item_name'
+    )
     form_dir = 'master/machining_item_casting_item_map'
     form_action_url = 'management_room:machining_item_casting_item_map'
     edit_url = 'management_room:machining_item_casting_item_map_edit'
     delete_url = 'management_room:machining_item_casting_item_map_delete'
     admin_table_header = ['加工品番', '鋳造品番', 'アクティブ', '最終更新者', '操作']
     user_table_header = ['加工品番', '鋳造品番', 'アクティブ', '最終更新者']
-    search_fields = ['machining_item__name', 'machining_item__assembly_line__name', 'machining_item__line__name', 'casting_item__name',
-                        'casting_item__line__name']
+    search_fields = ['machining_line_name', 'machining_item_name', 'casting_line_name', 'casting_item_name']
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        machining_items = MachiningItem.objects.select_related('assembly_line', 'line').filter(active=True).order_by('assembly_line__order', 'line__order', 'order')
+        # ライン名と品番名の組み合わせでユニークにする（distinctを使う場合はorder_byも同じフィールドにする必要がある）
+        machining_items = MachiningItem.objects.select_related('line').filter(active=True)
         casting_items = CastingItem.objects.select_related('line').filter(active=True)
         context['machining_items'] = machining_items
         context['casting_items'] = casting_items
@@ -31,17 +30,41 @@ class MachiningItemCastingItemMapView(ManagementRoomPermissionMixin, BasicTableV
 
     def get_edit_data(self, data):
         try:
+            # 文字列フィールドから品番IDを取得
+            machining_item_id = ''
+            print(data.machining_line_name, data.machining_item_name)
+            if data.machining_line_name and data.machining_item_name:
+                machining_item = MachiningItem.objects.filter(
+                    line__name=data.machining_line_name,
+                    name=data.machining_item_name,
+                    active=True
+                ).first()
+                if machining_item:
+                    machining_item_id = machining_item.id
+            print(machining_item_id)
+
+            casting_item_id = ''
+            if data.casting_line_name and data.casting_item_name:
+                casting_item = CastingItem.objects.filter(
+                    line__name=data.casting_line_name,
+                    name=data.casting_item_name,
+                    active=True
+                ).first()
+                if casting_item:
+                    casting_item_id = casting_item.id
+
             response_data = {
                 'status': 'success',
                 'data': {
                     'id': data.id,
-                    'machining_item_id': data.machining_item.id if data.machining_item else '',
-                    'casting_item_id': data.casting_item.id if data.casting_item else '',
+                    'machining_item_id': machining_item_id,
+                    'casting_item_id': casting_item_id,
                     'active': data.active,
                     'last_updated_user': data.last_updated_user,
-              },
-              'edit_url': reverse(self.edit_url, kwargs={'pk': data.id}),
+                },
+                'edit_url': reverse(self.edit_url, kwargs={'pk': data.id}),
             }
+            print(response_data)
             return response_data
         except Exception as e:
             except_output('Get edit data error', e)
@@ -62,9 +85,23 @@ class MachiningItemCastingItemMapView(ManagementRoomPermissionMixin, BasicTableV
             if not casting_item_id:
                 errors['casting_item_id'] = '鋳造品番は必須です。'
 
-            # 重複チェック
-            if active:
-                query = self.crud_model.objects.filter(machining_item_id=machining_item_id, casting_item_id=casting_item_id, active=True)
+            # 品番情報を取得
+            machining_item = None
+            casting_item = None
+            if machining_item_id:
+                machining_item = MachiningItem.objects.filter(id=machining_item_id).select_related('line').first()
+            if casting_item_id:
+                casting_item = CastingItem.objects.filter(id=casting_item_id).select_related('line').first()
+
+            # 重複チェック（文字列フィールドで比較）
+            if active and machining_item and casting_item:
+                query = self.crud_model.objects.filter(
+                    machining_line_name=machining_item.line.name if machining_item.line else '',
+                    machining_item_name=machining_item.name,
+                    casting_line_name=casting_item.line.name if casting_item.line else '',
+                    casting_item_name=casting_item.name,
+                    active=True
+                )
                 if pk:
                     query = query.exclude(id=pk)
                 if query.exists():
@@ -78,9 +115,18 @@ class MachiningItemCastingItemMapView(ManagementRoomPermissionMixin, BasicTableV
 
     def create_model(self, data, user, files=None):
         try:
+            # 品番情報を取得
+            machining_item_id = data.get('machining_item_id', '').strip()
+            casting_item_id = data.get('casting_item_id', '').strip()
+
+            machining_item = MachiningItem.objects.filter(id=machining_item_id).select_related('line').first() if machining_item_id else None
+            casting_item = CastingItem.objects.filter(id=casting_item_id).select_related('line').first() if casting_item_id else None
+
             return self.crud_model.objects.create(
-                machining_item_id=data.get('machining_item_id', '').strip(),
-                casting_item_id=data.get('casting_item_id', '').strip(),
+                machining_line_name=machining_item.line.name if machining_item and machining_item.line else '',
+                machining_item_name=machining_item.name if machining_item else '',
+                casting_line_name=casting_item.line.name if casting_item and casting_item.line else '',
+                casting_item_name=casting_item.name if casting_item else '',
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -90,8 +136,17 @@ class MachiningItemCastingItemMapView(ManagementRoomPermissionMixin, BasicTableV
 
     def update_model(self, model, data, user, files=None):
         try:
-            model.machining_item = MachiningItem.objects.get(id=data.get('machining_item_id', '').strip()) if data.get('machining_item_id', '').strip() else None
-            model.casting_item = CastingItem.objects.get(id=data.get('casting_item_id', '').strip()) if data.get('casting_item_id', '').strip() else None
+            # 品番情報を取得
+            machining_item_id = data.get('machining_item_id', '').strip()
+            casting_item_id = data.get('casting_item_id', '').strip()
+
+            machining_item = MachiningItem.objects.filter(id=machining_item_id).select_related('line').first() if machining_item_id else None
+            casting_item = CastingItem.objects.filter(id=casting_item_id).select_related('line').first() if casting_item_id else None
+
+            model.machining_line_name = machining_item.line.name if machining_item and machining_item.line else ''
+            model.machining_item_name = machining_item.name if machining_item else ''
+            model.casting_line_name = casting_item.line.name if casting_item and casting_item.line else ''
+            model.casting_item_name = casting_item.name if casting_item else ''
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
@@ -107,20 +162,27 @@ class MachiningItemCastingItemMapView(ManagementRoomPermissionMixin, BasicTableV
             formatted_data = []
             if is_admin:
                 for row in page_obj:
-                    # 加工品番の表示形式
+                    # 加工品番の表示形式（文字列フィールドから直接取得）
                     machining_display = ''
-                    if row.machining_item:
-                        assembly_line = row.machining_item.assembly_line.name if row.machining_item.assembly_line else ''
-                        machining_line = row.machining_item.line.name if row.machining_item.line else ''
-                        machining_name = row.machining_item.name
-                        machining_display = f"{assembly_line} - {machining_line} - {machining_name}"
+                    if row.machining_item_name:
+                        # assembly_lineの情報は文字列フィールドにないため、MachiningItemから取得
+                        machining_item = MachiningItem.objects.filter(
+                            line__name=row.machining_line_name,
+                            name=row.machining_item_name,
+                            active=True
+                        ).select_related('line').first()
 
-                    # 鋳造品番の表示形式
+                        if machining_item:
+                            machining_line = machining_item.line.name if machining_item.line else ''
+                            machining_name = machining_item.name
+                            machining_display = f"{machining_line} - {machining_name}"
+                        else:
+                            machining_display = f"{row.machining_line_name} - {row.machining_item_name}"
+
+                    # 鋳造品番の表示形式（文字列フィールドから直接取得）
                     casting_display = ''
-                    if row.casting_item:
-                        casting_line = row.casting_item.line.name if row.casting_item.line else ''
-                        casting_name = row.casting_item.name
-                        casting_display = f"{casting_line} - {casting_name}"
+                    if row.casting_item_name:
+                        casting_display = f"{row.casting_line_name} - {row.casting_item_name}"
 
                     formatted_data.append({
                         'id': row.id,
@@ -135,20 +197,28 @@ class MachiningItemCastingItemMapView(ManagementRoomPermissionMixin, BasicTableV
                     })
             else:
                 for row in page_obj:
-                    # 加工品番の表示形式
+                    # 加工品番の表示形式（文字列フィールドから直接取得）
                     machining_display = '未設定'
-                    if row.machining_item:
-                        assembly_line = row.machining_item.assembly_line.name if row.machining_item.assembly_line else ''
-                        machining_line = row.machining_item.line.name if row.machining_item.line else ''
-                        machining_name = row.machining_item.name
-                        machining_display = f"{assembly_line} - {machining_line} - {machining_name}"
+                    if row.machining_item_name:
+                        # assembly_lineの情報は文字列フィールドにないため、MachiningItemから取得
+                        machining_item = MachiningItem.objects.filter(
+                            line__name=row.machining_line_name,
+                            name=row.machining_item_name,
+                            active=True
+                        ).select_related('assembly_line', 'line').first()
 
-                    # 鋳造品番の表示形式
+                        if machining_item:
+                            assembly_line = machining_item.assembly_line.name if machining_item.assembly_line else ''
+                            machining_line = machining_item.line.name if machining_item.line else ''
+                            machining_name = machining_item.name
+                            machining_display = f"{assembly_line} - {machining_line} - {machining_name}"
+                        else:
+                            machining_display = f"{row.machining_line_name} - {row.machining_item_name}"
+
+                    # 鋳造品番の表示形式（文字列フィールドから直接取得）
                     casting_display = '未設定'
-                    if row.casting_item:
-                        casting_line = row.casting_item.line.name if row.casting_item.line else ''
-                        casting_name = row.casting_item.name
-                        casting_display = f"{casting_line} - {casting_name}"
+                    if row.casting_item_name:
+                        casting_display = f"{row.casting_line_name} - {row.casting_item_name}"
 
                     formatted_data.append({
                         'fields': [

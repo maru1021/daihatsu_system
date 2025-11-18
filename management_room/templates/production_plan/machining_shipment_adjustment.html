@@ -62,14 +62,14 @@
 <th colspan="3" rowspan="{{ assembly_lines_data|length|add:1 }}">完成品番</th>
 <!-- 日付 -->
 {% for date_info in dates_data %}
-<th{% if date_info.is_weekend %} class="weekend"{% endif %}>{{ month }}/{{ date_info.day }}<br/>({% if date_info.weekday == 0 %}月{% elif date_info.weekday == 1 %}火{% elif date_info.weekday == 2 %}水{% elif date_info.weekday == 3 %}木{% elif date_info.weekday == 4 %}金{% elif date_info.weekday == 5 %}土{% elif date_info.weekday == 6 %}日{% endif %})</th>
+<th{% if date_info.is_weekend %} class="weekend"{% endif %} data-date-index="{{ forloop.counter0 }}">{{ month }}/{{ date_info.day }}<br/>({% if date_info.weekday == 0 %}月{% elif date_info.weekday == 1 %}火{% elif date_info.weekday == 2 %}水{% elif date_info.weekday == 3 %}木{% elif date_info.weekday == 4 %}金{% elif date_info.weekday == 5 %}土{% elif date_info.weekday == 6 %}日{% endif %})</th>
 {% endfor %}
 <th rowspan="{{ assembly_lines_data|length|add:1 }}">月計</th>
 </tr>
 {% for line_data in assembly_lines_data %}
 <tr>
 {% for date_info in dates_data %}
-<th{% if date_info.is_weekend %} class="weekend"{% endif %}>{{ date_info.occupancy_rates|get_item:line_data.name|default:"-" }}%</th>
+<th{% if date_info.is_weekend %} class="weekend"{% endif %} data-date-index="{{ forloop.counter0 }}">{{ date_info.occupancy_rates|get_item:line_data.name|default:"-" }}%</th>
 {% endfor %}
 </tr>
 {% endfor %}

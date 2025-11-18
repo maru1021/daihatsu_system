@@ -337,6 +337,15 @@ tbody th.vehicle-label {
     width: 36px;
 }
 
+/* 金型交換入力 */
+.mold-change-input {
+    width: 36px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    padding: 1px;
+}
+
 /* 生産数入力 */
 .production-input {
     width: 36px;
@@ -872,5 +881,38 @@ tr.night-shift .monthly-total {
 /* 日別合計セル */
 .daily-total {
     background-color: #e1f5fe !important;
+    font-weight: bold;
+}
+
+/* ========================================
+   セクション内の日付ヘッダー行
+   ======================================== */
+.section-date-header {
+    background-color: var(--primary-blue);
+    font-weight: bold;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.section-date-header th {
+    padding: 4px;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
+    text-align: center;
+    background-color: var(--primary-blue);
+    color: white;
+}
+
+.section-date-header th.weekend {
+    background-color: #4fc3f7;
+    color: white;
+}
+
+/* ========================================
+   列のホバー効果（日付セルのみ濃い青色）
+   ======================================== */
+th.date-hover {
+    background-color: #42a5f5 !important;
     font-weight: bold;
 }

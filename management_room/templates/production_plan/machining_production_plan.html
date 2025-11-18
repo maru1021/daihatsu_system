@@ -75,13 +75,13 @@
 <!-- 日付 -->
 <tr>
 {% for date_info in dates_data %}
-<th>{{ month }}/{{ date_info.day }}<br/>({% if date_info.weekday == 0 %}月{% elif date_info.weekday == 1 %}火{% elif date_info.weekday == 2 %}水{% elif date_info.weekday == 3 %}木{% elif date_info.weekday == 4 %}金{% elif date_info.weekday == 5 %}土{% elif date_info.weekday == 6 %}日{% endif %})</th>
+<th data-date-index="{{ forloop.counter0 }}">{{ month }}/{{ date_info.day }}<br/>({% if date_info.weekday == 0 %}月{% elif date_info.weekday == 1 %}火{% elif date_info.weekday == 2 %}水{% elif date_info.weekday == 3 %}木{% elif date_info.weekday == 4 %}金{% elif date_info.weekday == 5 %}土{% elif date_info.weekday == 6 %}日{% endif %})</th>
 {% endfor %}
 </tr>
 
 <!-- 稼働率 -->
 <tr>
-{% for date_info in dates_data %}<th{% if date_info.is_weekend %} class="weekend"{% endif %}><input type="number" class="operation-rate-input" data-date-index="{{ forloop.counter0 }}" step="0.01" min="0" max="100" placeholder="稼働率" value="{{ date_info.occupancy_rate }}"/></th>
+{% for date_info in dates_data %}<th{% if date_info.is_weekend %} class="weekend"{% endif %} data-date-index="{{ forloop.counter0 }}"><input type="number" class="operation-rate-input" data-date-index="{{ forloop.counter0 }}" step="0.01" min="0" max="100" placeholder="稼働率" value="{{ date_info.occupancy_rate }}"/></th>
 {% endfor %}
 </tr>
 </thead>

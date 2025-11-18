@@ -213,21 +213,23 @@ class AssemblyItemMachiningItemMap(models.Model):
         return f"{self.assembly_item.name} - {self.machining_item.name}"
 
 class MachiningItemCastingItemMap(models.Model):
-    machining_item = models.ForeignKey(MachiningItem, on_delete=models.CASCADE, verbose_name="加工品番", related_name='machining_item_casting_items', db_index=True)
-    casting_item = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="鋳造品番", related_name='machining_item_casting_items', db_index=True)
+    machining_line_name = models.CharField(verbose_name="加工ライン名", max_length=100, null=True, blank=True, db_index=True)
+    machining_item_name = models.CharField(verbose_name="加工品番名", max_length=100, null=True, blank=True, db_index=True)
+    casting_line_name = models.CharField(verbose_name="鋳造ライン名", max_length=100, null=True, blank=True, db_index=True)
+    casting_item_name = models.CharField(verbose_name="鋳造品番名", max_length=100, null=True, blank=True, db_index=True)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
         verbose_name = "加工品番-鋳造品番紐付け"
         verbose_name_plural = "加工品番-鋳造品番紐付け"
-        ordering = ['machining_item', 'casting_item']
+        ordering = ['machining_line_name', 'machining_item_name', 'casting_line_name', 'casting_item_name']
         indexes = [
-            models.Index(fields=['machining_item', 'casting_item']),
+            models.Index(fields=['machining_line_name', 'machining_item_name', 'casting_line_name', 'casting_item_name']),
         ]
 
     def __str__(self):
-        return f"{self.machining_item.name} - {self.casting_item.name}"
+        return f"{self.machining_line_name} - {self.machining_item_name} - {self.casting_line_name} - {self.casting_item_name}"
 
 
 class MonthlyAssemblyProductionPlan(models.Model):
@@ -256,7 +258,7 @@ class DailyAssenblyProductionPlan(models.Model):
     shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
     production_quantity = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
     stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
-    overtime = models.IntegerField(verbose_name="生産残業数", null=True, blank=True, default=0)
+    overtime = models.IntegerField(verbose_name="生産残業", null=True, blank=True, default=0)
     occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
     regular_working_hours = models.BooleanField(verbose_name="定時", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
@@ -282,7 +284,7 @@ class DailyMachiningProductionPlan(models.Model):
     production_quantity = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
     shipment = models.IntegerField(verbose_name="出荷数", null=True, blank=True, default=0)
     stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
-    overtime = models.IntegerField(verbose_name="生産残業数", null=True, blank=True, default=0)
+    overtime = models.IntegerField(verbose_name="生産残業", null=True, blank=True, default=0)
     occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
     regular_working_hours = models.BooleanField(verbose_name="定時", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
@@ -298,6 +300,27 @@ class DailyMachiningProductionPlan(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.shift} - { self.line.name} - {self.production_item.name}"
+
+
+class MachiningStock(models.Model):
+    line_name = models.CharField(verbose_name="ライン名", max_length=100, null=True, blank=True, db_index=True)
+    item_name = models.CharField(verbose_name="品番名", max_length=100, null=True, blank=True, db_index=True)
+    date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
+    shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
+    stock = models.IntegerField(verbose_name="在庫数", null=True, blank=True, default=0)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "加工在庫"
+        verbose_name_plural = "加工在庫"
+        ordering = ['-date', 'shift']
+        indexes = [
+            models.Index(fields=['line_name', 'date', 'shift']),
+            models.Index(fields=['line_name', 'date', 'shift', 'item_name']),
+        ]
+
+    def __str__(self):
+        return f"{self.date} - {self.shift} - {self.line_name} - {self.item_name} - {self.stock}"
 
 
 class DailyCastingProductionPlan(models.Model):
@@ -321,6 +344,7 @@ class DailyCastingProductionPlan(models.Model):
     def __str__(self):
         return f"{self.date} - {self.shift} - {self.production_item.name}"
 
+
 class DailyMachineCastingProductionPlan(models.Model):
     line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", related_name='daily_machine_casting_production_plans')
     machine = models.ForeignKey('manufacturing.CastingMachine', on_delete=models.CASCADE, verbose_name="鋳造機", related_name='daily_machine_casting_production_plans')
@@ -328,8 +352,9 @@ class DailyMachineCastingProductionPlan(models.Model):
     shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
     production_item = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
     production_count = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
+    mold_change = models.IntegerField(verbose_name="金型交換", null=True, blank=True, default=0)
     stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
-    overtime = models.IntegerField(verbose_name="生産残業数", null=True, blank=True, default=0)
+    overtime = models.IntegerField(verbose_name="生産残業", null=True, blank=True, default=0)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
@@ -342,24 +367,3 @@ class DailyMachineCastingProductionPlan(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.shift} - {self.line.name if self.line else ''} - {self.machine.name if self.machine else ''} - {self.production_item.name if self.production_item else ''} - {self.production_count}"
-
-
-class MachiningStock(models.Model):
-    line_name = models.CharField(verbose_name="ライン名", max_length=100, null=True, blank=True, db_index=True)
-    item_name = models.CharField(verbose_name="品番名", max_length=100, null=True, blank=True, db_index=True)
-    date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
-    shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
-    stock = models.IntegerField(verbose_name="在庫数", null=True, blank=True, default=0)
-    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
-
-    class Meta:
-        verbose_name = "加工在庫"
-        verbose_name_plural = "加工在庫"
-        ordering = ['-date', 'shift']
-        indexes = [
-            models.Index(fields=['line_name', 'date', 'shift']),
-            models.Index(fields=['line_name', 'date', 'shift', 'item_name']),
-        ]
-
-    def __str__(self):
-        return f"{self.date} - {self.shift} - {self.line_name} - {self.item_name} - {self.stock}"

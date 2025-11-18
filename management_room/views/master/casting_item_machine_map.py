@@ -96,7 +96,7 @@ class CastingItemMachineMapView(ManagementRoomPermissionMixin, BasicTableView):
                 machine_id=data.get('machine_id', '').strip(),
                 casting_item_id=data.get('casting_item_id', '').strip(),
                 tact=data.get('tact', 0) or 0,
-                yield_rate=data.get('yield_rate', 0) or 0,
+                yield_rate=float(data.get('yield_rate', 0))/100 or 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -110,7 +110,7 @@ class CastingItemMachineMapView(ManagementRoomPermissionMixin, BasicTableView):
             model.machine = CastingMachine.objects.get(id=data.get('machine_id', '').strip()) if data.get('machine_id', '').strip() else None
             model.casting_item = CastingItem.objects.get(id=data.get('casting_item_id', '').strip()) if data.get('casting_item_id', '').strip() else None
             model.tact = data.get('tact', 0) or 0
-            model.yield_rate = data.get('yield_rate', 0) or 0
+            model.yield_rate = float(data.get('yield_rate', 0))/100 or 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()
@@ -146,7 +146,7 @@ class CastingItemMachineMapView(ManagementRoomPermissionMixin, BasicTableView):
                             machine_display,
                             casting_display,
                             row.tact if row.tact else 0,
-                            row.yield_rate if row.yield_rate else 0,
+                            row.yield_rate *100 if row.yield_rate else 0,
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],
@@ -174,7 +174,7 @@ class CastingItemMachineMapView(ManagementRoomPermissionMixin, BasicTableView):
                             machine_display,
                             casting_display,
                             row.tact if row.tact else 0,
-                            row.yield_rate if row.yield_rate else 0,
+                            row.yield_rate * 100 if row.yield_rate else 0,
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],

@@ -1,4 +1,4 @@
-from management_room.models import DailyMachineCastingProductionPlan, DailyCastingProductionPlan, CastingItem
+from management_room.models import DailyMachineCastingProductionPlan, DailyCastingProductionPlan, CastingItem, CastingItemMachineMap, MachiningItemCastingItemMap, DailyMachiningProductionPlan
 from manufacturing.models import CastingLine, CastingMachine
 from management_room.auth_mixin import ManagementRoomPermissionMixin
 from django.views import View
@@ -6,10 +6,12 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.utils.decorators import method_decorator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+from dateutil.relativedelta import relativedelta
 import json
 import calendar
 import math
+from utils.days_in_month_dates import days_in_month_dates
 
 class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
     template_file = 'production_plan/casting_production_plan.html'
@@ -22,9 +24,10 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             year = datetime.now().year
             month = datetime.now().month
 
-        # 対象期間（10月1日〜31日）
-        start_date = datetime(year, month, 1).date()
-        end_date = datetime(year, month, calendar.monthrange(year, month)[1]).date()
+        # 対象月の日付リストを作成（加工生産計画と同じ関数を使用）
+        date_list = days_in_month_dates(year, month)
+        start_date = date_list[0]
+        end_date = date_list[-1]
 
         # ヘッドラインを取得
         if request.GET.get('line'):
@@ -47,22 +50,24 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             date__lte=end_date
         ).select_related('machine', 'production_item').order_by('date', 'machine', 'production_item', 'shift')
 
-        # 日付リストを生成
-        dates = []
-        current_date = start_date
-        # ラインの稼働率を取得（パーセント表示用に100倍）
+        # ラインのデフォルト稼働率を取得（パーセント表示用に100倍）
         default_occupancy_rate = (line.occupancy_rate * 100) if line.occupancy_rate else ''
 
-        while current_date <= end_date:
+        # 休日出勤チェック用のデータを一括取得（ループ内でのクエリを削減）
+        weekend_work_dates = set(
+            DailyMachineCastingProductionPlan.objects.filter(
+                line=line,
+                date__gte=start_date,
+                date__lte=end_date,
+                shift='day'
+            ).values_list('date', flat=True).distinct()
+        )
+
+        # 日付リストを生成
+        dates = []
+        for current_date in date_list:
             is_weekend = current_date.weekday() >= 5
-            # 週末の場合、その日にDailyMachineCastingProductionPlanデータがあるかチェック
-            has_weekend_work = False
-            if is_weekend:
-                has_weekend_work = DailyMachineCastingProductionPlan.objects.filter(
-                    line=line,
-                    date=current_date,
-                    shift='day'
-                ).exists()
+            has_weekend_work = current_date in weekend_work_dates if is_weekend else False
 
             dates.append({
                 'date': current_date,
@@ -72,19 +77,12 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 'occupancy_rate': default_occupancy_rate,
                 'has_weekend_work': has_weekend_work
             })
-            current_date += timedelta(days=1)
 
         # 前月最終在庫を取得
-        # 前月の最終日を計算
-        if month == 1:
-            prev_year = year - 1
-            prev_month = 12
-        else:
-            prev_year = year
-            prev_month = month - 1
-
-        prev_month_last_day = calendar.monthrange(prev_year, prev_month)[1]
-        prev_month_last_date = datetime(prev_year, prev_month, prev_month_last_day).date()
+        # 前月の最終日を計算（加工生産計画と同じ方法を使用）
+        first_day_of_month = date(year, month, 1)
+        last_day_of_previous_month = first_day_of_month - relativedelta(days=1)
+        prev_month_last_date = last_day_of_previous_month
 
         # 前月最終日の夜勤の在庫数を品番ごとに取得（DailyCastingProductionPlanから）
         previous_month_inventory = {}
@@ -101,11 +99,31 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
         # 前月の最後の5直分の生産計画を機械ごとに取得（連続生産チェック用）
         # 1直目の6直連続判定のために必要
-        previous_month_production_plans = []
 
+        # 対象日付を計算
         # 前月最終日の日勤、夜勤
         # 前月最終日-1日の日勤、夜勤
         # 前月最終日-2日の夜勤
+        check_dates = []
+        for days_back in range(3):  # 0, 1, 2
+            check_dates.append(prev_month_last_date - timedelta(days=days_back))
+
+        # まとめて取得（1回のクエリで全データを取得）
+        prev_month_plans_all = DailyMachineCastingProductionPlan.objects.filter(
+            line=line,
+            date__in=check_dates
+        ).select_related('machine', 'production_item')
+
+        # 辞書化: {(date, shift): [plans]}
+        prev_plans_dict = {}
+        for plan in prev_month_plans_all:
+            key = (plan.date, plan.shift)
+            if key not in prev_plans_dict:
+                prev_plans_dict[key] = []
+            prev_plans_dict[key].append(plan)
+
+        # 必要な形式に整形
+        previous_month_production_plans = []
         for days_back in range(3):  # 0, 1, 2
             check_date = prev_month_last_date - timedelta(days=days_back)
 
@@ -114,11 +132,9 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 if days_back == 2 and shift_name == 'day':
                     continue
 
-                prev_plans = DailyMachineCastingProductionPlan.objects.filter(
-                    line=line,
-                    date=check_date,
-                    shift=shift_name
-                ).select_related('machine', 'production_item')
+                # 辞書から取得
+                key = (check_date, shift_name)
+                prev_plans = prev_plans_dict.get(key, [])
 
                 shift_plans = {}
                 for plan in prev_plans:
@@ -162,10 +178,10 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 辞書から在庫数を取得
                 key = (item_name, date_info['date'], 'day')
                 plan = stock_plans_dict.get(key)
-                stock = plan.stock if plan and plan.stock else ''
+                stock = plan.stock if plan and plan.stock is not None else ''
 
                 day_row['cells'].append({
-                    'value': stock if stock != '' else '',
+                    'value': stock,
                     'is_weekend': date_info['is_weekend']
                 })
             inventory_data_day.append(day_row)
@@ -176,16 +192,48 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 辞書から在庫数を取得
                 key = (item_name, date_info['date'], 'night')
                 plan = stock_plans_dict.get(key)
-                stock = plan.stock if plan and plan.stock else ''
+                stock = plan.stock if plan and plan.stock is not None else ''
 
                 night_row['cells'].append({
-                    'value': stock if stock != '' else '',
+                    'value': stock,
                     'is_weekend': date_info['is_weekend']
                 })
             inventory_data_night.append(night_row)
 
+        # 鋳造品番と加工品番の紐づけを取得
+        casting_to_machining_map = {}
+        item_maps = MachiningItemCastingItemMap.objects.filter(
+            casting_line_name=line.name,
+            active=True
+        )
+        for item_map in item_maps:
+            casting_key = item_map.casting_item_name
+            if casting_key not in casting_to_machining_map:
+                casting_to_machining_map[casting_key] = []
+            casting_to_machining_map[casting_key].append({
+                'machining_line_name': item_map.machining_line_name,
+                'machining_item_name': item_map.machining_item_name
+            })
+
+        # 加工生産計画データを取得（出庫数のデフォルト値として使用）
+        machining_plans = DailyMachiningProductionPlan.objects.filter(
+            date__gte=start_date,
+            date__lte=end_date
+        ).select_related('production_item', 'line')
+
+        # 加工生産計画を辞書化: {(machining_line_name, machining_item_name, date, shift): [plans]}
+        # 同じキーで複数のプランが存在する可能性があるため、リストで保持
+        machining_plans_dict = {}
+        for plan in machining_plans:
+            if plan.production_item and plan.line:
+                key = (plan.line.name, plan.production_item.name, plan.date, plan.shift)
+                if key not in machining_plans_dict:
+                    machining_plans_dict[key] = []
+                machining_plans_dict[key].append(plan)
+
         # 出庫数データを整形（品番 × シフト × 日付）
         # stock_plans_dictから取得（在庫数と同じデータソース）
+        # データがない場合は、紐づいた加工生産計画のproduction_quantityを使用
         delivery_data_day = []
         delivery_data_night = []
 
@@ -196,10 +244,31 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 辞書から出庫数を取得
                 key = (item_name, date_info['date'], 'day')
                 plan = stock_plans_dict.get(key)
-                count = plan.holding_out_count if plan and plan.holding_out_count else 0
+                count = plan.holding_out_count if plan and plan.holding_out_count else None
+
+                # 出庫数がない場合は、紐づいた加工生産計画から取得
+                if count is None or count == 0:
+                    # 紐づいた加工品番を取得
+                    machining_items = casting_to_machining_map.get(item_name, [])
+                    total_production = 0
+                    for machining_item_info in machining_items:
+                        machining_key = (
+                            machining_item_info['machining_line_name'],
+                            machining_item_info['machining_item_name'],
+                            date_info['date'],
+                            'day'
+                        )
+                        # リストで保持されているため、全プランを取得して合算
+                        machining_plans_list = machining_plans_dict.get(machining_key, [])
+                        for machining_plan in machining_plans_list:
+                            if machining_plan.production_quantity:
+                                total_production += machining_plan.production_quantity
+
+                    if total_production > 0:
+                        count = total_production
 
                 day_row['cells'].append({
-                    'value': count if count > 0 else '',
+                    'value': count if count and count > 0 else '',
                     'is_weekend': date_info['is_weekend']
                 })
             delivery_data_day.append(day_row)
@@ -210,10 +279,31 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 辞書から出庫数を取得
                 key = (item_name, date_info['date'], 'night')
                 plan = stock_plans_dict.get(key)
-                count = plan.holding_out_count if plan and plan.holding_out_count else 0
+                count = plan.holding_out_count if plan and plan.holding_out_count else None
+
+                # 出庫数がない場合は、紐づいた加工生産計画から取得
+                if count is None or count == 0:
+                    # 紐づいた加工品番を取得
+                    machining_items = casting_to_machining_map.get(item_name, [])
+                    total_production = 0
+                    for machining_item_info in machining_items:
+                        machining_key = (
+                            machining_item_info['machining_line_name'],
+                            machining_item_info['machining_item_name'],
+                            date_info['date'],
+                            'night'
+                        )
+                        # リストで保持されているため、全プランを取得して合算
+                        machining_plans_list = machining_plans_dict.get(machining_key, [])
+                        for machining_plan in machining_plans_list:
+                            if machining_plan.production_quantity:
+                                total_production += machining_plan.production_quantity
+
+                    if total_production > 0:
+                        count = total_production
 
                 night_row['cells'].append({
-                    'value': count if count > 0 else '',
+                    'value': count if count and count > 0 else '',
                     'is_weekend': date_info['is_weekend']
                 })
             delivery_data_night.append(night_row)
@@ -317,6 +407,44 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             overtime_data_day.append(day_row)
             overtime_data_night.append(night_row)
 
+        # 金型交換データを整形（鋳造機 × シフト × 日付）
+        mold_change_data_day = []
+        mold_change_data_night = []
+
+        for machine in machine_list:
+            day_row = {'machine_name': machine['name'], 'cells': []}
+            night_row = {'machine_name': machine['name'], 'cells': []}
+            for date_info in dates:
+                # 日勤の金型交換時間を辞書から取得
+                day_key = (machine['id'], date_info['date'], 'day')
+                day_plan = plans_dict.get(day_key)
+
+                # データがない場合は0、週末の場合は空
+                mold_change_value = ''
+                if not date_info['is_weekend']:
+                    mold_change_value = day_plan.mold_change if day_plan and day_plan.mold_change is not None else 0
+
+                day_row['cells'].append({
+                    'value': mold_change_value,
+                    'is_weekend': date_info['is_weekend']
+                })
+
+                # 夜勤の金型交換時間を辞書から取得
+                night_key = (machine['id'], date_info['date'], 'night')
+                night_plan = plans_dict.get(night_key)
+
+                # データがない場合は0、週末の場合は空
+                mold_change_value_night = ''
+                if not date_info['is_weekend']:
+                    mold_change_value_night = night_plan.mold_change if night_plan and night_plan.mold_change is not None else 0
+
+                night_row['cells'].append({
+                    'value': mold_change_value_night,
+                    'is_weekend': date_info['is_weekend']
+                })
+            mold_change_data_day.append(day_row)
+            mold_change_data_night.append(night_row)
+
         # 生産計画データを整形（鋳造機 × シフト × 日付）
         # 各鋳造機に登録されている品番のリストを取得
         production_plan_data_day = []
@@ -324,11 +452,11 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
         for machine in machine_list:
             # この鋳造機に登録されている品番を取得
-            machine_items = CastingItem.objects.filter(
+            machine_items = CastingItemMachineMap.objects.filter(
                 line=line,
                 machine_id=machine['id'],
                 active=True
-            ).values_list('name', flat=True).distinct().order_by('name')
+            ).order_by('casting_item__name').values_list('casting_item__name', flat=True)
 
             machine_items_list = list(machine_items)
 
@@ -370,18 +498,19 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             production_plan_data_night.append(night_row)
 
         # 品番ごとのタクトと良品率を取得（計算用）
+        # 品番に対して複数の鋳造機がある場合は、最初のマッピングのタクトと良品率を使用
         item_data = {}
         for item_name in item_names:
-            # 品番名で最初に見つかったアイテムのタクトと良品率を使用
-            item_obj = CastingItem.objects.filter(
+            # 品番名で最初に見つかったマッピングのタクトと良品率を使用
+            item_map = CastingItemMachineMap.objects.filter(
                 line=line,
-                name=item_name,
+                casting_item__name=item_name,
                 active=True
-            ).first()
-            if item_obj:
+            ).select_related('casting_item').first()
+            if item_map:
                 item_data[item_name] = {
-                    'tact': item_obj.tact if item_obj.tact else 0,
-                    'yield_rate': item_obj.yield_rate if item_obj.yield_rate else 0
+                    'tact': item_map.tact if item_map.tact else 0,
+                    'yield_rate': item_map.yield_rate if item_map.yield_rate else 0
                 }
         lines = CastingLine.objects.filter(active=True).order_by('name')
         lines_list = [{'id': l.id, 'name': l.name} for l in lines]
@@ -413,6 +542,10 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 'difference': difference
             })
 
+        # セクションごとの行数を計算（日勤 + 夜勤）
+        item_total_rows = len(item_names) * 2  # 品番ごとのセクション（出庫、生産台数、在庫）
+        machine_total_rows = len(machine_list) * 2  # 鋳造機ごとのセクション（生産計画、残業時間、計画停止）
+
         context = {
             'year': year,
             'month': month,
@@ -430,6 +563,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             'stop_time_data_night': stop_time_data_night,
             'overtime_data_day': overtime_data_day,
             'overtime_data_night': overtime_data_night,
+            'mold_change_data_day': mold_change_data_day,
+            'mold_change_data_night': mold_change_data_night,
             'production_plan_data_day': production_plan_data_day,
             'production_plan_data_night': production_plan_data_night,
             'item_data_json': json.dumps(item_data),
@@ -437,6 +572,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             'previous_month_production_plans_json': json.dumps(previous_month_production_plans),
             'lines': lines_list,
             'inventory_comparison': inventory_comparison,
+            'item_total_rows': item_total_rows,  # 品番ごとのセクションの総行数
+            'machine_total_rows': machine_total_rows,  # 鋳造機ごとのセクションの総行数
         }
 
         return render(request, self.template_file, context)
@@ -549,6 +686,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                             'machine_index': machine_index,
                             'stop_time': None,
                             'overtime': None,
+                            'mold_change': None,
                             'item_name': None
                         }
 
@@ -556,6 +694,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         grouped_data[key]['stop_time'] = item.get('stop_time')
                     elif item_type == 'overtime':
                         grouped_data[key]['overtime'] = item.get('overtime')
+                    elif item_type == 'mold_change':
+                        grouped_data[key]['mold_change'] = item.get('mold_change')
                     elif item_type == 'production_plan':
                         grouped_data[key]['item_name'] = item.get('item_name')
 
@@ -567,6 +707,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 machine_index = data['machine_index']
                 stop_time = data['stop_time']
                 overtime = data['overtime']
+                mold_change = data['mold_change']
                 item_name = data['item_name']
 
                 # 日付を取得
@@ -582,12 +723,15 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 品番を取得
                 production_item = None
                 if item_name:
-                    production_item = CastingItem.objects.filter(
+                    # CastingItemMachineMapを通じて品番を取得
+                    item_map = CastingItemMachineMap.objects.filter(
                         line=line,
                         machine=machine,
-                        name=item_name,
+                        casting_item__name=item_name,
                         active=True
-                    ).first()
+                    ).select_related('casting_item').first()
+                    if item_map:
+                        production_item = item_map.casting_item
 
                 # production_itemを条件に含めてupdate_or_create
                 if production_item:
@@ -611,6 +755,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         defaults={
                             'stop_time': stop_time if stop_time is not None else 0,
                             'overtime': overtime if overtime is not None else 0,
+                            'mold_change': mold_change if mold_change is not None else 0,
                             'last_updated_user': request.user.username if request.user.is_authenticated else 'system'
                         }
                     )
@@ -625,13 +770,15 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     ).delete()
                     if deleted[0] > 0:
                         saved_count += 1
-                elif stop_time is not None or overtime is not None:
-                    # production_itemがない場合でも、stop_timeやovertimeだけ更新（全レコードに適用）
+                elif stop_time is not None or overtime is not None or mold_change is not None:
+                    # production_itemがない場合でも、stop_time、overtime、mold_changeだけ更新（全レコードに適用）
                     update_fields = {}
                     if stop_time is not None:
                         update_fields['stop_time'] = stop_time
                     if overtime is not None:
                         update_fields['overtime'] = overtime
+                    if mold_change is not None:
+                        update_fields['mold_change'] = mold_change
 
                     if update_fields:
                         updated = DailyMachineCastingProductionPlan.objects.filter(
@@ -765,17 +912,13 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
             line = CastingLine.objects.get(id=line_id)
             machines = list(CastingMachine.objects.filter(line=line, active=True).order_by('name'))
 
-            # 対象期間を計算
-            start_date = datetime(year, month, 1).date()
-            end_date = datetime(year, month, calendar.monthrange(year, month)[1]).date()
+            # 対象期間を計算（days_in_month_dates関数を使用）
+            date_list = days_in_month_dates(year, month)
+            start_date = date_list[0]
+            end_date = date_list[-1]
 
             # 平日のリストを作成
-            weekdays = []
-            current_date = start_date
-            while current_date <= end_date:
-                if current_date.weekday() < 5:  # 月曜〜金曜
-                    weekdays.append(current_date)
-                current_date += timedelta(days=1)
+            weekdays = [d for d in date_list if d.weekday() < 5]  # 月曜〜金曜
 
             # 品番リストと出庫数を取得
             delivery_plans = DailyCastingProductionPlan.objects.filter(
@@ -797,16 +940,9 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         'count': plan.holding_out_count or 0
                     })
 
-            # 前月最終在庫を取得
-            if month == 1:
-                prev_year = year - 1
-                prev_month = 12
-            else:
-                prev_year = year
-                prev_month = month - 1
-
-            prev_month_last_day = calendar.monthrange(prev_year, prev_month)[1]
-            prev_month_last_date = datetime(prev_year, prev_month, prev_month_last_day).date()
+            # 前月最終在庫を取得（加工生産計画と同じ方法を使用）
+            first_day_of_month = date(year, month, 1)
+            prev_month_last_date = first_day_of_month - relativedelta(days=1)
 
             prev_inventory = {}
             prev_plans = DailyMachineCastingProductionPlan.objects.filter(
@@ -825,16 +961,19 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
             # 品番マスタデータを取得（品番×鋳造機のペア）
             item_data = {}
-            items = CastingItem.objects.filter(line=line, active=True)
-            for item in items:
+            item_maps = CastingItemMachineMap.objects.filter(
+                line=line,
+                active=True
+            ).select_related('casting_item', 'machine')
+            for item_map in item_maps:
                 # 品番と鋳造機のペアをキーにする
-                key = f"{item.name}_{item.machine.id}"
+                key = f"{item_map.casting_item.name}_{item_map.machine.id}"
                 item_data[key] = {
-                    'name': item.name,
-                    'tact': item.tact or 0,
-                    'yield_rate': item.yield_rate or 0,
-                    'machine': item.machine,
-                    'machine_id': item.machine.id
+                    'name': item_map.casting_item.name,
+                    'tact': item_map.tact or 0,
+                    'yield_rate': item_map.yield_rate or 0,
+                    'machine': item_map.machine,
+                    'machine_id': item_map.machine.id
                 }
 
             # 自動生産計画を生成

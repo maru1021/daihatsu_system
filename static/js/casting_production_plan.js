@@ -1,14 +1,34 @@
 // ========================================
+// 鋳造生産計画JavaScript
+// ========================================
+// このファイルは加工生産計画(machining_production_plan.js)と統一された構造を持ちます
+// 主な違い:
+// - 定時時間: 鋳造 490/485分 vs 加工 455/450分
+// - 設備選択: 鋳造は設備ごとに品番を選択、加工は生産数を直接入力
+// - 在庫計算: 鋳造は設備ベースで自動計算、加工は手動入力と自動計算の混合
+
+// ========================================
+// 定数
+// ========================================
+const REGULAR_TIME_DAY = 490;     // 鋳造の日勤定時時間（分）
+const REGULAR_TIME_NIGHT = 485;   // 鋳造の夜勤定時時間（分）
+const OVERTIME_MAX_DAY = 120;     // 日勤の残業上限（分）
+const OVERTIME_MAX_NIGHT = 60;    // 夜勤の残業上限（分）
+
+// ========================================
 // グローバル変数（HTMLから渡される）
 // ========================================
 // itemData - 品番データ（タクトと良品率）
 // previousMonthInventory - 前月最終在庫
+// previousMonthProductionPlans - 前月の生産計画（連続生産チェック用）
 // これらはHTMLのscriptタグで設定される
+
+// 初期化フラグ（ページ読み込み時はtrue、その後はfalse）
+let isInitializing = true;
 
 // ========================================
 // ユーティリティ関数
 // ========================================
-// デバウンス関数（頻繁なイベントを遅延させる）
 function debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
@@ -21,11 +41,55 @@ function debounce(func, wait) {
     };
 }
 
+// 品番リストを取得
+function getItemNames() {
+    const itemNames = [];
+    document.querySelectorAll('[data-section="production"][data-shift="day"] .vehicle-label').forEach(label => {
+        itemNames.push(label.textContent.trim());
+    });
+    return itemNames;
+}
+
+// 入力要素を取得
+function getInputElement(selector) {
+    return document.querySelector(selector);
+}
+
+// 入力値を取得（非表示の場合は0を返す）
+function getInputValue(input) {
+    return input && input.style.display !== 'none' ? (parseInt(input.value) || 0) : 0;
+}
+
+// セルのスタイルを設定
+function setCellStyle(cell, value) {
+    if (cell) {
+        cell.textContent = value > 0 ? value : '';
+        cell.style.fontWeight = 'bold';
+        cell.style.textAlign = 'center';
+    }
+}
+
+// CSRFトークンを取得
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
 // ========================================
 // 定時チェック機能
 // ========================================
 // デバウンスされたupdateWorkingDayStatus関数
-const debouncedUpdateWorkingDayStatus = debounce(function(dateIndex) {
+const debouncedUpdateWorkingDayStatus = debounce(function (dateIndex) {
     updateWorkingDayStatus(dateIndex);
 }, 100);
 
@@ -34,7 +98,7 @@ function toggleCheck(element) {
     const currentText = element.textContent;
 
     if (currentText === '') {
-        element.textContent = isWeekend ? '出勤' : '定時';
+        element.textContent = isWeekend ? '休出' : '定時';
     } else {
         element.textContent = '';
     }
@@ -44,10 +108,13 @@ function toggleCheck(element) {
 
     // デバウンスされた更新関数を呼び出し（特定の日付のみ更新）
     debouncedUpdateWorkingDayStatus(dateIndex);
+
+    // 残業inputの表示/非表示を更新
+    updateOvertimeInputVisibility();
 }
 
 // ========================================
-// 週末の出勤状態を初期化
+// 週末の休出状態を初期化
 // ========================================
 function initializeWeekendWorkingStatus() {
     // 全ての日付のチェックセルを走査
@@ -58,9 +125,9 @@ function initializeWeekendWorkingStatus() {
         // DailyMachineCastingProductionPlanデータの有無で判断
         const hasWeekendWork = checkCell.getAttribute('data-has-weekend-work') === 'true';
 
-        // データがあれば「出勤」をセット、なければ空にする
+        // データがあれば「休出」をセット、なければ空にする
         if (hasWeekendWork) {
-            checkCell.textContent = '出勤';
+            checkCell.textContent = '休出';
         } else {
             checkCell.textContent = '';
         }
@@ -82,13 +149,18 @@ function updateWorkingDayStatus() {
 
         if (isWeekend) {
             // 週末の場合
-            const isWorking = checkText === '出勤';
+            const isWorking = checkText === '休出';
 
-            // 日勤の入力フィールドを制御（select以外） - 非表示で制御
+            // 日勤の入力フィールドを制御（残業input以外） - 非表示で制御
             const dayInputs = document.querySelectorAll(
                 `[data-shift="day"][data-date-index="${dateIndex}"] input`
             );
             dayInputs.forEach(input => {
+                // 残業inputは除外（updateOvertimeInputVisibility()で制御）
+                if (input.classList.contains('overtime-input')) {
+                    return;
+                }
+
                 if (isWorking) {
                     input.style.display = '';
                 } else {
@@ -123,7 +195,7 @@ function updateWorkingDayStatus() {
             // 平日の場合
             const isRegularTime = checkText === '定時';
 
-            // 日勤の残業時間入力を制御
+            // 日勤の残業時間入力を制御（定数を使用）
             const dayOvertimeInputs = document.querySelectorAll(
                 `.overtime-input[data-shift="day"][data-date-index="${dateIndex}"]`
             );
@@ -132,7 +204,7 @@ function updateWorkingDayStatus() {
                     input.max = 0;
                     input.value = 0;
                 } else {
-                    input.max = 120;
+                    input.max = OVERTIME_MAX_DAY;
                 }
             });
         }
@@ -155,8 +227,8 @@ let draggedElement = null;
 function dragStart(event) {
     // select要素をクリックした場合のみキャンセル（それ以外はドラッグ許可）
     const isSelectElement = event.target.tagName === 'SELECT' ||
-                            event.target.tagName === 'OPTION' ||
-                            event.target.closest('select');
+        event.target.tagName === 'OPTION' ||
+        event.target.closest('select');
 
     if (isSelectElement) {
         event.preventDefault();
@@ -229,7 +301,7 @@ function cleanupDragClasses() {
 
 // ドラッグイベントリスナー
 document.addEventListener('dragend', cleanupDragClasses);
-document.addEventListener('dragleave', function(event) {
+document.addEventListener('dragleave', function (event) {
     const targetContainer = event.target.closest('.select-container');
     if (targetContainer) {
         targetContainer.classList.remove('drag-over');
@@ -251,7 +323,7 @@ function initializeSelectColors() {
     document.querySelectorAll('.vehicle-select').forEach(select => {
         updateSelectColor(select);
 
-        select.addEventListener('change', function() {
+        select.addEventListener('change', function () {
             updateSelectColor(this);
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
@@ -270,12 +342,24 @@ function checkItemChanges() {
         container.classList.remove('item-changed');
     });
 
+    // 全ての金型交換を一旦0にリセット
+    document.querySelectorAll('.mold-change-input').forEach(input => {
+        if (input.style.display !== 'none') {
+            input.value = 0;
+        }
+    });
+
     // 全ての生産計画selectを走査
     document.querySelectorAll('.vehicle-select').forEach(select => {
         const currentItem = select.value;
         const dateIndex = parseInt(select.dataset.dateIndex);
         const shift = select.dataset.shift;
         const machineIndex = parseInt(select.dataset.machineIndex);
+
+        // 現在の直で品番が選択されていない場合はスキップ
+        if (!currentItem) {
+            return;
+        }
 
         let shouldHighlight = false;
 
@@ -308,8 +392,24 @@ function checkItemChanges() {
             if (container) {
                 container.classList.add('item-changed');
             }
+
+            // 金型交換時間を75分に設定（黄色くハイライトされている現在の直）
+            const moldChangeInput = getInputElement(
+                `.mold-change-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
+            );
+
+            if (moldChangeInput && moldChangeInput.style.display !== 'none') {
+                moldChangeInput.value = 75;
+            }
         }
     });
+
+    // 全ての日付・シフトの生産数を再計算（金型交換時間が変更されたため）
+    const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
+    for (let i = 0; i < dateCount; i++) {
+        calculateProduction(i, 'day');
+        calculateProduction(i, 'night');
+    }
 }
 
 // 6直連続チェック関数（6の倍数直目でハイライト）
@@ -478,7 +578,61 @@ function getPrevious5Shifts(dateIndex, shift, machineIndex) {
 // ========================================
 // 在庫計算
 // ========================================
+// 高速化のため要素をキャッシュ
+let inventoryElementCache = null;
+
+function buildInventoryElementCache() {
+    const cache = {
+        inventory: {},
+        delivery: {},
+        production: {}
+    };
+
+    // 在庫入力要素をキャッシュ
+    document.querySelectorAll('.inventory-input').forEach(input => {
+        const shift = input.dataset.shift;
+        const item = input.dataset.item;
+        const dateIndex = input.dataset.dateIndex;
+        const key = `${shift}-${item}-${dateIndex}`;
+        cache.inventory[key] = input;
+    });
+
+    // 出庫入力要素をキャッシュ
+    document.querySelectorAll('.delivery-input').forEach(input => {
+        const shift = input.dataset.shift;
+        const item = input.dataset.item;
+        const dateIndex = input.dataset.dateIndex;
+        const key = `${shift}-${item}-${dateIndex}`;
+        cache.delivery[key] = input;
+    });
+
+    // 生産入力要素をキャッシュ（セルではなくinputに変更）
+    document.querySelectorAll('.production-input').forEach(input => {
+        const shift = input.dataset.shift;
+        const item = input.dataset.item;
+        const dateIndex = input.dataset.dateIndex;
+        const key = `${shift}-${item}-${dateIndex}`;
+        cache.production[key] = input;
+    });
+
+    return cache;
+}
+
 function calculateInventory(dateIndex, shift, itemName) {
+    // キャッシュが未作成の場合は作成
+    if (!inventoryElementCache) {
+        inventoryElementCache = buildInventoryElementCache();
+    }
+
+    // 在庫数inputを取得
+    const inventoryKey = `${shift}-${itemName}-${dateIndex}`;
+    const inventoryInput = inventoryElementCache.inventory[inventoryKey];
+
+    // 手動編集されている場合はスキップ（値を上書きしない）
+    if (inventoryInput && inventoryInput.dataset.manualEdit === 'true') {
+        return parseFloat(inventoryInput.value) || 0;
+    }
+
     let previousInventory = 0;
 
     // 前の直の在庫を取得
@@ -487,38 +641,30 @@ function calculateInventory(dateIndex, shift, itemName) {
         previousInventory = previousMonthInventory[itemName] || 0;
     } else if (shift === 'day') {
         // 日勤: 前日の夜勤の在庫
-        const prevNightInventoryInput = document.querySelector(
-            `.inventory-input[data-shift="night"][data-item="${itemName}"][data-date-index="${dateIndex - 1}"]`
-        );
+        const prevKey = `night-${itemName}-${dateIndex - 1}`;
+        const prevNightInventoryInput = inventoryElementCache.inventory[prevKey];
         previousInventory = parseFloat(prevNightInventoryInput?.value) || 0;
     } else {
         // 夜勤: その日の日勤の在庫
-        const dayInventoryInput = document.querySelector(
-            `.inventory-input[data-shift="day"][data-item="${itemName}"][data-date-index="${dateIndex}"]`
-        );
+        const dayKey = `day-${itemName}-${dateIndex}`;
+        const dayInventoryInput = inventoryElementCache.inventory[dayKey];
         previousInventory = parseFloat(dayInventoryInput?.value) || 0;
     }
 
     // 自身の直の出庫数を取得
-    const deliveryInput = document.querySelector(
-        `.delivery-input[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"]`
-    );
+    const deliveryKey = `${shift}-${itemName}-${dateIndex}`;
+    const deliveryInput = inventoryElementCache.delivery[deliveryKey];
     const currentDelivery = parseFloat(deliveryInput?.value) || 0;
 
-    // 自身の直の生産数を取得
-    const currentProductionCell = document.querySelector(
-        `.production-cell[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"]`
-    );
-    const currentProduction = parseFloat(currentProductionCell?.textContent?.trim()) || 0;
+    // 自身の直の生産数を取得（inputに変更）
+    const productionKey = `${shift}-${itemName}-${dateIndex}`;
+    const currentProductionInput = inventoryElementCache.production[productionKey];
+    const currentProduction = parseFloat(currentProductionInput?.value) || 0;
 
     // 在庫数 = 前の直の在庫 + 自身の直の生産数 - 自身の直の出庫数
     const inventory = previousInventory + currentProduction - currentDelivery;
 
     // 在庫数inputに値を設定
-    const inventoryInput = document.querySelector(
-        `.inventory-input[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"]`
-    );
-
     if (inventoryInput) {
         const roundedInventory = Math.round(inventory);
         inventoryInput.value = roundedInventory;
@@ -535,49 +681,65 @@ function calculateInventory(dateIndex, shift, itemName) {
 }
 
 function recalculateAllInventory() {
+    // 初期化中は在庫再計算をスキップ
+    if (isInitializing) {
+        return;
+    }
+
+    // キャッシュが未作成の場合は作成
+    if (!inventoryElementCache) {
+        inventoryElementCache = buildInventoryElementCache();
+    }
+
     // 全日付数を取得（ヘッダー行の列数）
     const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
     // itemDataとpreviousMonthInventoryの品番を統合
     const allItemNames = new Set([...Object.keys(itemData), ...Object.keys(previousMonthInventory)]);
 
+    // 日勤→夜勤の順で計算（前の直の在庫に依存するため）
     for (let i = 0; i < dateCount; i++) {
         allItemNames.forEach(itemName => {
             calculateInventory(i, 'day', itemName);
             calculateInventory(i, 'night', itemName);
         });
     }
+
+    // 在庫計算後に月末在庫カードをリアルタイムで更新
+    updateInventoryComparisonCard();
 }
 
 // ========================================
 // 生産台数計算
 // ========================================
 function calculateProduction(dateIndex, shift) {
-    // 週末で出勤がチェックされていない場合は計算しない
+    // 週末で休出がチェックされていない場合は計算しない
     const checkCells = document.querySelectorAll('.check-cell');
     const checkCell = checkCells[dateIndex];
     if (checkCell) {
         const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
         const checkText = checkCell.textContent.trim();
-        if (isWeekend && checkText !== '出勤') {
-            // 生産台数をクリア
-            const allProductionCells = document.querySelectorAll(
-                `.production-cell[data-shift="${shift}"][data-date-index="${dateIndex}"]`
-            );
-            allProductionCells.forEach(cell => {
-                cell.textContent = '';
-            });
+        if (isWeekend && checkText !== '休出') {
+            // 生産台数inputをクリア（キャッシュを使用）
+            if (inventoryElementCache) {
+                Object.keys(inventoryElementCache.production).forEach(key => {
+                    const [cellShift, , cellDateIndex] = key.split('-');
+                    if (cellShift === shift && cellDateIndex === String(dateIndex)) {
+                        inventoryElementCache.production[key].value = '';
+                    }
+                });
+            }
             return;
         }
     }
 
-    // 稼働率を取得（data-date-indexで検索）
-    const operationRateInput = document.querySelector(`.operation-rate-input[data-date-index="${dateIndex}"]`);
-    const operationRate = parseFloat(operationRateInput?.value || 0) / 100;
+    // 稼働率を取得（統一された関数を使用）
+    const operationRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
+    const operationRate = operationRateInput ? (parseFloat(operationRateInput.value) || 0) / 100 : 0;
 
     if (operationRate === 0) return;
 
-    // 基本稼働時間（分）
-    const baseTime = shift === 'day' ? 490 : 485;
+    // 基本稼働時間（分）- 定数を使用
+    const baseTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
 
     // その日のシフトの生産計画selectを取得
     const productionPlanSelects = document.querySelectorAll(
@@ -588,7 +750,7 @@ function calculateProduction(dateIndex, shift) {
     const itemStats = {};
 
     productionPlanSelects.forEach(select => {
-        // 非表示のselectはスキップ（週末で出勤がない場合など）
+        // 非表示のselectはスキップ（週末で休出がない場合など）
         const container = select.closest('.select-container');
         if (container && container.style.display === 'none') return;
 
@@ -601,28 +763,35 @@ function calculateProduction(dateIndex, shift) {
             itemStats[selectedItem] = {
                 machineCount: 0,
                 totalStopTime: 0,
-                totalOvertime: 0
+                totalOvertime: 0,
+                totalMoldChange: 0
             };
         }
 
         itemStats[selectedItem].machineCount++;
 
-        // この設備の計画停止時間を取得
-        const stopTimeInput = document.querySelector(
+        // この設備の計画停止時間を取得（統一された関数を使用）
+        const stopTimeInput = getInputElement(
             `.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
         );
-
         if (stopTimeInput) {
-            itemStats[selectedItem].totalStopTime += parseFloat(stopTimeInput.value || 0);
+            itemStats[selectedItem].totalStopTime += getInputValue(stopTimeInput);
         }
 
-        // この設備の残業時間を取得
-        const overtimeInput = document.querySelector(
+        // この設備の残業時間を取得（統一された関数を使用）
+        const overtimeInput = getInputElement(
             `.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
         );
-
         if (overtimeInput) {
-            itemStats[selectedItem].totalOvertime += parseFloat(overtimeInput.value || 0);
+            itemStats[selectedItem].totalOvertime += getInputValue(overtimeInput);
+        }
+
+        // この設備の金型交換時間を取得（統一された関数を使用）
+        const moldChangeInput = getInputElement(
+            `.mold-change-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
+        );
+        if (moldChangeInput) {
+            itemStats[selectedItem].totalMoldChange += getInputValue(moldChangeInput);
         }
     });
 
@@ -634,51 +803,55 @@ function calculateProduction(dateIndex, shift) {
         const stats = itemStats[itemName];
         const avgStopTime = stats.totalStopTime / stats.machineCount;
         const avgOvertime = stats.totalOvertime / stats.machineCount;
+        const avgMoldChange = stats.totalMoldChange / stats.machineCount;
 
-        // 実際の稼働時間 = 基本稼働時間 - 平均計画停止時間 + 平均残業時間
-        const workingTime = baseTime - avgStopTime + avgOvertime;
+        // 実際の稼働時間 = 基本稼働時間 - 平均計画停止時間 - 平均金型交換時間 + 平均残業時間
+        const workingTime = baseTime - avgStopTime - avgMoldChange + avgOvertime;
 
         // 生産台数 = (稼働時間 / タクト) × 稼働率 × 良品率 × 設備数
         const production = Math.floor(
             (workingTime / data.tact) * operationRate * data.yield_rate * stats.machineCount
         );
 
-        // 生産台数セルに値を設定
-        const productionCell = document.querySelector(
-            `.production-cell[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"]`
-        );
-
-        if (productionCell) {
-            productionCell.textContent = production;
+        // 生産台数inputに値を設定（キャッシュを使用）
+        const productionKey = `${shift}-${itemName}-${dateIndex}`;
+        const productionInput = inventoryElementCache?.production[productionKey];
+        if (productionInput) {
+            productionInput.value = production;
         }
     });
 
-    // 選択されていない品番のセルは空にする
-    const allProductionCells = document.querySelectorAll(
-        `.production-cell[data-shift="${shift}"][data-date-index="${dateIndex}"]`
-    );
+    // 選択されていない品番のinputは空にする（キャッシュを使用）
+    if (inventoryElementCache) {
+        Object.keys(inventoryElementCache.production).forEach(key => {
+            const [cellShift, cellItem, cellDateIndex] = key.split('-');
+            if (cellShift === shift && cellDateIndex === String(dateIndex)) {
+                if (!itemStats[cellItem]) {
+                    inventoryElementCache.production[key].value = '';
+                }
+            }
+        });
+    }
 
-    allProductionCells.forEach(cell => {
-        const itemName = cell.dataset.item;
-        if (!itemStats[itemName]) {
-            cell.textContent = '';
-        }
-    });
-
-    // 生産台数が変更されたので在庫数を再計算
-    recalculateAllInventory();
+    // 初期化中でない場合のみ在庫数を再計算
+    if (!isInitializing) {
+        recalculateAllInventory();
+    }
 }
 
 // ========================================
 // イベントリスナー設定
 // ========================================
 function setupEventListeners() {
-    // デバウンスされた再計算関数を作成（300ms遅延）
+    // デバウンスされた再計算関数を作成
     const debouncedRecalculateInventory = debounce(recalculateAllInventory, 300);
+    const debouncedCalculateProduction = debounce(function (dateIndex, shift) {
+        calculateProduction(dateIndex, shift);
+    }, 200);
 
     // 稼働率入力の変更を監視
     document.querySelectorAll('.operation-rate-input').forEach(input => {
-        input.addEventListener('input', function() {
+        input.addEventListener('input', function () {
             const dateIndex = parseInt(this.dataset.dateIndex);
             calculateProduction(dateIndex, 'day');
             calculateProduction(dateIndex, 'night');
@@ -687,20 +860,34 @@ function setupEventListeners() {
 
     // 計画停止入力の変更を監視（デバウンス適用）
     document.querySelectorAll('.stop-time-input').forEach(input => {
-        input.addEventListener('input', debounce(function() {
-            const dateIndex = parseInt(input.dataset.dateIndex);
-            const shift = input.dataset.shift;
-            calculateProduction(dateIndex, shift);
-        }, 200));
+        input.addEventListener('input', function () {
+            const dateIndex = parseInt(this.dataset.dateIndex);
+            const shift = this.dataset.shift;
+            debouncedCalculateProduction(dateIndex, shift);
+        });
     });
 
     // 残業入力の変更を監視（デバウンス適用）
     document.querySelectorAll('.overtime-input').forEach(input => {
-        input.addEventListener('input', debounce(function() {
-            const dateIndex = parseInt(input.dataset.dateIndex);
-            const shift = input.dataset.shift;
-            calculateProduction(dateIndex, shift);
-        }, 200));
+        input.addEventListener('input', function () {
+            const dateIndex = parseInt(this.dataset.dateIndex);
+            const shift = this.dataset.shift;
+            debouncedCalculateProduction(dateIndex, shift);
+        });
+    });
+
+    // 金型交換入力の変更を監視（デバウンス適用）
+    document.querySelectorAll('.mold-change-input').forEach(input => {
+        input.addEventListener('input', function () {
+            const dateIndex = parseInt(this.dataset.dateIndex);
+            const shift = this.dataset.shift;
+            debouncedCalculateProduction(dateIndex, shift);
+        });
+    });
+
+    // 生産数入力の変更を監視（デバウンス適用）
+    document.querySelectorAll('.production-input').forEach(input => {
+        input.addEventListener('input', debouncedRecalculateInventory);
     });
 
     // 出庫数入力の変更を監視（デバウンス適用）
@@ -708,9 +895,12 @@ function setupEventListeners() {
         input.addEventListener('input', debouncedRecalculateInventory);
     });
 
-    // 在庫数入力の変更を監視（手動変更時、デバウンス適用）
+    // 在庫数入力の手動変更を監視（フラグ設定のみ）
     document.querySelectorAll('.inventory-input').forEach(input => {
-        input.addEventListener('input', debouncedRecalculateInventory);
+        input.addEventListener('input', function () {
+            // 手動修正フラグを設定（自動計算での上書きを防ぐ）
+            this.dataset.manualEdit = 'true';
+        });
     });
 
     // 生産計画selectの変更監視はinitializeSelectColors()で設定済み
@@ -727,15 +917,25 @@ function setupEventListeners() {
 // 初期計算実行
 // ========================================
 function performInitialCalculations() {
+    // 在庫計算用のキャッシュを事前構築（高速化）
+    inventoryElementCache = buildInventoryElementCache();
+
     const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
 
+    // 生産台数を計算
     for (let i = 0; i < dateCount; i++) {
         calculateProduction(i, 'day');
         calculateProduction(i, 'night');
     }
 
-    recalculateAllInventory();
-    checkItemChanges();  // 品番変更をチェック
+    // 在庫数はデータベースから読み込んだ値をそのまま使用
+    // 生産数などが変更された時のみ再計算される
+
+    // 品番変更をチェック
+    checkItemChanges();
+
+    // 初期化完了フラグを設定
+    isInitializing = false;
 }
 
 // ========================================
@@ -749,21 +949,22 @@ function saveProductionPlan() {
     // 保存データを収集
     const planData = [];
 
-    // 休日出勤が消された日付を収集（週末で休日出勤がチェックされていない日）
+    // 休出が消された日付を収集（週末で休出がチェックされていない日）
     const weekendsToDelete = [];
     document.querySelectorAll('.check-cell').forEach(checkCell => {
         const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
         const checkText = checkCell.textContent.trim();
         const dateIndex = Array.from(checkCell.parentElement.children).indexOf(checkCell) - 1;
 
-        if (isWeekend && checkText !== '出勤') {
+        if (isWeekend && checkText !== '休出') {
             weekendsToDelete.push(dateIndex);
         }
     });
 
-    // 計画停止、残業時間、生産計画を収集
+    // 計画停止、残業時間、金型交換、生産計画を収集
     const stopTimeInputs = document.querySelectorAll('.stop-time-input');
     const overtimeInputs = document.querySelectorAll('.overtime-input');
+    const moldChangeInputs = document.querySelectorAll('.mold-change-input');
     const vehicleSelects = document.querySelectorAll('.vehicle-select');
 
     // 計画停止時間データを収集
@@ -801,6 +1002,25 @@ function saveProductionPlan() {
             machine_index: machineIndex,
             overtime: overtime,
             type: 'overtime'
+        });
+    });
+
+    // 金型交換データを収集
+    moldChangeInputs.forEach(input => {
+        // 非表示のフィールドはスキップ
+        if (input.style.display === 'none') return;
+
+        const dateIndex = parseInt(input.dataset.dateIndex);
+        const shift = input.dataset.shift;
+        const machineIndex = parseInt(input.dataset.machineIndex);
+        const moldChange = parseInt(input.value) || 0;
+
+        planData.push({
+            date_index: dateIndex,
+            shift: shift,
+            machine_index: machineIndex,
+            mold_change: moldChange,
+            type: 'mold_change'
         });
     });
 
@@ -850,7 +1070,7 @@ function saveProductionPlan() {
         const itemName = input.dataset.item;
         const delivery = parseInt(input.value) || 0;
 
-        // 出庫数はすべて保存（週末で出勤がなくても出庫がある場合がある）
+        // 出庫数はすべて保存（週末で休出がなくても出庫がある場合がある）
         planData.push({
             date_index: dateIndex,
             shift: shift,
@@ -860,13 +1080,13 @@ function saveProductionPlan() {
         });
     });
 
-    // 生産台数データを収集
-    const productionCells = document.querySelectorAll('.production-cell');
-    productionCells.forEach(cell => {
-        const dateIndex = parseInt(cell.dataset.dateIndex);
-        const shift = cell.dataset.shift;
-        const itemName = cell.dataset.item;
-        const productionCount = parseInt(cell.textContent.trim()) || 0;
+    // 生産台数データを収集（inputから取得）
+    const productionInputs = document.querySelectorAll('.production-input');
+    productionInputs.forEach(input => {
+        const dateIndex = parseInt(input.dataset.dateIndex);
+        const shift = input.dataset.shift;
+        const itemName = input.dataset.item;
+        const productionCount = parseInt(input.value) || 0;
 
         if (productionCount > 0) {  // 0より大きい生産台数のみ保存
             planData.push({
@@ -901,36 +1121,21 @@ function saveProductionPlan() {
             weekends_to_delete: weekendsToDelete
         })
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            alert('保存しました');
-        } else {
-            alert('保存に失敗しました: ' + (data.message || ''));
-        }
-    })
-    .catch(error => {
-        alert('保存に失敗しました: ' + error.message);
-    })
-    .finally(() => {
-        saveBtn.disabled = false;
-        saveBtn.textContent = '保存';
-    });
-}
-
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('保存しました');
+            } else {
+                alert('保存に失敗しました: ' + (data.message || ''));
             }
-        }
-    }
-    return cookieValue;
+        })
+        .catch(error => {
+            alert('保存に失敗しました: ' + error.message);
+        })
+        .finally(() => {
+            saveBtn.disabled = false;
+            saveBtn.textContent = '保存';
+        });
 }
 
 // ========================================
@@ -982,26 +1187,26 @@ function autoProductionPlan() {
             target_inventory: {}  // 月末目標在庫（今後追加可能）
         })
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            // 生産計画を画面に反映
-            applyAutoProductionPlan(data.data);
-            alert('自動生産計画を適用しました。保存ボタンを押してください。');
-        } else {
-            alert('自動生産計画の生成に失敗しました: ' + (data.message || ''));
-            if (data.traceback) {
-                console.error(data.traceback);
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 生産計画を画面に反映
+                applyAutoProductionPlan(data.data);
+                alert('自動生産計画を適用しました。保存ボタンを押してください。');
+            } else {
+                alert('自動生産計画の生成に失敗しました: ' + (data.message || ''));
+                if (data.traceback) {
+                    console.error(data.traceback);
+                }
             }
-        }
-    })
-    .catch(error => {
-        alert('自動生産計画の生成に失敗しました: ' + error.message);
-    })
-    .finally(() => {
-        autoBtn.disabled = false;
-        autoBtn.textContent = '自動';
-    });
+        })
+        .catch(error => {
+            alert('自動生産計画の生成に失敗しました: ' + error.message);
+        })
+        .finally(() => {
+            autoBtn.disabled = false;
+            autoBtn.textContent = '自動';
+        });
 }
 
 function applyAutoProductionPlan(planData) {
@@ -1109,6 +1314,7 @@ function initialize() {
     const targetMonthInput = document.getElementById('target-month');
     const lineSelect = document.getElementById('line-select');
     const saveBtn = document.getElementById('save-btn');
+    const autoBtn = document.getElementById('auto-btn');
 
     // select2を初期化
     if (typeof $ !== 'undefined' && typeof $.fn.select2 !== 'undefined') {
@@ -1121,81 +1327,52 @@ function initialize() {
     }
 
     // 初期表示時の処理
-    initializeSelectColors();
-    setupEventListeners();
-    initializeWeekendWorkingStatus();  // 週末の出勤状態を初期化
-    updateWorkingDayStatus();  // 稼働日状態を初期化
-    performInitialCalculations();
-    setupInventoryComparisonListeners();  // 月末在庫カード更新のリスナーを設定
-    updateInventoryComparisonCard();  // 初期表示時にカードを更新
+    initializeSelectColors();           // セレクトボックスの色を初期化
+    setupEventListeners();              // イベントリスナーを設定
+    initializeWeekendWorkingStatus();   // 休出状態を初期化
+    updateWorkingDayStatus();           // 稼働日状態を初期化
+    setupColumnHover();                 // 列のホバー処理を設定
+    updateOvertimeInputVisibility();    // 残業inputの表示/非表示を初期化
 
-    // 保存ボタンのイベントリスナー
-    saveBtn.addEventListener('click', saveProductionPlan);
+    // キャッシュを事前構築（高速化）
+    inventoryCardCache = buildInventoryCardCache();
 
-    // 自動ボタンのイベントリスナー
-    const autoBtn = document.getElementById('auto-btn');
+    performInitialCalculations();       // 初期計算を実行（キャッシュ構築を含む、月末在庫カードも自動更新）
+
+    // ボタンのイベントリスナー
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveProductionPlan);
+    }
     if (autoBtn) {
         autoBtn.addEventListener('click', autoProductionPlan);
     }
 
-    // 月の変更時にAjaxでデータを再取得
-    targetMonthInput.addEventListener('change', function() {
-        const selectedMonth = this.value;
-        // select2を使用している場合はjQueryのval()を使用
-        const line = (typeof $ !== 'undefined' && $(lineSelect).data('select2'))
+    // 月・ライン変更時のハンドラー
+    const handleChange = function () {
+        const selectedLine = (typeof $ !== 'undefined' && $(lineSelect).data('select2'))
             ? $(lineSelect).val()
             : lineSelect.value;
+        const selectedMonth = targetMonthInput.value;
 
-        if (!selectedMonth) {
-            alert('対象月を選択してください');
+        if (!selectedLine || !selectedMonth) {
+            alert('ラインと対象月を選択してください');
             return;
         }
 
-        // ページをリロードして新しい月のデータを取得
         const [year, month] = selectedMonth.split('-');
-        window.location.href = `?year=${year}&month=${month}&line=${line}`;
-    });
+        window.location.href = `?line=${selectedLine}&year=${year}&month=${month}`;
+    };
 
-    // select2のchangeイベントを使用
+    // 月の変更時にデータを再取得
+    if (targetMonthInput) {
+        targetMonthInput.addEventListener('change', handleChange);
+    }
+
+    // ラインの変更時にデータを再取得
     if (typeof $ !== 'undefined' && typeof $.fn.select2 !== 'undefined') {
-        $(lineSelect).on('change', function() {
-            const selectedLine = $(this).val();
-            const selectedMonth = targetMonthInput.value;
-
-            if (!selectedLine) {
-                alert('ラインを選択してください');
-                return;
-            }
-
-            if (!selectedMonth) {
-                alert('対象月を選択してください');
-                return;
-            }
-
-            const [year, month] = selectedMonth.split('-');
-            // ページをリロードして新しいラインのデータを取得
-            window.location.href = `?line=${selectedLine}&year=${year}&month=${month}`;
-        });
+        $(lineSelect).on('change', handleChange);
     } else {
-        // jQueryが利用できない場合は通常のイベントリスナーを使用
-        lineSelect.addEventListener('change', function() {
-            const selectedLine = this.value;
-            const selectedMonth = targetMonthInput.value;
-
-            if (!selectedLine) {
-                alert('ラインを選択してください');
-                return;
-            }
-
-            if (!selectedMonth) {
-                alert('対象月を選択してください');
-                return;
-            }
-
-            const [year, month] = selectedMonth.split('-');
-            // ページをリロードして新しいラインのデータを取得
-            window.location.href = `?line=${selectedLine}&year=${year}&month=${month}`;
-        });
+        lineSelect.addEventListener('change', handleChange);
     }
 }
 
@@ -1206,51 +1383,232 @@ function initialize() {
 // ========================================
 // 月末在庫カード更新機能
 // ========================================
+// 月末在庫カード要素のキャッシュ
+let inventoryCardCache = null;
+
+function buildInventoryCardCache() {
+    const cache = {};
+    document.querySelectorAll('.monthly-plan-item').forEach(card => {
+        const itemName = card.dataset.itemName;
+        if (itemName) {
+            cache[itemName] = {
+                card: card,
+                inventorySpan: card.querySelector('.end-of-month-inventory'),
+                diffSpan: card.querySelector('.monthly-plan-diff'),
+                optimalInventory: parseInt(card.dataset.optimalInventory) || 0
+            };
+        }
+    });
+    return cache;
+}
+
 function updateInventoryComparisonCard() {
-    // 全ての最終在庫入力フィールドを取得
-    const finalInventoryInputs = document.querySelectorAll('.final-inventory-input');
+    // キャッシュが未作成の場合は作成
+    if (!inventoryCardCache) {
+        inventoryCardCache = buildInventoryCardCache();
+    }
+    if (!inventoryElementCache) {
+        inventoryElementCache = buildInventoryElementCache();
+    }
 
-    finalInventoryInputs.forEach(input => {
-        const itemName = input.dataset.item;
-        const endOfMonthInventory = parseInt(input.value) || 0;
+    // 全日付数を取得
+    const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
 
-        // 対応する月末在庫カードを取得
-        const inventoryCard = document.querySelector(`.monthly-plan-item[data-item-name="${itemName}"]`);
-        if (inventoryCard) {
-            const inventorySpan = inventoryCard.querySelector('.end-of-month-inventory');
-            if (inventorySpan) {
-                inventorySpan.textContent = endOfMonthInventory;
+    // itemDataとpreviousMonthInventoryの品番を統合
+    const allItemNames = new Set([...Object.keys(itemData), ...Object.keys(previousMonthInventory)]);
 
-                // 適正在庫をdata属性から取得
-                const optimalInventory = parseInt(inventoryCard.dataset.optimalInventory) || 0;
+    allItemNames.forEach(itemName => {
+        // 最後の日付の夜勤在庫を取得（月末在庫）
+        let endOfMonthInventory = 0;
 
-                // 差分を計算
-                const difference = endOfMonthInventory - optimalInventory;
+        // 最後の日付から逆順に検索して、最初に見つかった在庫値を使用
+        for (let dateIndex = dateCount - 1; dateIndex >= 0; dateIndex--) {
+            // まず夜勤をチェック
+            const nightKey = `night-${itemName}-${dateIndex}`;
+            const nightInventoryInput = inventoryElementCache.inventory[nightKey];
+            if (nightInventoryInput && nightInventoryInput.style.display !== 'none') {
+                endOfMonthInventory = parseInt(nightInventoryInput.value) || 0;
+                break;
+            }
 
-                // カードの背景色を変更
-                inventoryCard.classList.remove('shortage', 'excess');
-                if (difference < 0) {
-                    inventoryCard.classList.add('shortage');
-                } else if (difference > 0) {
-                    inventoryCard.classList.add('excess');
-                }
+            // 夜勤がなければ日勤をチェック
+            const dayKey = `day-${itemName}-${dateIndex}`;
+            const dayInventoryInput = inventoryElementCache.inventory[dayKey];
+            if (dayInventoryInput && dayInventoryInput.style.display !== 'none') {
+                endOfMonthInventory = parseInt(dayInventoryInput.value) || 0;
+                break;
+            }
+        }
 
-                // 差分を更新
-                const diffSpan = inventoryCard.querySelector('.monthly-plan-diff');
-                if (diffSpan) {
-                    diffSpan.textContent = '(' + (difference > 0 ? '+' : '') + difference + ')';
-                }
+        // キャッシュから対応するカード要素を取得
+        const cardData = inventoryCardCache[itemName];
+        if (cardData && cardData.inventorySpan) {
+            // マイナスの場合は"-"付きで表示
+            if (endOfMonthInventory < 0) {
+                cardData.inventorySpan.textContent = '-' + Math.abs(endOfMonthInventory);
+            } else {
+                cardData.inventorySpan.textContent = endOfMonthInventory;
+            }
+
+            // 差分を計算
+            const difference = endOfMonthInventory - cardData.optimalInventory;
+
+            // カードの背景色を変更
+            cardData.card.classList.remove('shortage', 'excess');
+            if (difference < 0) {
+                cardData.card.classList.add('shortage');
+            } else if (difference > 0) {
+                cardData.card.classList.add('excess');
+            }
+
+            // 差分を更新（マイナスの場合は明示的に"-"を表示）
+            if (cardData.diffSpan) {
+                const sign = difference > 0 ? '+' : (difference < 0 ? '-' : '');
+                const absDifference = Math.abs(difference);
+                cardData.diffSpan.textContent = '(' + sign + absDifference + ')';
             }
         }
     });
 }
 
-// 最終在庫入力フィールドにイベントリスナーを設定
-function setupInventoryComparisonListeners() {
-    const finalInventoryInputs = document.querySelectorAll('.final-inventory-input');
+// ========================================
+// 列のホバー処理（日付セルのみ黄色）
+// ========================================
+function setupColumnHover() {
+    const tbody = document.querySelector('tbody');
+    if (!tbody) return;
 
-    finalInventoryInputs.forEach(input => {
-        input.addEventListener('input', updateInventoryComparisonCard);
+    let currentHoverDateIndex = -1;
+
+    tbody.addEventListener('mouseover', function(e) {
+        const cell = e.target.closest('td, th');
+        if (!cell) return;
+
+        // tdセルのみを対象とする（thは固定列なので除外）
+        if (cell.tagName !== 'TD') return;
+
+        // data-date-indexを使って日付インデックスを取得
+        const dateIndex = cell.getAttribute('data-date-index');
+        if (dateIndex === null) return;
+
+        const dateIndexNum = parseInt(dateIndex);
+
+        // 同じ日付を再度ホバーした場合は何もしない
+        if (dateIndexNum === currentHoverDateIndex) return;
+
+        // 前の日付のハイライトを削除
+        if (currentHoverDateIndex >= 0) {
+            removeDateHighlight(currentHoverDateIndex);
+        }
+
+        // 新しい日付セルをハイライト
+        currentHoverDateIndex = dateIndexNum;
+        addDateHighlight(dateIndexNum);
+    });
+
+    tbody.addEventListener('mouseout', function(e) {
+        // tbodyから完全に出た場合のみハイライトを削除
+        if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
+            if (currentHoverDateIndex >= 0) {
+                removeDateHighlight(currentHoverDateIndex);
+                currentHoverDateIndex = -1;
+            }
+        }
+    });
+}
+
+function addDateHighlight(dateIndex) {
+    // dateIndexは data-date-index の値（0始まりの日付インデックス）
+
+    // 最上部のヘッダー日付（thead内の2行目）
+    // thead 2行目: インデックス0から日付列が始まる（rowspanで固定列は1行目に結合済み）
+    const headerDateRow = document.querySelector('thead tr:nth-child(2)');
+    if (headerDateRow && headerDateRow.children[dateIndex]) {
+        headerDateRow.children[dateIndex].classList.add('date-hover');
+    }
+
+    // セクション日付ヘッダー（.section-date-header）
+    // セクションヘッダー: インデックス0はcolspan=3、インデックス1以降が日付列
+    const sectionDateHeaders = document.querySelectorAll('.section-date-header');
+    sectionDateHeaders.forEach(row => {
+        // セクションヘッダーの日付列は インデックス1から始まる（0はcolspan=3）
+        const sectionDateIndex = dateIndex + 1;
+        if (row.children[sectionDateIndex]) {
+            row.children[sectionDateIndex].classList.add('date-hover');
+        }
+    });
+}
+
+function removeDateHighlight(dateIndex) {
+    // dateIndexは data-date-index の値（0始まりの日付インデックス）
+
+    // 最上部のヘッダー日付（thead内の2行目）
+    // thead 2行目: インデックス0から日付列が始まる（rowspanで固定列は1行目に結合済み）
+    const headerDateRow = document.querySelector('thead tr:nth-child(2)');
+    if (headerDateRow && headerDateRow.children[dateIndex]) {
+        headerDateRow.children[dateIndex].classList.remove('date-hover');
+    }
+
+    // セクション日付ヘッダー（.section-date-header）
+    // セクションヘッダー: インデックス0はcolspan=3、インデックス1以降が日付列
+    const sectionDateHeaders = document.querySelectorAll('.section-date-header');
+    sectionDateHeaders.forEach(row => {
+        // セクションヘッダーの日付列は インデックス1から始まる（0はcolspan=3）
+        const sectionDateIndex = dateIndex + 1;
+        if (row.children[sectionDateIndex]) {
+            row.children[sectionDateIndex].classList.remove('date-hover');
+        }
+    });
+}
+
+// ========================================
+// 残業inputの表示/非表示制御
+// ========================================
+function updateOvertimeInputVisibility() {
+    const checkCells = document.querySelectorAll('.check-cell');
+
+    checkCells.forEach((checkCell, dateIndex) => {
+        const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
+        const checkText = checkCell.textContent.trim();
+        const isHolidayWork = checkText === '休出';
+        const isRegularTime = checkText === '定時';
+
+        // 残業inputを取得
+        const dayOvertimeInputs = document.querySelectorAll(
+            `.overtime-input[data-shift="day"][data-date-index="${dateIndex}"]`
+        );
+        const nightOvertimeInputs = document.querySelectorAll(
+            `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"]`
+        );
+
+        if (isHolidayWork) {
+            // 休出の場合：日勤・夜勤両方とも非表示
+            dayOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+            nightOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+        } else if (isRegularTime) {
+            // 定時の場合：日勤のみ非表示、夜勤は表示
+            dayOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+            nightOvertimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+        } else {
+            // それ以外は両方表示
+            dayOvertimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+            nightOvertimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+        }
     });
 }
 

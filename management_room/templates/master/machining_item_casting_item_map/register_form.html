@@ -2,7 +2,7 @@
   <label for="machining_item_id" class="form-label">加工品番<span class="text-danger">*</span></label>
   <select class="form-control select2" id="machining_item_id" name="machining_item_id">
     {% for machining_item in machining_items %}
-    <option value="{{ machining_item.id }}">{{ machining_item.assembly_line.name }} - {{ machining_item.line.name }} - {{ machining_item.name }}</option>
+    <option value="{{ machining_item.id }}">{{ machining_item.line.name }} - {{ machining_item.name }}</option>
     {% endfor %}
   </select>
 </div>

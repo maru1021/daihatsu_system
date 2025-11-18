@@ -1743,6 +1743,81 @@ function handleMonthChange() {
 }
 
 // ========================================
+// カラムホバー処理
+// ========================================
+/**
+ * カラムホバー機能を設定（日付ヘッダーのみハイライト）
+ */
+function setupColumnHover() {
+    const tbody = document.querySelector('tbody');
+    if (!tbody) return;
+
+    let currentHoverDateIndex = -1;
+
+    tbody.addEventListener('mouseover', function(e) {
+        const cell = e.target.closest('td, th');
+        if (!cell || cell.tagName !== 'TD') return;
+
+        const dateIndex = cell.getAttribute('data-date-index');
+        if (dateIndex === null) return;
+
+        const dateIndexNum = parseInt(dateIndex);
+        if (dateIndexNum === currentHoverDateIndex) return;
+
+        if (currentHoverDateIndex >= 0) {
+            removeDateHighlight(currentHoverDateIndex);
+        }
+
+        currentHoverDateIndex = dateIndexNum;
+        addDateHighlight(dateIndexNum);
+    });
+
+    tbody.addEventListener('mouseout', function(e) {
+        if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
+            if (currentHoverDateIndex >= 0) {
+                removeDateHighlight(currentHoverDateIndex);
+                currentHoverDateIndex = -1;
+            }
+        }
+    });
+}
+
+/**
+ * 日付ヘッダーにハイライトを追加
+ */
+function addDateHighlight(dateIndex) {
+    // メインヘッダーの日付セル
+    const mainHeaderCells = document.querySelectorAll(`thead th[data-date-index="${dateIndex}"]`);
+    mainHeaderCells.forEach(cell => {
+        cell.classList.add('date-hover');
+    });
+
+    // セクション日付ヘッダー
+    const sectionHeaderCells = document.querySelectorAll(`.section-date-header th[data-date-index="${dateIndex}"]`);
+    sectionHeaderCells.forEach(cell => {
+        cell.classList.add('date-hover');
+    });
+}
+
+/**
+ * 日付ヘッダーからハイライトを削除
+ */
+function removeDateHighlight(dateIndex) {
+    // メインヘッダーの日付セル
+    const mainHeaderCells = document.querySelectorAll(`thead th[data-date-index="${dateIndex}"]`);
+    mainHeaderCells.forEach(cell => {
+        cell.classList.remove('date-hover');
+    });
+
+    // セクション日付ヘッダー
+    const sectionHeaderCells = document.querySelectorAll(`.section-date-header th[data-date-index="${dateIndex}"]`);
+    sectionHeaderCells.forEach(cell => {
+        cell.classList.remove('date-hover');
+    });
+}
+
+
+// ========================================
 // 初期化
 // ========================================
 document.addEventListener('DOMContentLoaded', function () {
@@ -1754,6 +1829,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // イベントリスナー設定
     setupEventListeners();
+
+    // カラムホバーを設定
+    setupColumnHover();
 
     // 既存データがない場合のみ自動割り振りを実行
     if (typeof hasExistingData !== 'undefined' && !hasExistingData) {

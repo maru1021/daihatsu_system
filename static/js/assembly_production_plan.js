@@ -290,6 +290,9 @@ function toggleCheck(element) {
     const dateIndex = Array.from(element.parentElement.children).indexOf(element) - 1;
     debouncedUpdateWorkingDayStatus(dateIndex);
 
+    // 残業inputの表示/非表示を更新
+    updateOvertimeInputVisibility();
+
     // 合計を更新（表示状態が変更された後に実行）
     setTimeout(() => updateRowTotals(), 150);
 }
@@ -298,6 +301,11 @@ function toggleCheck(element) {
 function toggleInputs(dateIndex, shift, show) {
     const selector = `[data-shift="${shift}"][data-date-index="${dateIndex}"] input`;
     document.querySelectorAll(selector).forEach(input => {
+        // 残業inputは除外（updateOvertimeInputVisibility()で制御）
+        if (input.classList.contains('overtime-input')) {
+            return;
+        }
+
         input.style.display = show ? '' : 'none';
     });
 }
@@ -1532,6 +1540,141 @@ $(document).ready(function () {
     // イベントリスナーを設定
     setupEventListeners();
 
+    // 列のホバー処理を設定
+    setupColumnHover();
+
+    // 残業inputの表示/非表示を初期化
+    updateOvertimeInputVisibility();
+
     // 初期表示時にすべての生産数を計算
     updateAllProductionQuantities();
 });
+
+// ========================================
+// 列のホバー処理（日付セルのみ濃い青色）
+// ========================================
+function setupColumnHover() {
+    const tbody = document.querySelector('tbody');
+    if (!tbody) return;
+
+    let currentHoverDateIndex = -1;
+
+    tbody.addEventListener('mouseover', function(e) {
+        const cell = e.target.closest('td, th');
+        if (!cell) return;
+
+        // tdセルのみを対象とする（thは固定列なので除外）
+        if (cell.tagName !== 'TD') return;
+
+        // data-date-indexを使って日付インデックスを取得
+        const dateIndex = cell.getAttribute('data-date-index');
+        if (dateIndex === null) return;
+
+        const dateIndexNum = parseInt(dateIndex);
+
+        // 同じ日付を再度ホバーした場合は何もしない
+        if (dateIndexNum === currentHoverDateIndex) return;
+
+        // 前の日付のハイライトを削除
+        if (currentHoverDateIndex >= 0) {
+            removeDateHighlight(currentHoverDateIndex);
+        }
+
+        // 新しい日付セルをハイライト
+        currentHoverDateIndex = dateIndexNum;
+        addDateHighlight(dateIndexNum);
+    });
+
+    tbody.addEventListener('mouseout', function(e) {
+        // tbodyから完全に出た場合のみハイライトを削除
+        if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
+            if (currentHoverDateIndex >= 0) {
+                removeDateHighlight(currentHoverDateIndex);
+                currentHoverDateIndex = -1;
+            }
+        }
+    });
+}
+
+function addDateHighlight(dateIndex) {
+    // dateIndexは data-date-index の値（0始まりの日付インデックス）
+
+    // 最上部のヘッダー日付（thead内の2行目）
+    // thead 2行目: インデックス0から日付列が始まる（rowspanで固定列は1行目に結合済み）
+    const headerDateRow = document.querySelector('thead tr:nth-child(2)');
+    if (headerDateRow && headerDateRow.children[dateIndex]) {
+        headerDateRow.children[dateIndex].classList.add('date-hover');
+    }
+}
+
+function removeDateHighlight(dateIndex) {
+    // dateIndexは data-date-index の値（0始まりの日付インデックス）
+
+    // 最上部のヘッダー日付（thead内の2行目）
+    // thead 2行目: インデックス0から日付列が始まる（rowspanで固定列は1行目に結合済み）
+    const headerDateRow = document.querySelector('thead tr:nth-child(2)');
+    if (headerDateRow && headerDateRow.children[dateIndex]) {
+        headerDateRow.children[dateIndex].classList.remove('date-hover');
+    }
+}
+
+// ========================================
+// 残業inputの表示/非表示制御
+// ========================================
+function updateOvertimeInputVisibility() {
+    const checkCells = document.querySelectorAll('.check-cell');
+
+    checkCells.forEach((checkCell, dateIndex) => {
+        const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
+        const checkText = checkCell.textContent.trim();
+        const isHolidayWork = checkText === '休出';
+        const isRegularTime = checkText === '定時';
+
+        // 残業inputを取得
+        const dayOvertimeInputs = document.querySelectorAll(
+            `.overtime-input[data-shift="day"][data-date-index="${dateIndex}"]`
+        );
+        const nightOvertimeInputs = document.querySelectorAll(
+            `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"]`
+        );
+
+        if (isWeekend && !isHolidayWork) {
+            // 週末で休出がついていない場合：日勤・夜勤両方とも非表示
+            dayOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+            nightOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+        } else if (isHolidayWork) {
+            // 休出の場合：日勤・夜勤両方とも非表示
+            dayOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+            nightOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+        } else if (isRegularTime) {
+            // 定時の場合：日勤のみ非表示、夜勤は表示
+            dayOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+            nightOvertimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+        } else {
+            // それ以外は両方表示
+            dayOvertimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+            nightOvertimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+        }
+    });
+}
