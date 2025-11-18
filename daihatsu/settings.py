@@ -190,20 +190,14 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # 静的ファイルファインダーを明示的に設定
-if DEBUG:
-    # 開発環境：通常のファインダー
-    STATICFILES_FINDERS = [
-        'django.contrib.staticfiles.finders.FileSystemFinder',
-        'django.contrib.staticfiles.finders.AppDirectoriesFinder',
-    ]
-else:
-    # 本番環境：圧縮ファイルを優先
-    STATICFILES_FINDERS = [
-        'compressor.finders.CompressorFinder',  # 圧縮用ファインダーを最初に
-        'django.contrib.staticfiles.finders.FileSystemFinder',  # 通常のファインダー
-        'django.contrib.staticfiles.finders.AppDirectoriesFinder',
-    ]
-    # オフライン圧縮を強制
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+    'compressor.finders.CompressorFinder',  # Django Compressor用
+]
+
+if not DEBUG:
+    # 本番環境：オフライン圧縮を強制
     COMPRESS_OFFLINE = True
 
 # 圧縮設定

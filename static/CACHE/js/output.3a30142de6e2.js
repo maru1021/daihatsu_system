@@ -1,0 +1,3 @@
+function showToast(type,message,duration=3000){const toastElement=document.getElementById(type==='success'?'successToast':'errorToast');if(!toastElement)return;const messageElement=document.getElementById(type==='success'?'toastMessage':'errorMessage');if(messageElement){messageElement.innerHTML=message;}
+const toast=new bootstrap.Toast(toastElement,{autohide:true,delay:duration});toast.show();}
+window.showToast=showToast;;

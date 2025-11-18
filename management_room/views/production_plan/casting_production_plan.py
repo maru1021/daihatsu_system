@@ -36,12 +36,10 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             line = CastingLine.objects.get(name='ヘッド')
 
         # 品番を取得（一覧から重複なし）
-        items = CastingItem.objects.filter(line=line, active=True).values('name').distinct().order_by('name')
-        item_names = [item['name'] for item in items]
+        item_names = list(CastingItem.objects.filter(line=line, active=True).values_list('name', flat=True).distinct().order_by('name'))
 
         # 鋳造機を取得
-        machines = CastingMachine.objects.filter(line=line, active=True).order_by('name')
-        machine_list = [{'name': m.name, 'id': m.id} for m in machines]
+        machine_list = list(CastingMachine.objects.filter(line=line, active=True).order_by('name').values('name', 'id'))
 
         # データを取得
         plans = DailyMachineCastingProductionPlan.objects.filter(
@@ -452,13 +450,11 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
         for machine in machine_list:
             # この鋳造機に登録されている品番を取得
-            machine_items = CastingItemMachineMap.objects.filter(
+            machine_items_list = list(CastingItemMachineMap.objects.filter(
                 line=line,
                 machine_id=machine['id'],
                 active=True
-            ).order_by('casting_item__name').values_list('casting_item__name', flat=True)
-
-            machine_items_list = list(machine_items)
+            ).order_by('casting_item__name').values_list('casting_item__name', flat=True))
 
             day_row = {
                 'machine_name': machine['name'],
@@ -512,8 +508,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     'tact': item_map.tact if item_map.tact else 0,
                     'yield_rate': item_map.yield_rate if item_map.yield_rate else 0
                 }
-        lines = CastingLine.objects.filter(active=True).order_by('name')
-        lines_list = [{'id': l.id, 'name': l.name} for l in lines]
+        lines_list = list(CastingLine.objects.filter(active=True).order_by('name').values('id', 'name'))
 
         # 適正在庫と月末在庫を比較
         inventory_comparison = []

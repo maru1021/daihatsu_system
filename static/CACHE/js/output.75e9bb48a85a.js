@@ -1,0 +1,3 @@
+document.addEventListener('DOMContentLoaded',function(){const KEEP_ALIVE_INTERVAL=7*24*60*60*1000;function keepSessionAlive(){const csrfToken=document.querySelector("[name=csrfmiddlewaretoken]");if(!csrfToken){console.warn('CSRFトークンが見つかりません');return;}
+fetch('/keep-session-alive/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken.value}}).then(response=>{if(!response.ok){console.warn(`セッション更新失敗: ${response.status} ${response.statusText}`);}}).catch(error=>{console.warn('セッション更新エラー:',error);});}
+setInterval(keepSessionAlive,KEEP_ALIVE_INTERVAL);setTimeout(keepSessionAlive,30000);});;

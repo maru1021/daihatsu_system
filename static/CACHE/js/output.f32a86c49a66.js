@@ -1,0 +1,3 @@
+function removeAllFocus(){const activeElement=document.activeElement;if(activeElement){$(activeElement).blur();}}
+function focusSearchInput(){const searchInput=$('input[data-search-url]');if(searchInput.length){searchInput.focus();}}
+function focusFirstInput(modalElement){if(!modalElement)return;const firstInput=modalElement.find('input:not([type="hidden"]):not([disabled]):first-of-type')[0];if(firstInput){firstInput.focus();firstInput.setSelectionRange(firstInput.value.length,firstInput.value.length);}};

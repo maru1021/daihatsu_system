@@ -1581,7 +1581,17 @@ function updateOvertimeInputVisibility() {
             `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"]`
         );
 
-        if (isHolidayWork) {
+        if (isWeekend && !isHolidayWork) {
+            // 土日（休出なし）の場合：日勤・夜勤両方とも非表示
+            dayOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+            nightOvertimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+        } else if (isHolidayWork) {
             // 休出の場合：日勤・夜勤両方とも非表示
             dayOvertimeInputs.forEach(input => {
                 input.style.display = 'none';

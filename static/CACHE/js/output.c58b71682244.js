@@ -1,0 +1,2 @@
+function initializeDatepickers(){$('.datepicker').datepicker({format:'yyyy-mm-dd',autoclose:true,todayHighlight:true,language:'ja',zIndex:9999,container:'body'});}
+$(document).on('htmx:afterSettle',initializeDatepickers);$(document).on('shown.bs.modal','.modal',initializeDatepickers);;

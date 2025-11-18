@@ -1,0 +1,1 @@
+window.base_url=window.location.origin;;
