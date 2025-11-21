@@ -162,6 +162,16 @@
         鋳造品番-設備紐づけ
       </a>
       <a
+        class="nav-link {% if 'management_room:casting_item_prohibited_pattern' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:casting_item_prohibited_pattern' %}"
+        hx-get="{% url 'management_room:casting_item_prohibited_pattern' %}"
+        hx-target=".main-content"
+        hx-push-url="true"
+      >
+        <i class="fas fa-database"></i>
+        鋳造品番同時生産禁止パターン
+      </a>
+      <a
         class="nav-link {% if 'management_room:assembly_item_machining_item_map' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:assembly_item_machining_item_map' %}"
         hx-get="{% url 'management_room:assembly_item_machining_item_map' %}"

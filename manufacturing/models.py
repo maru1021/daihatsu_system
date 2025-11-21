@@ -43,6 +43,8 @@ class MachiningLine(Line):
 
 
 class CastingLine(Line):
+    changeover_time = models.IntegerField('段取時間', null=True, blank=True, default=0)
+
     class Meta:
         verbose_name = '鋳造ライン'
         verbose_name_plural = '鋳造ライン'

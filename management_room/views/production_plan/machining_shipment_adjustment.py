@@ -177,100 +177,70 @@ class MachiningShipmentAdjustmentView(ManagementRoomPermissionMixin, View):
                 'weekday': date_obj.weekday(),
                 'is_weekend': date_obj.weekday() >= 5,
                 'items': {},
-                'occupancy_rates': {}  # {assembly_name: occupancy_rate}
+                'occupancy_rates': {},  # {assembly_name: occupancy_rate}
+                'shifts': {
+                    'day': {},
+                    'night': {}
+                }
             }
 
             # 品番ごとのデータ
             for item_name in item_names:
-                # 組付からの出庫数（全組立ラインの合計と、各組立ラインごとの値）
-                total_shipment_day = 0
-                total_shipment_night = 0
+                # 組付からの出庫数を初期化
+                total_shipment = {'day': 0, 'night': 0}
                 assembly_shipment_by_line = {}  # {assembly_name: {'day': value, 'night': value}}
+                shipment_by_line = {}  # {assembly_name: {'day': value, 'night': value}}
 
                 # 各組立ラインごとに初期化
                 for assembly_name in lines_by_assembly.keys():
                     assembly_shipment_by_line[assembly_name] = {'day': 0, 'night': 0}
+                    shipment_by_line[assembly_name] = {'day': 0, 'night': 0}
 
-                # 組付生産計画から出庫数を計算
-                assembly_items = machining_to_assembly_map.get(item_name, [])
-                for assembly_item_name, assembly_line_id in assembly_items:
-                    # 組立ラインの名前を取得（マップから）
-                    corresponding_assembly_line = assembly_line_id_to_name.get(assembly_line_id)
+                # 日勤と夜勤を統一的に処理
+                for shift in ['day', 'night']:
+                    # 組付生産計画から出庫数を計算
+                    assembly_items = machining_to_assembly_map.get(item_name, [])
+                    for assembly_item_name, assembly_line_id in assembly_items:
+                        # 組立ラインの名前を取得（マップから）
+                        corresponding_assembly_line = assembly_line_id_to_name.get(assembly_line_id)
 
-                    # 日勤
-                    key_day = (date_obj, 'day', assembly_line_id, assembly_item_name)
-                    if key_day in assembly_plans_map:
-                        assembly_plan = assembly_plans_map[key_day]
-                        qty = assembly_plan.production_quantity or 0
-                        total_shipment_day += qty
-                        if corresponding_assembly_line and corresponding_assembly_line in assembly_shipment_by_line:
-                            assembly_shipment_by_line[corresponding_assembly_line]['day'] += qty
+                        key = (date_obj, shift, assembly_line_id, assembly_item_name)
+                        if key in assembly_plans_map:
+                            assembly_plan = assembly_plans_map[key]
+                            qty = assembly_plan.production_quantity or 0
+                            total_shipment[shift] += qty
+                            if corresponding_assembly_line and corresponding_assembly_line in assembly_shipment_by_line:
+                                assembly_shipment_by_line[corresponding_assembly_line][shift] += qty
 
-                    # 夜勤
-                    key_night = (date_obj, 'night', assembly_line_id, assembly_item_name)
-                    if key_night in assembly_plans_map:
-                        assembly_plan = assembly_plans_map[key_night]
-                        qty = assembly_plan.production_quantity or 0
-                        total_shipment_night += qty
-                        if corresponding_assembly_line and corresponding_assembly_line in assembly_shipment_by_line:
-                            assembly_shipment_by_line[corresponding_assembly_line]['night'] += qty
+                    # 既存の加工ラインの出庫数（マップから取得）
+                    for assembly_name in lines_by_assembly.keys():
+                        key = (assembly_name, date_obj, shift, item_name)
+                        plan = machining_plans_map.get(key)
+                        shipment = plan.shipment if plan and plan.shipment is not None else 0
+                        shipment_by_line[assembly_name][shift] = shipment
 
-                # 既存の加工ラインの出庫数（マップから取得）
-                shipment_by_line = {}  # {assembly_name: {'day': value, 'night': value}}
+                        # 稼働率の取得（最初の品番でのみ設定）
+                        if assembly_name not in date_info['occupancy_rates'] and plan:
+                            if plan.occupancy_rate is not None:
+                                date_info['occupancy_rates'][assembly_name] = plan.occupancy_rate * 100
 
+                # 稼働率のデフォルト値設定
                 for assembly_name in lines_by_assembly.keys():
-                    # 日勤の計画を取得
-                    key_day = (assembly_name, date_obj, 'day', item_name)
-                    plan_day = machining_plans_map.get(key_day)
-                    shipment_day = plan_day.shipment if plan_day and plan_day.shipment is not None else 0
-
-                    # 夜勤の計画を取得
-                    key_night = (assembly_name, date_obj, 'night', item_name)
-                    plan_night = machining_plans_map.get(key_night)
-                    shipment_night = plan_night.shipment if plan_night and plan_night.shipment is not None else 0
-
-                    shipment_by_line[assembly_name] = {
-                        'day': shipment_day,
-                        'night': shipment_night
-                    }
-
-                    # 稼働率の取得（最初の品番でのみ設定）
                     if assembly_name not in date_info['occupancy_rates']:
-                        # まず日勤から、なければ夜勤から取得
-                        plan = plan_day or plan_night
-                        if plan and plan.occupancy_rate is not None:
-                            date_info['occupancy_rates'][assembly_name] = plan.occupancy_rate * 100
+                        line = lines_by_assembly.get(assembly_name)
+                        if line and line.occupancy_rate:
+                            date_info['occupancy_rates'][assembly_name] = line.occupancy_rate * 100
                         else:
-                            # プランがない場合はラインのデフォルト値
-                            line = lines_by_assembly.get(assembly_name)
-                            if line and line.occupancy_rate:
-                                date_info['occupancy_rates'][assembly_name] = line.occupancy_rate * 100
-                            else:
-                                date_info['occupancy_rates'][assembly_name] = ''
+                            date_info['occupancy_rates'][assembly_name] = ''
 
-                # データを構築（互換性のため、line_1とline_2も保持）
+                # データを構築
                 item_data = {
-                    'total_shipment_day': total_shipment_day,
-                    'total_shipment_night': total_shipment_night,
+                    'total_shipment_day': total_shipment['day'],
+                    'total_shipment_night': total_shipment['night'],
                     'line_info': item_line_info.get(item_name, 'both'),
                     'shipment_by_line': shipment_by_line,
-                    'assembly_shipment_by_line': assembly_shipment_by_line  # 各組立ラインごとの生産数
+                    'assembly_shipment_by_line': assembly_shipment_by_line
                 }
-
-                # 後方互換性のため、#1と#2のデータも追加
-                if '#1' in shipment_by_line:
-                    item_data['line_1_shipment_day'] = shipment_by_line['#1']['day']
-                    item_data['line_1_shipment_night'] = shipment_by_line['#1']['night']
-                else:
-                    item_data['line_1_shipment_day'] = 0
-                    item_data['line_1_shipment_night'] = 0
-
-                if '#2' in shipment_by_line:
-                    item_data['line_2_shipment_day'] = shipment_by_line['#2']['day']
-                    item_data['line_2_shipment_night'] = shipment_by_line['#2']['night']
-                else:
-                    item_data['line_2_shipment_day'] = 0
-                    item_data['line_2_shipment_night'] = 0
 
                 date_info['items'][item_name] = item_data
 
@@ -425,17 +395,10 @@ class MachiningShipmentAdjustmentView(ManagementRoomPermissionMixin, View):
             'item_main_line': json.dumps(item_main_line),
             'tacts_json': json.dumps(tacts),
             'has_existing_data': has_existing_data,
-            # 後方互換性のため
             'lines_by_assembly': lines_by_assembly,
             'assembly_line_names': assembly_line_names,
             'items_by_assembly': items_by_assembly,
             'tacts': tacts,
-            'line_1': lines_by_assembly.get('#1'),
-            'line_2': lines_by_assembly.get('#2'),
-            'tact_1': tacts.get('#1', 0),
-            'tact_2': tacts.get('#2', 0),
-            'line_1_items': items_by_assembly.get('#1', []),
-            'line_2_items': items_by_assembly.get('#2', []),
         }
 
         return render(request, self.template_file, context)

@@ -13,7 +13,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
     page_title = '鋳造ライン管理'
     crud_model = CastingLine
     table_model = CastingLine.objects.only(
-        'id', 'name', 'occupancy_rate', 'active', 'last_updated_user'
+        'id', 'name', 'occupancy_rate', 'changeover_time', 'active', 'last_updated_user'
     )
     form_dir = 'master/casting_line'
     form_action_url = 'manufacturing:casting_line_master'
@@ -22,8 +22,8 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
     excel_export_url = 'manufacturing:casting_line_export_excel'
     excel_import_url = 'manufacturing:casting_line_import_excel'
     pdf_export_url = 'manufacturing:casting_line_export_pdf'
-    admin_table_header = ['ライン名', '稼働率', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['ライン名', '稼働率', 'アクティブ']
+    admin_table_header = ['ライン名', '稼働率', '型替え時間', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['ライン名', '稼働率', '型替え時間', 'アクティブ']
     search_fields = ['name']
 
     def get_edit_data(self, data):
@@ -34,6 +34,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
                     'id': data.id,
                     'name': data.name,
                     'occupancy_rate': data.occupancy_rate * 100,
+                    'changeover_time': data.changeover_time,
                     'order': data.order,
                     'active': data.active
                 },
@@ -69,6 +70,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
             return self.crud_model.objects.create(
                 name=data.get('name').strip(),
                 occupancy_rate=float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0,
+                changeover_time=int(data.get('changeover_time')) if data.get('changeover_time') else 0,
                 order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
@@ -81,6 +83,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
         try:
             model.name = data.get('name').strip()
             model.occupancy_rate = float(data.get('occupancy_rate')) / 100 if data.get('occupancy_rate') else 0
+            model.changeover_time = int(data.get('changeover_time')) if data.get('changeover_time') else 0
             model.order = data.get('order') if data.get('order') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
@@ -101,6 +104,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
                         'fields': [
                             row.name,
                             float(row.occupancy_rate) * 100,
+                            row.changeover_time,
                             '有効' if row.active else '無効',
                             row.last_updated_user
                         ],
@@ -114,6 +118,7 @@ class CastingLineView(ManufacturingPermissionMixin, BasicTableView):
                         'fields': [
                             row.name,
                             float(row.occupancy_rate) * 100,
+                            row.changeover_time,
                             '有効' if row.active else '無効'
                         ],
                     })

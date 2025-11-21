@@ -451,6 +451,14 @@ tbody th.vehicle-label {
     cursor: pointer;
 }
 
+/* 金型使用数表示 */
+.mold-count-display {
+    font-size: 9px;
+    font-weight: bold;
+    color: #666;
+    padding-left: 2px;
+}
+
 /* ドラッグ中のスタイル */
 .select-container.dragging {
     opacity: 0.5;
@@ -915,4 +923,33 @@ tr.night-shift .monthly-total {
 th.date-hover {
     background-color: #42a5f5 !important;
     font-weight: bold;
+}
+
+/* ========================================
+   金型使用数の手動ブロック（赤色背景表示）
+   ======================================== */
+.mold-count-display.manual-block {
+    background-color: #ffcccc !important;
+    color: #000 !important;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+/* 手動で値が設定された金型使用数（緑色背景表示） */
+.mold-count-display[data-manual-override="true"] {
+    background-color: #ccffcc !important;
+    color: #000 !important;
+    font-weight: bold;
+}
+
+.mold-count-display {
+    cursor: pointer;
+    user-select: none;
+    padding: 2px 4px;
+    border-radius: 3px;
+    display: inline-block;
+    min-width: 16px;
+    text-align: center;
 }

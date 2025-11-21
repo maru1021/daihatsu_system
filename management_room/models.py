@@ -171,6 +171,27 @@ class CastingItem(MasterMethodMixin, models.Model):
     def __str__(self):
         return f"{self.line.name} - {self.name}"
 
+
+class CastingItemProhibitedPattern(models.Model):
+    line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
+    item_name1 = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番1", related_name='casting_item_prohibited_pattern_item1', null=True, blank=True)
+    item_name2 = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番2", related_name='casting_item_prohibited_pattern_item2', null=True, blank=True)
+    count = models.IntegerField(verbose_name="同時生産禁止数", null=True, blank=True, default=2)
+    active = models.BooleanField(verbose_name="有効", default=True)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "鋳造同時生産禁止品番パターン"
+        verbose_name_plural = "鋳造同時生産禁止品番パターン"
+        ordering = ['-active', 'line', 'item_name1', 'item_name2']
+        indexes = [
+            models.Index(fields=['line', 'active']),
+        ]
+
+    def __str__(self):
+        return f"{self.line.name} - {self.item_name1.name} - {self.item_name2.name}"
+
+
 class CastingItemMachineMap(MasterMethodMixin, models.Model):
     line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
     machine = models.ForeignKey('manufacturing.CastingMachine', on_delete=models.CASCADE, verbose_name="鋳造機", null=True, blank=True, db_index=True)
@@ -323,6 +344,7 @@ class MachiningStock(models.Model):
         return f"{self.date} - {self.shift} - {self.line_name} - {self.item_name} - {self.stock}"
 
 
+# シフト、品番ごとのモデル
 class DailyCastingProductionPlan(models.Model):
     line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
     production_item = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
@@ -345,6 +367,8 @@ class DailyCastingProductionPlan(models.Model):
         return f"{self.date} - {self.shift} - {self.production_item.name}"
 
 
+# シフト、鋳造機、品番ごとのモデル
+# 鋳造機ごとに作成する品番が異なるためDailyCastingProductionPlantリレーションさせない
 class DailyMachineCastingProductionPlan(models.Model):
     line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", related_name='daily_machine_casting_production_plans')
     machine = models.ForeignKey('manufacturing.CastingMachine', on_delete=models.CASCADE, verbose_name="鋳造機", related_name='daily_machine_casting_production_plans')
@@ -355,6 +379,7 @@ class DailyMachineCastingProductionPlan(models.Model):
     mold_change = models.IntegerField(verbose_name="金型交換", null=True, blank=True, default=0)
     stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
     overtime = models.IntegerField(verbose_name="生産残業", null=True, blank=True, default=0)
+    mold_count = models.IntegerField(verbose_name="金型使用数", null=True, blank=True, default=0)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
@@ -367,3 +392,24 @@ class DailyMachineCastingProductionPlan(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.shift} - {self.line.name if self.line else ''} - {self.machine.name if self.machine else ''} - {self.production_item.name if self.production_item else ''} - {self.production_count}"
+
+
+class UsableMold(models.Model):
+    type = models.CharField(verbose_name="種類", max_length=20, null=True, blank=True, db_index=True)
+    month = models.DateField(verbose_name="月", null=True, blank=True, db_index=True)
+    line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
+    machine = models.ForeignKey('manufacturing.CastingMachine', on_delete=models.CASCADE, verbose_name="鋳造機", null=True, blank=True, db_index=True)
+    item_name = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
+    used_count = models.IntegerField(verbose_name="使用回数", null=True, blank=True, default=0)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "使用可能金型数"
+        verbose_name_plural = "使用可能金型数"
+        ordering = ['month', 'line', 'machine']
+        indexes = [
+            models.Index(fields=['line', 'machine']),
+        ]
+
+    def __str__(self):
+        return f"{self.month} - {self.line.name} - {self.machine.name} - {self.item_name.name}"

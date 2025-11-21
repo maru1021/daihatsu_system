@@ -327,6 +327,8 @@ function initializeSelectColors() {
             updateSelectColor(this);
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
+            const machineIndex = parseInt(this.dataset.machineIndex);
+            updateMoldCountForMachineFromShift(dateIndex, shift, machineIndex);  // この直以降の金型使用数を更新
             calculateProduction(dateIndex, shift);
             debouncedCheckItemChanges();  // デバウンスされた品番変更チェック
         });
@@ -334,7 +336,355 @@ function initializeSelectColors() {
 }
 
 // ========================================
-// 品番変更チェック
+// 金型使用数更新
+// ========================================
+function updateMoldCount(dateIndex, shift, machineIndex) {
+    const select = document.querySelector(
+        `.vehicle-select[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
+    );
+
+    if (!select) return;
+
+    const currentItem = select.value;
+    if (!currentItem) {
+        // 品番が空の場合は空文字にする
+        const moldCountDisplay = select.closest('.select-container')?.querySelector('.mold-count-display');
+        if (moldCountDisplay) {
+            moldCountDisplay.textContent = '';
+            moldCountDisplay.removeAttribute('data-reset-info');
+            moldCountDisplay.setAttribute('data-inherited', 'false');
+            moldCountDisplay.setAttribute('data-manual-block', 'false');
+        }
+        return;
+    }
+
+    // 金型使用数spanを取得
+    const moldCountDisplay = select.closest('.select-container')?.querySelector('.mold-count-display');
+    if (!moldCountDisplay) return;
+
+    // 手動で値が設定されている場合はその値を保持（自動計算しない）
+    const isManualOverride = moldCountDisplay.getAttribute('data-manual-override') === 'true';
+    if (isManualOverride) {
+        const manualValue = parseInt(moldCountDisplay.getAttribute('data-manual-value')) || 1;
+        moldCountDisplay.textContent = manualValue;
+        moldCountDisplay.setAttribute('data-inherited', 'false');
+        moldCountDisplay.removeAttribute('data-reset-info');
+        return;
+    }
+
+    // 連続して同じ品番を生産している直数を取得
+    const countResult = getConsecutiveShiftCountWithSource(dateIndex, shift, machineIndex, currentItem);
+    const consecutiveCount = countResult.count;
+    const isInherited = countResult.inherited;
+    const inheritanceSource = countResult.source; // 引き継ぎ元の情報
+
+    // 金型使用数spanに値を設定
+    moldCountDisplay.textContent = consecutiveCount;
+    moldCountDisplay.setAttribute('data-inherited', isInherited ? 'true' : 'false');
+
+    // 引き継ぎ情報を設定
+    if (isInherited && inheritanceSource) {
+        clearPreviousInheritance(moldCountDisplay, inheritanceSource);
+        setInheritanceInfo(moldCountDisplay, dateIndex, shift, machineIndex, currentItem, inheritanceSource);
+    } else {
+        clearInheritanceInfo(moldCountDisplay);
+    }
+
+    // 手動設定フラグをクリア（自動計算に戻す）
+    moldCountDisplay.removeAttribute('data-manual-override');
+    moldCountDisplay.removeAttribute('data-manual-value');
+
+    // 6の倍数になった場合、この品番の後続の全ての直にリセット情報を設定して再計算
+    if (consecutiveCount % 6 === 0 && consecutiveCount > 0) {
+        // リセット情報をJSON形式で保存（どこで6になったか）
+        const resetInfo = JSON.stringify({
+            dateIndex: dateIndex,
+            shift: shift,
+            machineIndex: machineIndex,
+            itemName: currentItem
+        });
+        moldCountDisplay.setAttribute('data-reset-info', resetInfo);
+        setResetFlagForItemAndRecalculate(dateIndex, shift, currentItem);
+    } else {
+        moldCountDisplay.removeAttribute('data-reset-info');
+    }
+}
+
+// 指定した品番の後続の全ての直にリセット情報を設定して再計算
+function setResetFlagForItemAndRecalculate(fromDateIndex, fromShift, itemName) {
+    const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
+    const totalMachines = document.querySelectorAll('.facility-number').length / 4;
+
+    let currentDateIndex = fromDateIndex;
+    let currentShift = fromShift;
+
+    // リセット情報をJSON形式で作成
+    const resetInfo = JSON.stringify({
+        dateIndex: fromDateIndex,
+        shift: fromShift,
+        itemName: itemName
+    });
+
+    // 次の直から開始
+    if (currentShift === 'day') {
+        currentShift = 'night';
+    } else {
+        currentShift = 'day';
+        currentDateIndex++;
+    }
+
+    // まず全てのリセット情報を設定
+    let resetDateIndex = currentDateIndex;
+    let resetShift = currentShift;
+    while (resetDateIndex < dateCount) {
+        for (let m = 0; m < totalMachines; m++) {
+            const select = document.querySelector(
+                `.vehicle-select[data-shift="${resetShift}"][data-date-index="${resetDateIndex}"][data-machine-index="${m}"]`
+            );
+
+            if (select && select.value === itemName) {
+                const moldCountDisplay = document.querySelector(
+                    `.mold-count-display[data-shift="${resetShift}"][data-date-index="${resetDateIndex}"][data-machine-index="${m}"]`
+                );
+                if (moldCountDisplay) {
+                    moldCountDisplay.setAttribute('data-reset-info', resetInfo);
+                }
+            }
+        }
+
+        if (resetShift === 'day') {
+            resetShift = 'night';
+        } else {
+            resetShift = 'day';
+            resetDateIndex++;
+        }
+    }
+
+    // 次に全ての該当する直を再計算
+    while (currentDateIndex < dateCount) {
+        for (let m = 0; m < totalMachines; m++) {
+            const select = document.querySelector(
+                `.vehicle-select[data-shift="${currentShift}"][data-date-index="${currentDateIndex}"][data-machine-index="${m}"]`
+            );
+
+            if (select && select.value === itemName) {
+                const moldCountDisplay = document.querySelector(
+                    `.mold-count-display[data-shift="${currentShift}"][data-date-index="${currentDateIndex}"][data-machine-index="${m}"]`
+                );
+                if (moldCountDisplay) {
+                    // 再計算（リセット情報を考慮）
+                    const countResult = getConsecutiveShiftCount(currentDateIndex, currentShift, m, itemName);
+                    moldCountDisplay.textContent = countResult.count;
+                    moldCountDisplay.setAttribute('data-inherited', countResult.inherited ? 'true' : 'false');
+                }
+            }
+        }
+
+        if (currentShift === 'day') {
+            currentShift = 'night';
+        } else {
+            currentShift = 'day';
+            currentDateIndex++;
+        }
+    }
+}
+
+// 指定した直から後の全ての直の金型使用数を更新
+function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineIndex) {
+    const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
+    const totalMachines = document.querySelectorAll('.facility-number').length / 4;
+
+    // まず変更された設備自身を更新
+    updateMoldCount(startDateIndex, startShift, machineIndex);
+
+    // 変更された設備の品番を取得
+    const changedSelect = document.querySelector(
+        `.vehicle-select[data-shift="${startShift}"][data-date-index="${startDateIndex}"][data-machine-index="${machineIndex}"]`
+    );
+    const changedItem = changedSelect ? changedSelect.value : null;
+
+    // 【重要】同じ直の右側の設備を全て再計算
+    // （引き継ぎ先が変わる可能性があるため、品番に関係なく全て再計算）
+    for (let m = machineIndex + 1; m < totalMachines; m++) {
+        updateMoldCount(startDateIndex, startShift, m);
+    }
+
+    // 【重要】同じ直の全設備を再度再計算
+    // （右側の再計算により、左側の引き継ぎ情報が変わる可能性があるため）
+    for (let m = 0; m < totalMachines; m++) {
+        updateMoldCount(startDateIndex, startShift, m);
+    }
+
+    // 【重要】変更した直以降の全ての設備・全ての直を再計算
+    // （6になる位置が変化する可能性があるため）
+    recalculateAllFromShift(startDateIndex, startShift);
+}
+
+// 指定した直から後の全ての設備・全ての直の金型使用数を再計算
+// 品番変更により6になる位置が変化する可能性があるため、全て再計算する
+function recalculateAllFromShift(fromDateIndex, fromShift) {
+    const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
+    const totalMachines = document.querySelectorAll('.facility-number').length / 4;
+
+    let currentDateIndex = fromDateIndex;
+    let currentShift = fromShift;
+
+    // 次の直に移動
+    if (currentShift === 'day') {
+        currentShift = 'night';
+    } else {
+        currentShift = 'day';
+        currentDateIndex++;
+    }
+
+    // 次の直から最終直まで、全ての設備を再計算
+    while (currentDateIndex < dateCount) {
+        for (let m = 0; m < totalMachines; m++) {
+            updateMoldCount(currentDateIndex, currentShift, m);
+        }
+
+        // 次の直に移動
+        if (currentShift === 'day') {
+            currentShift = 'night';
+        } else {
+            currentShift = 'day';
+            currentDateIndex++;
+        }
+    }
+
+    // 金型交換時間を再チェック（6になる位置が変化した可能性があるため）
+    checkItemChanges();
+}
+
+// 指定した品番を使用している全ての直を再計算（指定した直以降）
+function recalculateAllOccurrencesOfItem(itemName, fromDateIndex, fromShift) {
+    const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
+    const totalMachines = document.querySelectorAll('.facility-number').length / 4;
+
+    let currentDateIndex = fromDateIndex;
+    let currentShift = fromShift;
+
+    // 指定した直から最終直まで走査
+    while (currentDateIndex < dateCount) {
+        for (let m = 0; m < totalMachines; m++) {
+            const select = document.querySelector(
+                `.vehicle-select[data-shift="${currentShift}"][data-date-index="${currentDateIndex}"][data-machine-index="${m}"]`
+            );
+
+            if (select && select.value === itemName) {
+                // この品番を使用している直を再計算
+                updateMoldCount(currentDateIndex, currentShift, m);
+            }
+        }
+
+        // 次の直に移動
+        if (currentShift === 'day') {
+            currentShift = 'night';
+        } else {
+            currentShift = 'day';
+            currentDateIndex++;
+        }
+    }
+}
+
+// ========================================
+// 引き継ぎ情報管理ヘルパー関数
+// ========================================
+
+// 以前の引き継ぎ元から引き継ぎ先情報をクリア
+function clearPreviousInheritance(moldCountDisplay, newInheritanceSource) {
+    const previousInheritanceStr = moldCountDisplay.getAttribute('data-mold-inheritance');
+    if (!previousInheritanceStr) return;
+
+    try {
+        const previousInheritance = JSON.parse(previousInheritanceStr);
+        // 以前の引き継ぎ元が現在と異なる場合のみクリア
+        if (previousInheritance.sourceDateIndex !== newInheritanceSource.dateIndex ||
+            previousInheritance.sourceShift !== newInheritanceSource.shift ||
+            previousInheritance.sourceMachineIndex !== newInheritanceSource.machineIndex) {
+
+            const prevSourceDisplay = document.querySelector(
+                `.mold-count-display[data-shift="${previousInheritance.sourceShift}"][data-date-index="${previousInheritance.sourceDateIndex}"][data-machine-index="${previousInheritance.sourceMachineIndex}"]`
+            );
+            if (prevSourceDisplay) {
+                prevSourceDisplay.removeAttribute('data-mold-inheritance-target');
+            }
+        }
+    } catch (e) {
+        // JSON解析エラーは無視
+    }
+}
+
+// 引き継ぎ情報を設定（双方向）
+function setInheritanceInfo(moldCountDisplay, dateIndex, shift, machineIndex, itemName, inheritanceSource) {
+    // 引き継ぎ元の情報を保存
+    const inheritanceInfo = JSON.stringify({
+        sourceDateIndex: inheritanceSource.dateIndex,
+        sourceShift: inheritanceSource.shift,
+        sourceMachineIndex: inheritanceSource.machineIndex,
+        itemName: itemName
+    });
+    moldCountDisplay.setAttribute('data-mold-inheritance', inheritanceInfo);
+
+    // 引き継ぎ元のセルに「引き継ぎ先」を記録
+    const sourceDisplay = document.querySelector(
+        `.mold-count-display[data-shift="${inheritanceSource.shift}"][data-date-index="${inheritanceSource.dateIndex}"][data-machine-index="${inheritanceSource.machineIndex}"]`
+    );
+    if (sourceDisplay) {
+        const inheritanceTarget = JSON.stringify({
+            targetDateIndex: dateIndex,
+            targetShift: shift,
+            targetMachineIndex: machineIndex,
+            itemName: itemName
+        });
+        sourceDisplay.setAttribute('data-mold-inheritance-target', inheritanceTarget);
+    }
+}
+
+// 引き継ぎ情報をクリア
+function clearInheritanceInfo(moldCountDisplay) {
+    const previousInheritanceStr = moldCountDisplay.getAttribute('data-mold-inheritance');
+    if (!previousInheritanceStr) {
+        moldCountDisplay.removeAttribute('data-mold-inheritance');
+        return;
+    }
+
+    try {
+        const previousInheritance = JSON.parse(previousInheritanceStr);
+        const prevSourceDisplay = document.querySelector(
+            `.mold-count-display[data-shift="${previousInheritance.sourceShift}"][data-date-index="${previousInheritance.sourceDateIndex}"][data-machine-index="${previousInheritance.sourceMachineIndex}"]`
+        );
+        if (prevSourceDisplay) {
+            prevSourceDisplay.removeAttribute('data-mold-inheritance-target');
+        }
+    } catch (e) {
+        // JSON解析エラーは無視
+    }
+    moldCountDisplay.removeAttribute('data-mold-inheritance');
+}
+
+// 指定した設備が次の直で連続生産しているかチェック
+function isContinuousProductionInNextShift(dateIndex, shift, machineIndex, itemName) {
+    let nextDateIndex = dateIndex;
+    let nextShift = shift;
+
+    // 次の直に移動
+    if (shift === 'day') {
+        nextShift = 'night';
+    } else {
+        nextShift = 'day';
+        nextDateIndex++;
+    }
+
+    const nextSelect = document.querySelector(
+        `.vehicle-select[data-shift="${nextShift}"][data-date-index="${nextDateIndex}"][data-machine-index="${machineIndex}"]`
+    );
+
+    return nextSelect && nextSelect.value === itemName;
+}
+
+// ========================================
+// 品番変更チェック（金型交換時間の自動設定）
 // ========================================
 function checkItemChanges() {
     // 全てのselect-containerから品番変更クラスを削除
@@ -362,6 +712,8 @@ function checkItemChanges() {
         }
 
         let shouldHighlight = false;
+        let isItemChange = false; // 品番変更による交換
+        let isMoldCountSix = false; // 6直連続による交換
 
         // 次の直の品番を取得
         let nextSelect = null;
@@ -377,29 +729,38 @@ function checkItemChanges() {
             );
         }
 
-        // 次の直が存在し、品番が異なる場合は黄色にする
+        // 次の直が存在し、品番が異なる場合
         if (nextSelect && nextSelect.value && currentItem !== nextSelect.value) {
             shouldHighlight = true;
+            isItemChange = true;
         }
 
         // 6直連続チェック
         if (is6ConsecutiveShifts(dateIndex, shift, machineIndex, currentItem)) {
             shouldHighlight = true;
+            isMoldCountSix = true;
         }
 
-        if (shouldHighlight) {
+        // 金型カウントが6の場合、または手動ブロック(赤)の場合もチェック
+        const moldCountDisplay = document.querySelector(
+            `.mold-count-display[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
+        );
+        const isManualBlock = moldCountDisplay && moldCountDisplay.getAttribute('data-manual-block') === 'true';
+        const moldCount = moldCountDisplay ? (parseInt(moldCountDisplay.textContent) || 0) : 0;
+
+        if (shouldHighlight || isManualBlock || (moldCount % 6 === 0 && moldCount > 0)) {
             const container = select.closest('.select-container');
             if (container) {
                 container.classList.add('item-changed');
             }
 
-            // 金型交換時間を75分に設定（黄色くハイライトされている現在の直）
+            // 金型交換時間を設定
             const moldChangeInput = getInputElement(
                 `.mold-change-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
             );
 
             if (moldChangeInput && moldChangeInput.style.display !== 'none') {
-                moldChangeInput.value = 75;
+                moldChangeInput.value = changeoverTime;
             }
         }
     });
@@ -417,102 +778,252 @@ function is6ConsecutiveShifts(dateIndex, shift, machineIndex, currentItem) {
     if (!currentItem) return false;
 
     // 前の直から連続して同じ品番を作っている直数をカウント
-    const consecutiveCount = getConsecutiveShiftCount(dateIndex, shift, machineIndex, currentItem);
+    const result = getConsecutiveShiftCount(dateIndex, shift, machineIndex, currentItem);
+    const consecutiveCount = result.count;
 
     // 6の倍数直目（6, 12, 18, 24...）でハイライト
     // 品番が変更されるとカウントは自動的にリセットされる
     return consecutiveCount > 0 && consecutiveCount % 6 === 0;
 }
 
-// 前の直から連続して同じ品番を作っている直数をカウント（自身を含む）
-// 土日など生産していない直はスキップして連続性をチェック
+// 金型使用数を取得（引き継ぎ情報も含む）
+// 戻り値: { count: 数値, inherited: boolean, source: {dateIndex, shift, machineIndex} or null }
+function getConsecutiveShiftCountWithSource(dateIndex, shift, machineIndex, currentItem) {
+    const result = getConsecutiveShiftCount(dateIndex, shift, machineIndex, currentItem);
+    return result;
+}
+
+// 品番ごとの累積使用直数をカウント（自身を含む）
+// 【仕様】
+// - 同一設備で連続生産: 前回のカウント+1を継続
+// - 同一設備で品番変更後に再使用: 他設備から引き継ぎ（6未満なら継続、6の倍数なら1から）
+// - 他設備からの引き継ぎ: 最後に使用された金型カウントを探して継続
+// - 引き継ぎは1箇所のみ: すでに他の設備が引き継いでいる場合は引き継ぎ不可
+// 戻り値: { count: 数値, inherited: boolean, source: {dateIndex, shift, machineIndex} or null }
 function getConsecutiveShiftCount(dateIndex, shift, machineIndex, currentItem) {
-    if (!currentItem) return 0;
+    if (!currentItem) return { count: 0, inherited: false, source: null };
 
-    let count = 1; // 自身をカウント
-    let currentDateIndex = dateIndex;
-    let currentShift = shift;
+    let count = 1; // デフォルトは1からスタート
+    let inherited = false;
+    let inheritanceSource = null; // 引き継ぎ元の情報
+    let searchDateIndex = dateIndex;
+    let searchShift = shift;
 
-    // デバッグフラグ
-    const debug = dateIndex === 21 && shift === 'day' && machineIndex === 0;
+    // まず同一設備で直前に同じ品番があるかチェック
+    // 前の直に移動
+    if (searchShift === 'day') {
+        searchDateIndex--;
+        searchShift = 'night';
+    } else {
+        searchShift = 'day';
+    }
 
-    // 機械名を取得（前月データ参照用）
-    const machineNameElement = document.querySelector(
-        `tr[data-machine-index="${machineIndex}"] .facility-number`
-    );
-    const machineName = machineNameElement ? machineNameElement.textContent.trim() : null;
+    // 範囲内の場合、同一設備をチェック
+    if (searchDateIndex >= 0) {
+        const prevSelectSameMachine = document.querySelector(
+            `.vehicle-select[data-shift="${searchShift}"][data-date-index="${searchDateIndex}"][data-machine-index="${machineIndex}"]`
+        );
 
-    if (debug) console.log(`[COUNT DEBUG] Starting count for dateIndex=${dateIndex}, shift=${shift}, item=${currentItem}`);
+        if (prevSelectSameMachine) {
+            const prevItemSameMachine = prevSelectSameMachine.value || null;
 
-    // 前の直を順番に確認
-    // 最大で50直分の生産直を遡る（空の直はカウントしない）
-    let maxProductionShifts = 50;
-    let productionShiftsChecked = 0;
-    let totalIterations = 0;
-    let maxTotalIterations = 100; // 無限ループ防止
+            // 同一設備で直前が同じ品番の場合のみ、カウント継続
+            if (prevItemSameMachine === currentItem) {
+                const prevMoldCountDisplay = document.querySelector(
+                    `.mold-count-display[data-shift="${searchShift}"][data-date-index="${searchDateIndex}"][data-machine-index="${machineIndex}"]`
+                );
 
-    while (productionShiftsChecked < maxProductionShifts && totalIterations < maxTotalIterations) {
-        totalIterations++;
+                if (prevMoldCountDisplay && prevMoldCountDisplay.textContent) {
+                    const prevMoldCount = parseInt(prevMoldCountDisplay.textContent) || 0;
+                    const isManualBlock = prevMoldCountDisplay.getAttribute('data-manual-block') === 'true';
 
-        // 前の直に移動
-        if (currentShift === 'day') {
-            // 日勤 -> 前日の夜勤
-            currentDateIndex--;
-            currentShift = 'night';
-        } else {
-            // 夜勤 -> 同じ日の日勤
-            currentShift = 'day';
-        }
+                    // 手動ブロックされている場合は1からスタート
+                    if (isManualBlock) {
+                        return { count: 1, inherited: false, source: null };
+                    }
 
-        let prevItem = null;
+                    // リセット情報をチェック（6になった地点の情報）
+                    const resetInfoStr = prevMoldCountDisplay.getAttribute('data-reset-info');
+                    if (resetInfoStr) {
+                        try {
+                            const resetInfo = JSON.parse(resetInfoStr);
+                            // リセット情報が現在の直の直前の直を指している場合のみリセット
+                            // （つまり、前の直で6になった場合）
+                            if (resetInfo.dateIndex === searchDateIndex &&
+                                resetInfo.shift === searchShift &&
+                                resetInfo.itemName === currentItem) {
+                                return { count: 1, inherited: false, source: null };
+                            }
+                        } catch (e) {
+                            // JSON解析エラーは無視
+                        }
+                    }
 
-        // 範囲外（前月）の場合
-        if (currentDateIndex < 0) {
-            // 前月データから取得
-            if (!previousMonthProductionPlans || !machineName) break;
+                    // 6の倍数（金型交換済み）の場合は1からスタート
+                    if (prevMoldCount % 6 === 0 && prevMoldCount > 0) {
+                        return { count: 1, inherited: false, source: null };
+                    }
 
-            // 前月データのインデックスを計算
-            const prevMonthShiftIndex = previousMonthProductionPlans.length - 1 - (productionShiftsChecked);
+                    // 続きからカウント（同一設備での連続生産なので引き継ぎではない）
+                    // 手動設定値も含めて引き継ぐ
+                    // 注意: inheritedをfalseにすることで、引き継ぎターゲット情報が設定されない
+                    // これにより途中交換した型は他の設備から引き継ぎ可能になる
+                    return { count: prevMoldCount + 1, inherited: false, source: null };
+                }
+            }
 
-            if (prevMonthShiftIndex >= 0 && prevMonthShiftIndex < previousMonthProductionPlans.length) {
-                const prevMonthShift = previousMonthProductionPlans[prevMonthShiftIndex];
-                prevItem = prevMonthShift.plans[machineName];
+            // 同一設備で直前が異なる品番、または品番がない場合
+            // → 他の設備や過去の直から引き継ぎを探す
+            const inheritanceResult = searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem);
+            if (inheritanceResult.count > 1) {
+                return {
+                    count: inheritanceResult.count,
+                    inherited: true,
+                    source: inheritanceResult.source
+                };
             } else {
-                break;
+                return { count: 1, inherited: false, source: null };
             }
-        } else {
-            // 今月のデータから取得
-            const prevSelect = document.querySelector(
-                `.vehicle-select[data-shift="${currentShift}"][data-date-index="${currentDateIndex}"][data-machine-index="${machineIndex}"]`
-            );
-
-            if (prevSelect) {
-                prevItem = prevSelect.value || null;
-            }
-        }
-
-        // 品番が見つかった場合
-        if (prevItem) {
-            productionShiftsChecked++; // 生産直としてカウント
-
-            if (debug) console.log(`  [prod:${productionShiftsChecked}, total:${totalIterations}] dateIndex=${currentDateIndex}, shift=${currentShift}, item=${prevItem}, match=${prevItem === currentItem}`);
-
-            // 品番が一致する場合はカウントアップ
-            if (prevItem === currentItem) {
-                count++;
-            } else {
-                // 品番が異なる場合は中断
-                if (debug) console.log(`  Different item found. Breaking. Final count=${count}`);
-                break;
-            }
-        } else {
-            // 空の直はスキップ（生産直としてカウントしない）
-            if (debug) console.log(`  [total:${totalIterations}] dateIndex=${currentDateIndex}, shift=${currentShift}, item=EMPTY (skipping, not counted)`);
         }
     }
 
-    if (debug) console.log(`[COUNT DEBUG] Final count=${count}`);
-    return count;
+    // 同一設備に前の直がない場合（月初など）
+    // → 他設備からの引き継ぎを探す
+    const inheritanceResult = searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem);
+    if (inheritanceResult.count > 1) {
+        return {
+            count: inheritanceResult.count,
+            inherited: true,
+            source: inheritanceResult.source
+        };
+    } else {
+        return { count: 1, inherited: false, source: null };
+    }
+}
+
+// 他設備から金型使用数を探す
+// 【仕様】
+// - 同一設備で連続していない場合に、他の設備や過去の直から金型カウントを探す
+// - 6未満のカウントが見つかれば、そのカウント+1を返す（型を引き継ぐ）
+// - 6の倍数のカウントが見つかれば、1を返す（型交換済み）
+// - 既に他の設備が引き継いでいる場合は引き継ぎ不可（1を返す）
+// - 途中交換した型（連続生産でない型）も引き継ぎ可能
+// - 【重要】同じ直の他の設備からは引き継がない（同じ直では独立して1からスタート）
+// 戻り値: { count: 数値, source: {dateIndex, shift, machineIndex} or null }
+function searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem) {
+    const totalMachines = document.querySelectorAll('.facility-number').length / 4;
+
+    // 前の直から引き継ぎを探す
+    let searchDateIndex = dateIndex;
+    let searchShift = shift;
+    let totalIterations = 0;
+    let maxTotalIterations = 300;
+
+    while (totalIterations < maxTotalIterations) {
+        totalIterations++;
+
+        // 前の直に移動
+        if (searchShift === 'day') {
+            searchDateIndex--;
+            searchShift = 'night';
+        } else {
+            searchShift = 'day';
+        }
+
+        // 範囲外の場合は終了
+        if (searchDateIndex < 0) {
+            break;
+        }
+
+        // この直の全設備を確認
+        for (let m = 0; m < totalMachines; m++) {
+            const prevSelect = document.querySelector(
+                `.vehicle-select[data-shift="${searchShift}"][data-date-index="${searchDateIndex}"][data-machine-index="${m}"]`
+            );
+
+            if (!prevSelect) continue;
+
+            const prevItem = prevSelect.value || null;
+
+            // 同じ品番が見つかった場合
+            if (prevItem === currentItem) {
+                const prevMoldCountDisplay = document.querySelector(
+                    `.mold-count-display[data-shift="${searchShift}"][data-date-index="${searchDateIndex}"][data-machine-index="${m}"]`
+                );
+
+                if (prevMoldCountDisplay && prevMoldCountDisplay.textContent) {
+                    const prevMoldCount = parseInt(prevMoldCountDisplay.textContent) || 0;
+                    const isManualBlock = prevMoldCountDisplay.getAttribute('data-manual-block') === 'true';
+
+                    // 手動ブロックされている場合は1からスタート
+                    if (isManualBlock) {
+                        return { count: 1, source: null };
+                    }
+
+                    // 【重要】この設備が次の直で連続生産しているかチェック
+                    // 連続生産している場合は引き継ぎ不可（連続生産が優先）
+                    if (isContinuousProductionInNextShift(searchDateIndex, searchShift, m, currentItem)) {
+                        continue;
+                    }
+
+                    // 既に他の設備が引き継いでいるかチェック
+                    const inheritanceTargetStr = prevMoldCountDisplay.getAttribute('data-mold-inheritance-target');
+                    if (inheritanceTargetStr) {
+                        try {
+                            const inheritanceTarget = JSON.parse(inheritanceTargetStr);
+                            // 既に他の設備が引き継いでいる場合は、引き継ぎ不可
+                            // ただし、引き継ぎ先が現在のセル自身の場合は引き継ぎ可（再計算の場合）
+                            if (!(inheritanceTarget.targetDateIndex === dateIndex &&
+                                  inheritanceTarget.targetShift === shift &&
+                                  inheritanceTarget.targetMachineIndex === machineIndex)) {
+                                // 別の設備が既に引き継いでいる
+                                continue; // 次の候補を探す
+                            }
+                        } catch (e) {
+                            // JSON解析エラーは無視
+                        }
+                    }
+
+                    // リセット情報をチェック
+                    const resetInfoStr = prevMoldCountDisplay.getAttribute('data-reset-info');
+                    if (resetInfoStr) {
+                        try {
+                            const resetInfo = JSON.parse(resetInfoStr);
+                            // この地点以前で6になっている場合は1からスタート
+                            // リセット地点が現在より前（または同じ）かチェック
+                            const resetShiftNum = resetInfo.shift === 'day' ? 0 : 1;
+                            const currentShiftNum = shift === 'day' ? 0 : 1;
+                            const resetPosition = resetInfo.dateIndex * 2 + resetShiftNum;
+                            const currentPosition = dateIndex * 2 + currentShiftNum;
+
+                            if (resetPosition < currentPosition && resetInfo.itemName === currentItem) {
+                                return { count: 1, source: null };
+                            }
+                        } catch (e) {
+                            // JSON解析エラーは無視
+                        }
+                    }
+
+                    // 6の倍数（金型交換済み）の場合は1からスタート
+                    if (prevMoldCount % 6 === 0 && prevMoldCount > 0) {
+                        return { count: 1, source: null };
+                    }
+
+                    // それ以外は続きからカウント（引き継ぎ元の情報も返す）
+                    return {
+                        count: prevMoldCount + 1,
+                        source: {
+                            dateIndex: searchDateIndex,
+                            shift: searchShift,
+                            machineIndex: m
+                        }
+                    };
+                }
+            }
+        }
+    }
+
+    return { count: 1, source: null };
 }
 
 // 前の5直分の品番を取得
@@ -840,6 +1351,192 @@ function calculateProduction(dateIndex, shift) {
 }
 
 // ========================================
+// 金型使用数の手動編集モーダル
+// ========================================
+let moldCountEditModal = null;
+
+function createMoldCountEditModal() {
+    if (moldCountEditModal) {
+        return moldCountEditModal;
+    }
+
+    // モーダルHTML作成
+    const modalHtml = `
+        <div class="modal fade" id="moldCountEditModal" tabindex="-1" aria-labelledby="moldCountEditModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="moldCountEditModalLabel">金型使用数の変更</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">日付:</label>
+                            <span id="modal-date" class="ms-2"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">時間帯:</label>
+                            <span id="modal-shift" class="ms-2"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">設備名:</label>
+                            <span id="modal-machine" class="ms-2"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">品番:</label>
+                            <span id="modal-item" class="ms-2"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label for="modal-mold-count-input" class="form-label fw-bold">金型使用数:</label>
+                            <input type="number" class="form-control" id="modal-mold-count-input" min="1" max="99" value="1">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                        <button type="button" class="btn btn-primary" id="modal-save-btn">保存</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // モーダルをbodyに追加
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Bootstrapモーダルのインスタンスを取得
+    const modalElement = document.getElementById('moldCountEditModal');
+    moldCountEditModal = new bootstrap.Modal(modalElement);
+
+    return moldCountEditModal;
+}
+
+function showMoldCountEditModal(moldCountDisplay) {
+    const dateIndex = parseInt(moldCountDisplay.getAttribute('data-date-index'));
+    const shift = moldCountDisplay.getAttribute('data-shift');
+    const machineIndex = parseInt(moldCountDisplay.getAttribute('data-machine-index'));
+
+    // 日付を取得
+    const dateHeaders = document.querySelectorAll('thead tr:nth-child(2) th');
+    const dateText = dateHeaders[dateIndex] ? dateHeaders[dateIndex].textContent.trim() : '';
+
+    // 時間帯
+    const shiftText = shift === 'day' ? '日勤' : '夜勤';
+
+    // 設備名を取得
+    const machineRow = document.querySelector(`tr[data-machine-index="${machineIndex}"]`);
+    const machineNameElement = machineRow ? machineRow.querySelector('.facility-number') : null;
+    const machineName = machineNameElement ? machineNameElement.textContent.trim() : '';
+
+    // 品番を取得
+    const select = document.querySelector(
+        `.vehicle-select[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
+    );
+    const itemName = select ? select.value : '';
+
+    // 現在の金型使用数を取得
+    const currentValue = parseInt(moldCountDisplay.textContent) || 1;
+
+    // モーダルを作成または取得
+    const modal = createMoldCountEditModal();
+
+    // モーダルの内容を設定
+    document.getElementById('modal-date').textContent = dateText;
+    document.getElementById('modal-shift').textContent = shiftText;
+    document.getElementById('modal-machine').textContent = machineName;
+    document.getElementById('modal-item').textContent = itemName;
+    document.getElementById('modal-mold-count-input').value = currentValue;
+
+    // 保存ボタンのイベントリスナーを設定
+    const saveBtn = document.getElementById('modal-save-btn');
+    const newSaveBtn = saveBtn.cloneNode(true);
+    saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+
+    newSaveBtn.addEventListener('click', function() {
+        const newValue = parseInt(document.getElementById('modal-mold-count-input').value);
+        if (newValue >= 1 && newValue <= 99) {
+            // 金型使用数を更新
+            moldCountDisplay.textContent = newValue;
+            moldCountDisplay.setAttribute('data-manual-override', 'true');
+            moldCountDisplay.setAttribute('data-manual-value', newValue);
+
+            // モーダルを閉じる
+            modal.hide();
+
+            // この直以降の全ての設備・全ての直を再計算
+            // （手動設定により6の位置が変化する可能性があるため）
+            recalculateAllFromShift(dateIndex, shift);
+        } else {
+            alert('1から99の間の値を入力してください');
+        }
+    });
+
+    // モーダルを表示
+    modal.show();
+}
+
+// ========================================
+// 金型使用数の手動ブロック機能
+// ========================================
+function toggleMoldCountManualBlock(moldCountDisplay) {
+    const dateIndex = parseInt(moldCountDisplay.getAttribute('data-date-index'));
+    const shift = moldCountDisplay.getAttribute('data-shift');
+    const machineIndex = parseInt(moldCountDisplay.getAttribute('data-machine-index'));
+
+    // 現在の状態を取得
+    const isManualBlock = moldCountDisplay.getAttribute('data-manual-block') === 'true';
+
+    // トグル（赤 ⇔ 通常）
+    if (isManualBlock) {
+        // 赤を解除
+        moldCountDisplay.setAttribute('data-manual-block', 'false');
+        moldCountDisplay.classList.remove('manual-block');
+    } else {
+        // 赤にする（6の位置と同じ扱い = 次から1になる）
+        moldCountDisplay.setAttribute('data-manual-block', 'true');
+        moldCountDisplay.classList.add('manual-block');
+    }
+
+    // この設備と品番を更新
+    updateMoldCount(dateIndex, shift, machineIndex);
+
+    // この直以降の全ての設備・全ての直を再計算
+    // （手動ブロックにより6の位置が変化する可能性があるため）
+    recalculateAllFromShift(dateIndex, shift);
+}
+
+// 指定した直から後の全ての直の金型使用数を再計算
+function updateMoldCountFromShiftOnward(startDateIndex, startShift, machineIndex) {
+    const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
+
+    let currentDateIndex = startDateIndex;
+    let currentShift = startShift;
+
+    // 次の直に移動
+    if (currentShift === 'day') {
+        currentShift = 'night';
+    } else {
+        currentShift = 'day';
+        currentDateIndex++;
+    }
+
+    // 次の直から最終直まで更新
+    while (currentDateIndex < dateCount) {
+        updateMoldCount(currentDateIndex, currentShift, machineIndex);
+
+        // 次の直に移動
+        if (currentShift === 'day') {
+            currentShift = 'night';
+        } else {
+            currentShift = 'day';
+            currentDateIndex++;
+        }
+    }
+
+    // 品番変更をチェック（金型交換時間の更新のため）
+    checkItemChanges();
+}
+
+// ========================================
 // イベントリスナー設定
 // ========================================
 function setupEventListeners() {
@@ -848,6 +1545,19 @@ function setupEventListeners() {
     const debouncedCalculateProduction = debounce(function (dateIndex, shift) {
         calculateProduction(dateIndex, shift);
     }, 200);
+
+    // 金型使用数のダブルクリックイベント（手動ブロック）
+    document.querySelectorAll('.mold-count-display').forEach(display => {
+        display.addEventListener('dblclick', function () {
+            toggleMoldCountManualBlock(this);
+        });
+
+        // 右クリックイベント（数値編集モーダル）
+        display.addEventListener('contextmenu', function (event) {
+            event.preventDefault(); // デフォルトの右クリックメニューを無効化
+            showMoldCountEditModal(this);
+        });
+    });
 
     // 稼働率入力の変更を監視
     document.querySelectorAll('.operation-rate-input').forEach(input => {
@@ -1035,11 +1745,20 @@ function saveProductionPlan() {
         const machineIndex = parseInt(select.dataset.machineIndex);
         const itemName = select.value;
 
+        // 同じコンテナ内の金型使用数spanを取得
+        const moldCountDisplay = container.querySelector('.mold-count-display');
+        const moldCount = moldCountDisplay ? (parseInt(moldCountDisplay.textContent) || 0) : 0;
+
+        // 手動ブロック(赤)の場合は-1として保存
+        const isManualBlock = moldCountDisplay && moldCountDisplay.getAttribute('data-manual-block') === 'true';
+        const moldCountToSave = isManualBlock ? -1 : moldCount;
+
         planData.push({
             date_index: dateIndex,
             shift: shift,
             machine_index: machineIndex,
             item_name: itemName,
+            mold_count: moldCountToSave,
             type: 'production_plan'
         });
     });
