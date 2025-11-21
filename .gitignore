@@ -4,4 +4,7 @@ __pycache__/
 # Django
 *.log
 
+# Environment variables
+.env
+
 offline_packages/
