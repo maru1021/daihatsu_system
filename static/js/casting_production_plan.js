@@ -14,6 +14,7 @@ const REGULAR_TIME_DAY = 490;     // 鋳造の日勤定時時間（分）
 const REGULAR_TIME_NIGHT = 485;   // 鋳造の夜勤定時時間（分）
 const OVERTIME_MAX_DAY = 120;     // 日勤の残業上限（分）
 const OVERTIME_MAX_NIGHT = 60;    // 夜勤の残業上限（分）
+const MOLD_CHANGE_THRESHOLD = 6;  // 金型交換が必要な使用回数
 
 // ========================================
 // グローバル変数（HTMLから渡される）
@@ -346,6 +347,11 @@ function updateMoldCount(dateIndex, shift, machineIndex) {
     if (!select) return;
 
     const currentItem = select.value;
+
+    // このセルが使用していた前月データをクリア（品番変更時）
+    const cellKey = `${dateIndex}-${shift}-${machineIndex}`;
+    clearPrevMonthMoldUsage(cellKey, currentItem);
+
     if (!currentItem) {
         // 品番が空の場合は空文字にする
         const moldCountDisplay = select.closest('.select-container')?.querySelector('.mold-count-display');
@@ -394,8 +400,8 @@ function updateMoldCount(dateIndex, shift, machineIndex) {
     moldCountDisplay.removeAttribute('data-manual-override');
     moldCountDisplay.removeAttribute('data-manual-value');
 
-    // 6の倍数になった場合、この品番の後続の全ての直にリセット情報を設定して再計算
-    if (consecutiveCount % 6 === 0 && consecutiveCount > 0) {
+    // 金型交換閾値になった場合、この品番の後続の全ての直にリセット情報を設定して再計算
+    if (consecutiveCount % MOLD_CHANGE_THRESHOLD === 0 && consecutiveCount > 0) {
         // リセット情報をJSON形式で保存（どこで6になったか）
         const resetInfo = JSON.stringify({
             dateIndex: dateIndex,
@@ -603,11 +609,14 @@ function clearPreviousInheritance(moldCountDisplay, newInheritanceSource) {
             previousInheritance.sourceShift !== newInheritanceSource.shift ||
             previousInheritance.sourceMachineIndex !== newInheritanceSource.machineIndex) {
 
-            const prevSourceDisplay = document.querySelector(
-                `.mold-count-display[data-shift="${previousInheritance.sourceShift}"][data-date-index="${previousInheritance.sourceDateIndex}"][data-machine-index="${previousInheritance.sourceMachineIndex}"]`
-            );
-            if (prevSourceDisplay) {
-                prevSourceDisplay.removeAttribute('data-mold-inheritance-target');
+            // 前月データからの引き継ぎ（dateIndex: -1）でない場合のみDOM要素を検索
+            if (previousInheritance.sourceDateIndex !== -1) {
+                const prevSourceDisplay = document.querySelector(
+                    `.mold-count-display[data-shift="${previousInheritance.sourceShift}"][data-date-index="${previousInheritance.sourceDateIndex}"][data-machine-index="${previousInheritance.sourceMachineIndex}"]`
+                );
+                if (prevSourceDisplay) {
+                    prevSourceDisplay.removeAttribute('data-mold-inheritance-target');
+                }
             }
         }
     } catch (e) {
@@ -627,17 +636,20 @@ function setInheritanceInfo(moldCountDisplay, dateIndex, shift, machineIndex, it
     moldCountDisplay.setAttribute('data-mold-inheritance', inheritanceInfo);
 
     // 引き継ぎ元のセルに「引き継ぎ先」を記録
-    const sourceDisplay = document.querySelector(
-        `.mold-count-display[data-shift="${inheritanceSource.shift}"][data-date-index="${inheritanceSource.dateIndex}"][data-machine-index="${inheritanceSource.machineIndex}"]`
-    );
-    if (sourceDisplay) {
-        const inheritanceTarget = JSON.stringify({
-            targetDateIndex: dateIndex,
-            targetShift: shift,
-            targetMachineIndex: machineIndex,
-            itemName: itemName
-        });
-        sourceDisplay.setAttribute('data-mold-inheritance-target', inheritanceTarget);
+    // ただし、前月データからの引き継ぎ（dateIndex: -1）の場合は記録しない
+    if (inheritanceSource.dateIndex !== -1) {
+        const sourceDisplay = document.querySelector(
+            `.mold-count-display[data-shift="${inheritanceSource.shift}"][data-date-index="${inheritanceSource.dateIndex}"][data-machine-index="${inheritanceSource.machineIndex}"]`
+        );
+        if (sourceDisplay) {
+            const inheritanceTarget = JSON.stringify({
+                targetDateIndex: dateIndex,
+                targetShift: shift,
+                targetMachineIndex: machineIndex,
+                itemName: itemName
+            });
+            sourceDisplay.setAttribute('data-mold-inheritance-target', inheritanceTarget);
+        }
     }
 }
 
@@ -651,11 +663,14 @@ function clearInheritanceInfo(moldCountDisplay) {
 
     try {
         const previousInheritance = JSON.parse(previousInheritanceStr);
-        const prevSourceDisplay = document.querySelector(
-            `.mold-count-display[data-shift="${previousInheritance.sourceShift}"][data-date-index="${previousInheritance.sourceDateIndex}"][data-machine-index="${previousInheritance.sourceMachineIndex}"]`
-        );
-        if (prevSourceDisplay) {
-            prevSourceDisplay.removeAttribute('data-mold-inheritance-target');
+        // 前月データからの引き継ぎ（dateIndex: -1）でない場合のみDOM要素を検索
+        if (previousInheritance.sourceDateIndex !== -1) {
+            const prevSourceDisplay = document.querySelector(
+                `.mold-count-display[data-shift="${previousInheritance.sourceShift}"][data-date-index="${previousInheritance.sourceDateIndex}"][data-machine-index="${previousInheritance.sourceMachineIndex}"]`
+            );
+            if (prevSourceDisplay) {
+                prevSourceDisplay.removeAttribute('data-mold-inheritance-target');
+            }
         }
     } catch (e) {
         // JSON解析エラーは無視
@@ -681,6 +696,134 @@ function isContinuousProductionInNextShift(dateIndex, shift, machineIndex, itemN
     );
 
     return nextSelect && nextSelect.value === itemName;
+}
+
+// 前月データからの引き継ぎ管理用（グローバル変数）
+// 初期データを保持し、使用済みフラグで管理
+let prevMonthMoldsOriginal = []; // 元データ
+let prevMonthMoldsStatus = [];   // 使用状況（used: boolean, usedBy: {machineIndex, itemName}）
+let cellToPrevMonthMoldIndex = {}; // セル→前月データインデックスのマッピング
+
+// 前月金型の使用状態をマークする
+function markPrevMonthMoldAsUsed(moldIndex, cellKey, dateIndex, shift, machineIndex, currentItem) {
+    const status = prevMonthMoldsStatus[moldIndex];
+    status.used = true;
+    status.usedBy = {
+        machineIndex: machineIndex,
+        itemName: currentItem,
+        dateIndex: dateIndex,
+        shift: shift
+    };
+    cellToPrevMonthMoldIndex[cellKey] = moldIndex;
+}
+
+// 前月金型の使用状態をクリアする（品番変更時）
+function clearPrevMonthMoldUsage(cellKey, currentItem) {
+    const prevMoldIndex = cellToPrevMonthMoldIndex[cellKey];
+    if (prevMoldIndex === undefined || !prevMonthMoldsStatus[prevMoldIndex]) {
+        return;
+    }
+
+    const prevStatus = prevMonthMoldsStatus[prevMoldIndex];
+    const prevMold = prevMonthMoldsOriginal[prevMoldIndex];
+
+    // 品番が変わった場合のみクリア
+    if (currentItem !== prevMold.item_name) {
+        const [dateIndex, shift, machineIndex] = cellKey.split('-');
+        if (prevStatus.usedBy &&
+            prevStatus.usedBy.machineIndex === parseInt(machineIndex) &&
+            prevStatus.usedBy.dateIndex === parseInt(dateIndex) &&
+            prevStatus.usedBy.shift === shift) {
+            prevStatus.used = false;
+            prevStatus.usedBy = null;
+        }
+        delete cellToPrevMonthMoldIndex[cellKey];
+    }
+}
+
+// 前月の使用可能金型数から引き継ぎをチェック
+function checkPrevMonthUsableMolds(dateIndex, shift, machineIndex, currentItem) {
+    if (!prevMonthMoldsOriginal || prevMonthMoldsOriginal.length === 0) {
+        return null;
+    }
+
+    // 設備名を取得（生産計画セクションのday行から取得）
+    const machineElements = document.querySelectorAll('[data-section="production_plan"][data-shift="day"] .facility-number');
+    const totalMachines = machineElements.length;
+    if (machineIndex >= totalMachines) return null;
+
+    const machineName = machineElements[machineIndex].textContent.trim();
+    const cellKey = `${dateIndex}-${shift}-${machineIndex}`;
+
+    // まず同じ設備の金型を探す（連続生産）
+    for (let i = 0; i < prevMonthMoldsOriginal.length; i++) {
+        const mold = prevMonthMoldsOriginal[i];
+        const status = prevMonthMoldsStatus[i];
+
+        if (mold.item_name === currentItem && mold.machine_name === machineName) {
+            // 既に他の設備が引き継いでいるかチェック
+            if (status.used && status.usedBy && status.usedBy.machineIndex !== machineIndex) {
+                continue;
+            }
+
+            // この金型を使用済みとしてマーク
+            markPrevMonthMoldAsUsed(i, cellKey, dateIndex, shift, machineIndex, currentItem);
+
+            // 金型交換閾値の場合は1からスタート
+            if (mold.used_count % MOLD_CHANGE_THRESHOLD === 0 && mold.used_count > 0) {
+                return { count: 1, inherited: false, source: null };
+            }
+
+            // 同じ設備なので連続生産として扱う
+            return {
+                count: mold.used_count + 1,
+                inherited: false,
+                source: null
+            };
+        }
+    }
+
+    // 同じ設備に見つからなかった場合、他設備の金型を探す（引き継ぎ）
+    for (let i = 0; i < prevMonthMoldsOriginal.length; i++) {
+        const mold = prevMonthMoldsOriginal[i];
+        const status = prevMonthMoldsStatus[i];
+
+        if (mold.item_name === currentItem) {
+            // 既に他の設備が引き継いでいるかチェック
+            if (status.used) {
+                continue;
+            }
+
+            // 金型交換閾値でない場合のみ引き継ぎ可能
+            if (mold.used_count % MOLD_CHANGE_THRESHOLD !== 0 || mold.used_count === 0) {
+                // 引き継ぎ元の設備インデックスを取得
+                let sourceMachineIndex = -1;
+                for (let m = 0; m < totalMachines; m++) {
+                    const mName = machineElements[m].textContent.trim();
+                    if (mName === mold.machine_name) {
+                        sourceMachineIndex = m;
+                        break;
+                    }
+                }
+
+                // この金型を使用済みとしてマーク
+                markPrevMonthMoldAsUsed(i, cellKey, dateIndex, shift, machineIndex, currentItem);
+
+                // 他設備からの引き継ぎ
+                return {
+                    count: mold.used_count + 1,
+                    inherited: true,
+                    source: {
+                        dateIndex: -1, // 前月データを示す特殊値
+                        shift: 'prev_month',
+                        machineIndex: sourceMachineIndex
+                    }
+                };
+            }
+        }
+    }
+
+    return null;
 }
 
 // ========================================
@@ -748,7 +891,7 @@ function checkItemChanges() {
         const isManualBlock = moldCountDisplay && moldCountDisplay.getAttribute('data-manual-block') === 'true';
         const moldCount = moldCountDisplay ? (parseInt(moldCountDisplay.textContent) || 0) : 0;
 
-        if (shouldHighlight || isManualBlock || (moldCount % 6 === 0 && moldCount > 0)) {
+        if (shouldHighlight || isManualBlock || (moldCount % MOLD_CHANGE_THRESHOLD === 0 && moldCount > 0)) {
             const container = select.closest('.select-container');
             if (container) {
                 container.classList.add('item-changed');
@@ -783,7 +926,7 @@ function is6ConsecutiveShifts(dateIndex, shift, machineIndex, currentItem) {
 
     // 6の倍数直目（6, 12, 18, 24...）でハイライト
     // 品番が変更されるとカウントは自動的にリセットされる
-    return consecutiveCount > 0 && consecutiveCount % 6 === 0;
+    return consecutiveCount > 0 && consecutiveCount % MOLD_CHANGE_THRESHOLD === 0;
 }
 
 // 金型使用数を取得（引き継ぎ情報も含む）
@@ -859,8 +1002,8 @@ function getConsecutiveShiftCount(dateIndex, shift, machineIndex, currentItem) {
                         }
                     }
 
-                    // 6の倍数（金型交換済み）の場合は1からスタート
-                    if (prevMoldCount % 6 === 0 && prevMoldCount > 0) {
+                    // 金型交換閾値（交換済み）の場合は1からスタート
+                    if (prevMoldCount % MOLD_CHANGE_THRESHOLD === 0 && prevMoldCount > 0) {
                         return { count: 1, inherited: false, source: null };
                     }
 
@@ -909,6 +1052,7 @@ function getConsecutiveShiftCount(dateIndex, shift, machineIndex, currentItem) {
 // - 既に他の設備が引き継いでいる場合は引き継ぎ不可（1を返す）
 // - 途中交換した型（連続生産でない型）も引き継ぎ可能
 // - 【重要】同じ直の他の設備からは引き継がない（同じ直では独立して1からスタート）
+// - 前月の使用可能金型数から引き継ぎ可能（月内データが見つからない場合）
 // 戻り値: { count: 数値, source: {dateIndex, shift, machineIndex} or null }
 function searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem) {
     const totalMachines = document.querySelectorAll('.facility-number').length / 4;
@@ -1004,8 +1148,8 @@ function searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem
                         }
                     }
 
-                    // 6の倍数（金型交換済み）の場合は1からスタート
-                    if (prevMoldCount % 6 === 0 && prevMoldCount > 0) {
+                    // 金型交換閾値（交換済み）の場合は1からスタート
+                    if (prevMoldCount % MOLD_CHANGE_THRESHOLD === 0 && prevMoldCount > 0) {
                         return { count: 1, source: null };
                     }
 
@@ -1020,6 +1164,14 @@ function searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem
                     };
                 }
             }
+        }
+    }
+
+    // 月内データが見つからなかった場合、前月の使用可能金型数をチェック
+    if (typeof prevUsableMolds !== 'undefined') {
+        const result = checkPrevMonthUsableMolds(dateIndex, shift, machineIndex, currentItem);
+        if (result) {
+            return result;
         }
     }
 
@@ -1631,6 +1783,24 @@ function performInitialCalculations() {
     inventoryElementCache = buildInventoryElementCache();
 
     const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
+    const totalMachines = document.querySelectorAll('.facility-number').length / 4;
+
+    // 前月データの初期化
+    if (typeof prevUsableMolds !== 'undefined' && prevUsableMolds) {
+        prevMonthMoldsOriginal = JSON.parse(JSON.stringify(prevUsableMolds)); // ディープコピー
+        prevMonthMoldsStatus = prevUsableMolds.map(() => ({
+            used: false,
+            usedBy: null
+        }));
+    }
+
+    // 金型使用数を計算（引き継ぎ情報の設定のため、生産台数計算より先に実行）
+    for (let i = 0; i < dateCount; i++) {
+        for (let m = 0; m < totalMachines; m++) {
+            updateMoldCount(i, 'day', m);
+            updateMoldCount(i, 'night', m);
+        }
+    }
 
     // 生産台数を計算
     for (let i = 0; i < dateCount; i++) {
@@ -1646,6 +1816,104 @@ function performInitialCalculations() {
 
     // 初期化完了フラグを設定
     isInitializing = false;
+}
+
+// ========================================
+// 使用可能金型数データ収集
+// ========================================
+function collectUsableMoldsData() {
+    const usableMolds = [];
+    const dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
+    const totalMachines = document.querySelectorAll('.facility-number').length / 4;
+
+    // 各設備の最終稼働直を探して金型を収集（end_of_month=True）
+    const endOfMonthMolds = new Set();
+    for (let m = 0; m < totalMachines; m++) {
+        // 最後の日から逆順で探す
+        let found = false;
+        for (let dateIndex = dateCount - 1; dateIndex >= 0 && !found; dateIndex--) {
+            // night → day の順で探す
+            for (const shift of ['night', 'day']) {
+                const select = document.querySelector(
+                    `.vehicle-select[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${m}"]`
+                );
+
+                if (select && select.value) {
+                    const itemName = select.value;
+                    const moldCountDisplay = document.querySelector(
+                        `.mold-count-display[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${m}"]`
+                    );
+                    const usedCount = moldCountDisplay ? (parseInt(moldCountDisplay.textContent) || 0) : 0;
+
+                    // 手動ブロックは除外
+                    const isManualBlock = moldCountDisplay && moldCountDisplay.getAttribute('data-manual-block') === 'true';
+                    if (isManualBlock) {
+                        found = true;
+                        break;
+                    }
+
+                    usableMolds.push({
+                        machine_index: m,
+                        item_name: itemName,
+                        used_count: usedCount,
+                        end_of_month: true
+                    });
+
+                    // この設備の月末金型を記録
+                    endOfMonthMolds.add(`${m}-${itemName}`);
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 月末まで再利用されなかった途中交換の金型を収集（end_of_month=False）
+    for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+        for (const shift of ['day', 'night']) {
+            for (let m = 0; m < totalMachines; m++) {
+                const select = document.querySelector(
+                    `.vehicle-select[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${m}"]`
+                );
+
+                if (!select || !select.value) continue;
+
+                const itemName = select.value;
+                const moldCountDisplay = document.querySelector(
+                    `.mold-count-display[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${m}"]`
+                );
+
+                if (!moldCountDisplay) continue;
+
+                const usedCount = parseInt(moldCountDisplay.textContent) || 0;
+                const isManualBlock = moldCountDisplay.getAttribute('data-manual-block') === 'true';
+                const inheritanceTarget = moldCountDisplay.getAttribute('data-mold-inheritance-target');
+
+                // 以下の条件に該当する金型は除外:
+                // 1. 手動ブロックされている
+                if (isManualBlock) continue;
+
+                // 2. 6の倍数（既に交換済み、使用不可）
+                if (usedCount % MOLD_CHANGE_THRESHOLD === 0 && usedCount > 0) continue;
+
+                // 3. 引き継ぎ先がある（既に他の設備で使用済み、翌月使用不可）
+                if (inheritanceTarget) continue;
+
+                // 4. 月末に取り付けている（end_of_month=trueで既に保存済み）
+                if (endOfMonthMolds.has(`${m}-${itemName}`)) continue;
+
+                // 上記以外 = 途中交換したが月末まで再利用されなかった金型（翌月使用可能）
+                usableMolds.push({
+                    machine_index: m,
+                    item_name: itemName,
+                    used_count: usedCount,
+                    end_of_month: false
+                });
+            }
+        }
+    }
+
+    return usableMolds;
 }
 
 // ========================================
@@ -1818,6 +2086,9 @@ function saveProductionPlan() {
         }
     });
 
+    // 使用可能金型数データを収集
+    const usableMoldsData = collectUsableMoldsData();
+
     // CSRFトークンを取得
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || getCookie('csrftoken');
 
@@ -1837,7 +2108,8 @@ function saveProductionPlan() {
         },
         body: JSON.stringify({
             plan_data: planData,
-            weekends_to_delete: weekendsToDelete
+            weekends_to_delete: weekendsToDelete,
+            usable_molds_data: usableMoldsData
         })
     })
         .then(response => response.json())
@@ -1929,9 +2201,6 @@ function autoProductionPlan() {
 }
 
 function applyAutoProductionPlan(planData) {
-    console.log('=== applyAutoProductionPlan ===');
-    console.log('Total plans:', planData.length);
-
     // 日付ヘッダー行（2行目）から全日付とインデックスのマッピングを作成
     const dateHeaderRow = document.querySelector('thead tr:nth-child(2)');
     const dateHeaders = dateHeaderRow.querySelectorAll('th');
@@ -1947,8 +2216,6 @@ function applyAutoProductionPlan(planData) {
         }
     });
 
-    console.log('Date to index map:', dateToIndexMap);
-
     // 鋳造機名とインデックスのマッピングを作成
     const machineIndexMap = {};
     const machineRows = document.querySelectorAll('.facility-number');
@@ -1959,8 +2226,6 @@ function applyAutoProductionPlan(planData) {
             machineIndexMap[machineName] = index;
         }
     });
-
-    console.log('Machine index map:', machineIndexMap);
 
     let updatedCount = 0;
     let notFoundCount = 0;
@@ -1974,14 +2239,12 @@ function applyAutoProductionPlan(planData) {
         const dateIndex = dateToIndexMap[day];
 
         if (dateIndex === undefined) {
-            console.log(`Date index not found for day ${day}`);
             notFoundCount++;
             return;
         }
 
         const machineIndex = machineIndexMap[plan.machine_name];
         if (machineIndex === undefined) {
-            console.log(`Machine index not found for ${plan.machine_name}`);
             notFoundCount++;
             return;
         }
@@ -1996,7 +2259,6 @@ function applyAutoProductionPlan(planData) {
             updateSelectColor(planSelect);
             updatedCount++;
         } else {
-            console.log(`Select not found: shift=${plan.shift}, dateIndex=${dateIndex}, machineIndex=${machineIndex}`);
             notFoundCount++;
         }
 
@@ -2009,8 +2271,6 @@ function applyAutoProductionPlan(planData) {
             overtimeInput.value = plan.overtime;
         }
     });
-
-    console.log(`Updated: ${updatedCount}, Not found: ${notFoundCount}`);
 
     // 生産台数を再計算（全日付のインデックスで）
     const allDateIndices = Object.values(dateToIndexMap);

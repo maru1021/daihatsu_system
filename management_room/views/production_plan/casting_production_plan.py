@@ -1,4 +1,4 @@
-from management_room.models import DailyMachineCastingProductionPlan, DailyCastingProductionPlan, CastingItem, CastingItemMachineMap, MachiningItemCastingItemMap, DailyMachiningProductionPlan
+from management_room.models import DailyMachineCastingProductionPlan, DailyCastingProductionPlan, CastingItem, CastingItemMachineMap, MachiningItemCastingItemMap, DailyMachiningProductionPlan, UsableMold
 from manufacturing.models import CastingLine, CastingMachine
 from management_room.auth_mixin import ManagementRoomPermissionMixin
 from django.views import View
@@ -73,6 +73,13 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
         # 前月データを取得（在庫と生産計画を効率的に取得）
         first_day_of_month = date(year, month, 1)
         prev_month_last_date = first_day_of_month - relativedelta(days=1)
+        prev_month_first_date = date(prev_month_last_date.year, prev_month_last_date.month, 1)
+
+        # 前月の使用可能金型数を取得
+        prev_usable_molds = UsableMold.objects.filter(
+            line=line,
+            month=prev_month_first_date
+        ).select_related('machine', 'item_name').order_by('machine', 'item_name')
 
         # 前月の対象日付を計算（最終日から2日前まで）
         check_dates = [prev_month_last_date - timedelta(days=i) for i in range(3)]
@@ -316,6 +323,16 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
         # ラインの段取時間を取得
         changeover_time = line.changeover_time if line.changeover_time is not None else 0
 
+        # 前月の使用可能金型数をJSON形式に変換
+        prev_usable_molds_data = []
+        for mold in prev_usable_molds:
+            prev_usable_molds_data.append({
+                'machine_name': mold.machine.name,
+                'item_name': mold.item_name.name,
+                'used_count': mold.used_count,
+                'end_of_month': mold.end_of_month
+            })
+
         context = {
             'year': year,
             'month': month,
@@ -326,6 +343,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             'item_data_json': json.dumps(item_data),
             'previous_month_inventory_json': json.dumps(previous_month_inventory),
             'previous_month_production_plans_json': json.dumps(previous_month_production_plans),
+            'prev_usable_molds_json': json.dumps(prev_usable_molds_data),
             'lines': lines_list,
             'inventory_comparison': inventory_comparison,
             'item_total_rows': item_total_rows,  # 品番ごとのセクションの総行数
@@ -340,8 +358,10 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
         try:
             # JSONデータを取得
             data = json.loads(request.body)
+            print(data)
             plan_data = data.get('plan_data', [])
             weekends_to_delete = data.get('weekends_to_delete', [])
+            usable_molds_data = data.get('usable_molds_data', [])
 
             # 対象期間を取得
             if request.GET.get('year') and request.GET.get('month'):
@@ -639,9 +659,42 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 if deleted[0] > 0:
                     deleted_count += deleted[0]
 
+            # 使用可能金型数を保存
+            usable_molds_saved = 0
+            if usable_molds_data:
+                # 当月の既存データを削除
+                UsableMold.objects.filter(
+                    line=line,
+                    month__year=year,
+                    month__month=month
+                ).delete()
+
+                # 新しいデータを保存
+                for mold_data in usable_molds_data:
+                    machine_index = mold_data.get('machine_index')
+                    item_name = mold_data.get('item_name')
+                    used_count = mold_data.get('used_count')
+                    end_of_month = mold_data.get('end_of_month')
+
+                    if machine_index is not None and item_name:
+                        machine = machines[machine_index]
+                        item = CastingItem.objects.filter(name=item_name, line=line, active=True).first()
+
+                        if machine and item:
+                            UsableMold.objects.create(
+                                month=start_date,
+                                line=line,
+                                machine=machine,
+                                item_name=item,
+                                used_count=used_count,
+                                end_of_month=end_of_month,
+                                last_updated_user=request.user.username
+                            )
+                            usable_molds_saved += 1
+
             return JsonResponse({
                 'status': 'success',
-                'message': f'{saved_count}件のデータを保存し、{deleted_count}件のデータを削除しました'
+                'message': f'{saved_count}件のデータを保存、{deleted_count}件のデータを削除、{usable_molds_saved}件の使用可能金型を保存しました'
             })
 
         except Exception as e:

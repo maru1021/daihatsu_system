@@ -395,7 +395,7 @@ class DailyMachineCastingProductionPlan(models.Model):
 
 
 class UsableMold(models.Model):
-    type = models.CharField(verbose_name="種類", max_length=20, null=True, blank=True, db_index=True)
+    end_of_month = models.BooleanField(verbose_name="月末", default=False)
     month = models.DateField(verbose_name="月", null=True, blank=True, db_index=True)
     line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
     machine = models.ForeignKey('manufacturing.CastingMachine', on_delete=models.CASCADE, verbose_name="鋳造機", null=True, blank=True, db_index=True)
@@ -404,11 +404,11 @@ class UsableMold(models.Model):
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:
-        verbose_name = "使用可能金型数"
-        verbose_name_plural = "使用可能金型数"
+        verbose_name = "金型月末、途中交換管理"
+        verbose_name_plural = "金型月末、途中交換管理"
         ordering = ['month', 'line', 'machine']
         indexes = [
-            models.Index(fields=['line', 'machine']),
+            models.Index(fields=['month', 'line', 'machine']),
         ]
 
     def __str__(self):

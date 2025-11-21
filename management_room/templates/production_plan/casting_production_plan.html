@@ -337,8 +337,11 @@
     // 前月の最後の5直分の生産計画（連続生産チェック用）
     previousMonthProductionPlans = {{ previous_month_production_plans_json|safe }};
 
+    // 前月の使用可能金型数
+    prevUsableMolds = {{ prev_usable_molds_json|safe }};
+
     // ラインの段取時間（型替え時間）（分）
-    const changeoverTime = {{ changeover_time }};
+    changeoverTime = {{ changeover_time }};
 </script>
 
 <!-- 外部JavaScriptファイルを読み込む -->
