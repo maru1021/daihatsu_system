@@ -119,6 +119,20 @@
         グラフツクール君2号
       </a>
       <a
+        class="nav-link {% if 'graph_maker_with_type' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'graph_maker_with_type' 'machine' %}"
+      >
+        <i class="fas fa-edit"></i>
+        グラフツクール君(堀井さんカスタム)
+      </a>
+      <a
+        class="nav-link {% if 'audio_anomaly_detection' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'audio_anomaly_detection' %}"
+      >
+        <i class="fas fa-edit"></i>
+        フーリエさん
+      </a>
+      <a
         class="nav-link {% if 'password_change' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'password_change' %}"
         hx-get="{% url 'password_change' %}"

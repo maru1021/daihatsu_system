@@ -1,0 +1,294 @@
+{% load static %}
+{% load compress %}
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>グラフツクール君(堀井さんカスタム)</title>
+
+    <!-- ベンダーライブラリ -->
+    <script src="{% static 'js/vendor/chartjs/chart.min.js' %}"></script>
+    <script src="{% static 'js/vendor/chartjs/chartjs-plugin-zoom.min.js' %}"></script>
+    <script src="{% static 'js/vendor/xlsx/xlsx.full.min.js' %}"></script>
+
+    <!-- カスタムスタイルシート -->
+    <link rel="stylesheet" href="{% static 'css/tools/graph_maker.css' %}">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <!-- ヘッダーセクション -->
+            <div class="header-wrapper">
+                <h1>グラフツクール君(堀井さんカスタム)</h1>
+                <div class="header-buttons">
+                    <input type="file" id="csvInput" multiple accept=".csv,.xlsx,.xls">
+                    <label for="csvInput" class="file-input-label">
+                        ファイルを選択（複数可）
+                    </label>
+                    <button id="resetZoomBtn" class="file-input-label" style="display: none;">
+                        ズームリセット
+                    </button>
+                    <button id="exportCsvBtn" class="file-input-label" style="display: none;">
+                        CSV出力
+                    </button>
+                </div>
+            </div>
+
+            <!-- コントロールセクション -->
+            <div class="file-input-wrapper">
+                <div class="controls-container" style="display: none;" id="controlsContainer">
+                    <!-- 凡例・閾値設定 -->
+                    <div class="legend-threshold-wrapper">
+                        <div style="display: flex; gap: 15px; align-items: center;">
+                            <div class="legend-checkbox-wrapper">
+                                <input type="checkbox" id="legendCheckbox" class="legend-checkbox">
+                                <label for="legendCheckbox" class="legend-label">凡例</label>
+                            </div>
+                            <div class="legend-checkbox-wrapper">
+                                <input type="checkbox" id="tooltipSingleCheckbox" class="legend-checkbox">
+                                <label for="tooltipSingleCheckbox" class="legend-label">凡例(単体)</label>
+                            </div>
+                        </div>
+                        <div class="offset-section">
+                            <span class="offset-label-text">移動平均:</span>
+                            <select id="smoothColumnSelect" class="y-axis-select" style="width: 85px;">
+                                <option value="">なし</option>
+                            </select>
+                            <input type="number" id="smoothWindow" class="offset-input" value="1" min="1" max="100" step="1" placeholder="ウィンドウ" style="width: 60px;">
+                        </div>
+                        <div id="thresholdSection" class="offset-section">
+                            <span class="offset-label-text">閾値:</span>
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <div style="display: flex; align-items: center; gap: 5px;">
+                                    <span style="font-size: 12px; font-weight: 500; min-width: 40px;">上限:</span>
+                                    <input type="number" id="upperThreshold" class="offset-input" placeholder="上限" style="width: 100px;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 5px;">
+                                    <span style="font-size: 12px; font-weight: 500; min-width: 40px;">下限:</span>
+                                    <input type="number" id="lowerThreshold" class="offset-input" placeholder="下限" style="width: 100px;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- オフセット設定 -->
+                    <div id="offsetSection" class="offset-section">
+                        <span class="offset-label-text">オフセット:</span>
+                        <div id="fileListContainer" class="file-list-container"></div>
+                    </div>
+
+                    <!-- X軸・グラフ種類設定 -->
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div class="offset-section">
+                            <span class="offset-label-text" style="min-width: 100px; text-align: right;">X軸:</span>
+                            <select id="xAxisSelect" class="y-axis-select" style="width: 120px;">
+                                <option value="">なし</option>
+                            </select>
+                        </div>
+                        <div class="offset-section">
+                            <span class="offset-label-text" style="min-width: 100px; text-align: right;">グラフの種類:</span>
+                            <select id="chartTypeSelect" class="y-axis-select" style="width: 120px;">
+                                <option value="line">折れ線グラフ</option>
+                                <option value="bar">棒グラフ</option>
+                                <option value="scatter">散布図</option>
+                            </select>
+                        </div>
+                        <div class="offset-section">
+                            <span class="offset-label-text" style="min-width: 100px; text-align: right;">横移動速度:</span>
+                            <input type="number" id="panSpeedX" class="offset-input" value="5" min="1" max="100" step="1" style="width: 120px;">
+                        </div>
+                        <div class="offset-section">
+                            <span class="offset-label-text" style="min-width: 100px; text-align: right;">縦移動速度:</span>
+                            <input type="number" id="panSpeedY" class="offset-input" value="1" min="0.01" max="100" step="1" style="width: 120px;">
+                        </div>
+                    </div>
+
+                    <!-- 除外設定 -->
+                    <div class="offset-section">
+                        <span class="offset-label-text">除外:</span>
+                        <div id="excludeContainer"></div>
+                    </div>
+
+                    <!-- 第2軸設定 -->
+                    <div id="yAxisSection" class="offset-section">
+                        <span class="offset-label-text">第2軸:</span>
+                        <div class="y-axis-section">
+                            <!-- 設定1 -->
+                            <div class="y-axis-item">
+                                <select id="yAxis1Select" class="y-axis-select">
+                                    <option value="y2">第2軸</option>
+                                    <option value="y3">第3軸</option>
+                                    <option value="y4">第4軸</option>
+                                </select>
+                                <input type="checkbox" id="yAxis1Check" class="y-axis-checkbox">
+                                <label for="yAxis1Check" class="y-axis-checkbox-label">含む</label>
+                                <input type="text" id="yAxis1Input" class="offset-input" placeholder="列名の文字列" style="width: 120px; display: none;">
+                                <select id="yAxis1ColumnSelect" class="y-axis-select" style="width: 85px;">
+                                    <option value="">なし</option>
+                                </select>
+                                <select id="yAxis1TypeSelect" class="y-axis-select" style="width: 85px;">
+                                    <option value="line">折れ線</option>
+                                    <option value="bar">棒</option>
+                                </select>
+                            </div>
+                            <!-- 設定2 -->
+                            <div class="y-axis-item">
+                                <select id="yAxis2Select" class="y-axis-select">
+                                    <option value="y2">第2軸</option>
+                                    <option value="y3">第3軸</option>
+                                    <option value="y4">第4軸</option>
+                                </select>
+                                <input type="checkbox" id="yAxis2Check" class="y-axis-checkbox">
+                                <label for="yAxis2Check" class="y-axis-checkbox-label">含む</label>
+                                <input type="text" id="yAxis2Input" class="offset-input" placeholder="列名の文字列" style="width: 120px; display: none;">
+                                <select id="yAxis2ColumnSelect" class="y-axis-select" style="width: 85px;">
+                                    <option value="">なし</option>
+                                </select>
+                                <select id="yAxis2TypeSelect" class="y-axis-select" style="width: 85px;">
+                                    <option value="line">折れ線</option>
+                                    <option value="bar">棒</option>
+                                </select>
+                            </div>
+                            <!-- 設定3 -->
+                            <div class="y-axis-item">
+                                <select id="yAxis3Select" class="y-axis-select">
+                                    <option value="y2">第2軸</option>
+                                    <option value="y3">第3軸</option>
+                                    <option value="y4">第4軸</option>
+                                </select>
+                                <input type="checkbox" id="yAxis3Check" class="y-axis-checkbox">
+                                <label for="yAxis3Check" class="y-axis-checkbox-label">含む</label>
+                                <input type="text" id="yAxis3Input" class="offset-input" placeholder="列名の文字列" style="width: 120px; display: none;">
+                                <select id="yAxis3ColumnSelect" class="y-axis-select" style="width: 85px;">
+                                    <option value="">なし</option>
+                                </select>
+                                <select id="yAxis3TypeSelect" class="y-axis-select" style="width: 85px;">
+                                    <option value="line">折れ線</option>
+                                    <option value="bar">棒</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- メイングラフと散布図の横並びコンテナ -->
+            <div id="chartsContainer" style="display: flex; gap: 20px; align-items: flex-start;">
+                <!-- メイングラフ表示エリア -->
+                <div class="chart-wrapper" id="mainChartWrapper" style="flex: 1; min-width: 0; transition: flex 0.3s ease;">
+                    <div class="chart-main">
+                        <div class="chart-y-scrollbar-container">
+                            <input type="range" id="yScrollbar" class="chart-y-scrollbar" orient="vertical" min="0" max="100" value="50">
+                        </div>
+                        <div class="chart-content">
+                            <div class="chart-container">
+                                <canvas id="myChart"></canvas>
+                            </div>
+                            <div class="chart-x-scrollbar-container">
+                                <input type="range" id="xScrollbar" class="chart-x-scrollbar" min="0" max="100" value="50">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 散布図エリア -->
+                <div id="scatterCard" style="flex: 0 0 0; overflow: hidden; display: none; transition: flex 0.3s ease; position: relative;">
+                    <!-- 閉じるボタン -->
+                    <button id="closeScatterBtn" style="position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; border: none; background: rgba(0, 0, 0, 0.1); color: #666; font-size: 20px; font-weight: bold; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; z-index: 10; transition: background 0.2s ease;" onmouseover="this.style.background='rgba(0, 0, 0, 0.2)'" onmouseout="this.style.background='rgba(0, 0, 0, 0.1)'">
+                        ×
+                    </button>
+                    <h3 style="font-size: 16px; margin-bottom: 10px; color: #333;">穴あけ加工食いつき確認</h3>
+                    <div class="chart-wrapper">
+                        <div class="chart-container" style="height: 600px;">
+                            <canvas id="scatterChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 統計グラフエリア -->
+        <div class="card" id="statisticsCard" style="margin-top: 20px; display: none;">
+            <h2 style="font-size: 18px; margin-bottom: 15px; color: #333;">移動平均による解析</h2>
+
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <!-- 移動平均からの絶対値積算 -->
+                <div class="chart-wrapper" style="flex: 1; min-width: 300px;">
+                    <h3 style="font-size: 14px; margin-bottom: 10px; color: #666;">絶対値積算</h3>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="deviationChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- 平均値 -->
+                <div class="chart-wrapper" style="flex: 1; min-width: 300px;">
+                    <h3 style="font-size: 14px; margin-bottom: 10px; color: #666;">平均値</h3>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="averageChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- 最大値 -->
+                <div class="chart-wrapper" style="flex: 1; min-width: 300px;">
+                    <h3 style="font-size: 14px; margin-bottom: 10px; color: #666;">最大値</h3>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="maxChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- データ範囲選択モーダル -->
+    <div id="dataRangeModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+        <div style="background: white; border-radius: 12px; padding: 30px; max-width: 500px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
+            <h2 style="margin: 0 0 20px 0; color: #333; font-size: 20px;">データ範囲選択</h2>
+
+            <!-- 無負荷時データ -->
+            <div style="margin-bottom: 25px; padding: 15px; background: #f0f8ff; border-radius: 8px;">
+                <h3 style="margin: 0 0 15px 0; color: #2c8bb8; font-size: 16px;">無負荷時データ</h3>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <label style="display: block; font-size: 12px; color: #666; margin-bottom: 5px;">開始地点</label>
+                        <input type="number" id="noLoadStart" class="offset-input" placeholder="開始" style="width: 100%;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display: block; font-size: 12px; color: #666; margin-bottom: 5px;">終了地点</label>
+                        <input type="number" id="noLoadEnd" class="offset-input" placeholder="終了" style="width: 100%;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 解析データ -->
+            <div style="margin-bottom: 25px; padding: 15px; background: #fff5f0; border-radius: 8px;">
+                <h3 style="margin: 0 0 15px 0; color: #e67e22; font-size: 16px;">解析データ</h3>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <label style="display: block; font-size: 12px; color: #666; margin-bottom: 5px;">開始地点</label>
+                        <input type="number" id="analysisStart" class="offset-input" placeholder="開始" style="width: 100%;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display: block; font-size: 12px; color: #666; margin-bottom: 5px;">終了地点</label>
+                        <input type="number" id="analysisEnd" class="offset-input" placeholder="終了" style="width: 100%;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ボタン -->
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="cancelDataRange" style="padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                    キャンセル
+                </button>
+                <button id="applyDataRange" class="file-input-label" style="padding: 10px 20px; margin: 0;">
+                    適用
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- カスタムJavaScript -->
+    <script src="{% static 'js/tools/graph_maker_machining.js' %}"></script>
+</body>
+</html>

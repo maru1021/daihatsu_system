@@ -1,0 +1,342 @@
+/**
+ * グラフツクール君2号 スタイルシート
+ */
+
+/* ===========================
+ * リセット・基本設定
+ * =========================== */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: linear-gradient(135deg, #a8dadc 0%, #d4f1f4 100%);
+    min-height: 100vh;
+    padding: 15px;
+}
+
+/* ===========================
+ * コンテナ・カード
+ * =========================== */
+
+.container {
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0 10px;
+}
+
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+    margin-bottom: 15px;
+}
+
+/* ===========================
+ * ヘッダー
+ * =========================== */
+
+.header-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+h1 {
+    color: #333;
+    margin: 0;
+    font-size: 24px;
+}
+
+.header-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.header-buttons input[type="file"] {
+    position: absolute;
+    left: -9999px;
+}
+
+.file-input-label {
+    display: inline-block;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #4da8da 0%, #73c5e3 100%);
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    border: none;
+}
+
+.file-input-label:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(77, 168, 218, 0.4);
+}
+
+/* ===========================
+ * グラフコンテナ
+ * =========================== */
+
+.chart-wrapper {
+    margin-top: 20px;
+}
+
+.chart-main {
+    display: flex;
+    gap: 5px;
+}
+
+.chart-y-scrollbar-container {
+    display: none;
+    align-items: center;
+    width: 20px;
+}
+
+.chart-y-scrollbar {
+    writing-mode: bt-lr; /* IE */
+    -webkit-appearance: slider-vertical; /* WebKit */
+    width: 20px;
+    height: 600px;
+    cursor: pointer;
+}
+
+.chart-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.chart-container {
+    position: relative;
+    height: 600px;
+}
+
+.chart-container canvas {
+    position: relative;
+    z-index: 1000;
+}
+
+.chart-x-scrollbar-container {
+    display: none;
+    justify-content: center;
+    height: 20px;
+}
+
+.chart-x-scrollbar {
+    width: 100%;
+    height: 20px;
+    cursor: pointer;
+}
+
+.chartjs-zoom-drag-rect {
+    z-index: 2000 !important;
+}
+
+/* ===========================
+ * コントロールエリア
+ * =========================== */
+
+.file-input-wrapper {
+    position: relative;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.controls-container {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 10px 15px;
+    border: 2px solid #4da8da;
+    border-radius: 8px;
+    background: #f0f8ff;
+}
+
+/* ===========================
+ * 凡例・閾値セクション
+ * =========================== */
+
+.legend-threshold-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.legend-checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.legend-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.legend-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+/* ===========================
+ * オフセット・共通セクション
+ * =========================== */
+
+.offset-section {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.offset-label-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    white-space: nowrap;
+}
+
+.offset-input {
+    width: 80px;
+    padding: 6px 10px;
+    border: 2px solid #4da8da;
+    border-radius: 6px;
+    font-size: 14px;
+    text-align: center;
+}
+
+.offset-input:focus {
+    outline: none;
+    border-color: #2c8bb8;
+}
+
+/* ===========================
+ * ファイルリスト
+ * =========================== */
+
+.file-list-container {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
+    max-height: 210px;
+}
+
+.file-item-control {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    width: 100px;
+}
+
+.file-name {
+    font-size: 12px;
+    color: #333;
+    font-weight: 500;
+    white-space: nowrap;
+    height: 16px;
+    line-height: 16px;
+    width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+/* ===========================
+ * Y軸設定
+ * =========================== */
+
+.y-axis-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.y-axis-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.y-axis-label {
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 30px;
+}
+
+.y-axis-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.y-axis-checkbox-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #333;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.y-axis-select {
+    padding: 4px 8px;
+    border: 2px solid #4da8da;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    background-color: white;
+    cursor: pointer;
+}
+
+.y-axis-select:focus {
+    outline: none;
+    border-color: #2c8bb8;
+}
+
+/* ===========================
+ * 除外コンテナ
+ * =========================== */
+
+#excludeContainer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    max-width: 300px;
+    max-height: 80px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 5px;
+    border-radius: 4px;
+}
+
+#excludeContainer label {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+#excludeContainer span {
+    font-size: 12px;
+    font-weight: 500;
+}

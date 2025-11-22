@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>機械加工音 異常検知ツール</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #a8dadc 0%, #d4f1f4 100%);
+            min-height: 100vh;
+            padding: 15px;
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 0 10px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            margin-bottom: 15px;
+        }
+
+        .header-wrapper {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin: 0;
+            font-size: 24px;
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .header-buttons input[type="file"] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-input-label {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #4da8da 0%, #73c5e3 100%);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            border: none;
+            font-size: 14px;
+        }
+
+        .file-input-label:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(77, 168, 218, 0.4);
+        }
+
+        .chart-wrapper {
+            margin-top: 20px;
+        }
+
+        .chart-main {
+            display: flex;
+            gap: 5px;
+        }
+
+        .chart-y-scrollbar-container {
+            display: none;
+            align-items: center;
+            width: 20px;
+        }
+
+        .chart-y-scrollbar {
+            writing-mode: bt-lr; /* IE */
+            -webkit-appearance: slider-vertical; /* WebKit */
+            width: 20px;
+            height: 600px;
+            cursor: pointer;
+        }
+
+        .chart-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 600px;
+        }
+
+        .chart-container canvas {
+            position: relative;
+            z-index: 1000;
+        }
+
+        .chart-x-scrollbar-container {
+            display: none;
+            justify-content: center;
+            height: 20px;
+        }
+
+        .chart-x-scrollbar {
+            width: 100%;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .controls-container {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            border: 2px solid #4da8da;
+            border-radius: 8px;
+            background: #f0f8ff;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .control-input {
+            padding: 8px 12px;
+            border: 2px solid #4da8da;
+            border-radius: 6px;
+            font-size: 14px;
+            min-width: 120px;
+        }
+
+        .control-input:focus {
+            outline: none;
+            border-color: #2c8bb8;
+        }
+
+        .threshold-inputs {
+            display: flex;
+            gap: 10px;
+        }
+
+        .info-panel {
+            background: #fff9e6;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .info-panel h3 {
+            color: #f57c00;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .info-panel ul {
+            margin-left: 20px;
+            color: #666;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: #666;
+            margin-top: 10px;
+        }
+
+        .progress-container {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 8px;
+            margin-top: 15px;
+            height: 30px;
+            position: relative;
+            display: none;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(135deg, #4da8da 0%, #73c5e3 100%);
+            border-radius: 8px;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header-wrapper">
+                <h1>フーリエさん</h1>
+                <div class="header-buttons">
+                    <input type="file" id="audioInput" accept="audio/*">
+                    <label for="audioInput" class="file-input-label">
+                        音声ファイルを選択
+                    </label>
+                    <button id="resetZoomBtn" class="file-input-label" style="display: none;">
+                        ズームリセット
+                    </button>
+                </div>
+            </div>
+
+            <div class="controls-container" style="display: none;" id="controlsContainer">
+                <div class="control-group">
+                    <label class="control-label">移動平均ウィンドウ</label>
+                    <input type="number" id="smoothWindow" class="control-input" value="10" min="1" max="100" placeholder="平滑化">
+                    <small style="font-size: 10px; color: #666; margin-top: 2px;">※ノイズ除去</small>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">時間刻み (秒)</label>
+                    <input type="number" id="timeInterval" class="control-input" value="0.2" min="0.1" max="10" step="0.1" placeholder="時間刻み">
+                    <small style="font-size: 10px; color: #666; margin-top: 2px;">※データのサンプリング間隔</small>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">横移動速度</label>
+                    <input type="number" id="panSpeedX" class="control-input" value="5" min="1" max="100" step="1" placeholder="横移動速度">
+                    <small style="font-size: 10px; color: #666; margin-top: 2px;">※矢印キー左右の速度</small>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">縦移動速度</label>
+                    <input type="number" id="panSpeedY" class="control-input" value="0.05" min="0.01" max="1" step="0.01" placeholder="縦移動速度">
+                    <small style="font-size: 10px; color: #666; margin-top: 2px;">※矢印キー上下の速度</small>
+                </div>
+            </div>
+
+            <!-- グラフ表示エリア -->
+            <div class="chart-wrapper">
+                <div class="chart-main">
+                    <div class="chart-y-scrollbar-container">
+                        <input type="range" id="yScrollbar" class="chart-y-scrollbar" orient="vertical" min="0" max="100" value="50">
+                    </div>
+                    <div class="chart-content">
+                        <div class="chart-container">
+                            <canvas id="myChart"></canvas>
+                        </div>
+                        <div class="chart-x-scrollbar-container">
+                            <input type="range" id="xScrollbar" class="chart-x-scrollbar" min="0" max="100" value="50">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+        let audioContext = null;
+        let audioBuffer = null;
+        let fftSize = 4096; // 固定: 4096（高精度）
+        let smoothWindow = 10;
+        let timeInterval = 0.2; // デフォルト: 0.2秒刻み（3分データでも高速処理）
+
+        // パン・スクロールバー用変数
+        let isScrollbarUpdating = false;
+        const keysPressed = {
+            ArrowRight: false,
+            ArrowLeft: false,
+            ArrowUp: false,
+            ArrowDown: false
+        };
+        let animationFrameId = null;
+
+        const audioInput = document.getElementById('audioInput');
+        const resetZoomBtn = document.getElementById('resetZoomBtn');
+        const controlsContainer = document.getElementById('controlsContainer');
+        const smoothWindowInput = document.getElementById('smoothWindow');
+        const timeIntervalInput = document.getElementById('timeInterval');
+        const panSpeedXInput = document.getElementById('panSpeedX');
+        const panSpeedYInput = document.getElementById('panSpeedY');
+        const xScrollbar = document.getElementById('xScrollbar');
+        const yScrollbar = document.getElementById('yScrollbar');
+
+        // 平滑化ウィンドウの変更
+        smoothWindowInput.addEventListener('input', async (e) => {
+            smoothWindow = parseInt(e.target.value) || 1;
+            if (audioBuffer) {
+                await analyzeAudio();
+            }
+        });
+
+        // 時間刻みの変更
+        timeIntervalInput.addEventListener('input', async (e) => {
+            timeInterval = parseFloat(e.target.value) || 0.1;
+            if (audioBuffer) {
+                await analyzeAudio();
+            }
+        });
+
+        // ズームリセット
+        resetZoomBtn.addEventListener('click', () => {
+            if (chart) {
+                chart.resetZoom();
+                updateScrollbarsFromChart();
+            }
+        });
+
+        // スクロールバー更新関数
+        function updateScrollbarsFromChart() {
+            if (!chart || isScrollbarUpdating) return;
+
+            isScrollbarUpdating = true;
+
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            const xLimits = chart.options.plugins.zoom.limits.x;
+            const yLimits = chart.options.plugins.zoom.limits.y;
+
+            const xScrollbarContainer = document.querySelector('.chart-x-scrollbar-container');
+            const yScrollbarContainer = document.querySelector('.chart-y-scrollbar-container');
+
+            if (xScale && xLimits) {
+                const xViewRange = xScale.max - xScale.min;
+                const xScrollableRange = (xLimits.max - xLimits.min) - xViewRange;
+
+                if (xScrollableRange > 0.001) {
+                    xScrollbarContainer.style.display = 'flex';
+                    const xPosition = ((xScale.min - xLimits.min) / xScrollableRange) * 100;
+                    xScrollbar.value = Math.max(0, Math.min(100, xPosition));
+                } else {
+                    xScrollbarContainer.style.display = 'none';
+                    xScrollbar.value = 0;
+                }
+            }
+
+            if (yScale && yLimits) {
+                const yViewRange = yScale.max - yScale.min;
+                const yScrollableRange = (yLimits.max - yLimits.min) - yViewRange;
+
+                if (yScrollableRange > 0.001) {
+                    yScrollbarContainer.style.display = 'flex';
+                    const yPosition = ((yScale.min - yLimits.min) / yScrollableRange) * 100;
+                    yScrollbar.value = Math.max(0, Math.min(100, yPosition));
+                } else {
+                    yScrollbarContainer.style.display = 'none';
+                    yScrollbar.value = 0;
+                }
+            }
+
+            isScrollbarUpdating = false;
+        }
+
+        // スクロールバーからパン
+        function panFromScrollbar(axis, scrollValue) {
+            if (!chart || isScrollbarUpdating) return;
+
+            const scale = chart.scales[axis];
+            const limits = chart.options.plugins.zoom.limits[axis];
+
+            if (!scale || !limits) return;
+
+            const viewRange = scale.max - scale.min;
+            const scrollableRange = (limits.max - limits.min) - viewRange;
+
+            const newMin = limits.min + (scrollableRange * scrollValue / 100);
+            const newMax = newMin + viewRange;
+
+            const clampedMin = Math.max(limits.min, Math.min(limits.max - viewRange, newMin));
+            const clampedMax = clampedMin + viewRange;
+
+            chart.scales[axis].options.min = clampedMin;
+            chart.scales[axis].options.max = clampedMax;
+
+            // Y軸の場合は第2軸（y2）も一緒に移動
+            if (axis === 'y' && chart.scales.y2) {
+                const y2Scale = chart.scales.y2;
+                const y2Limits = chart.options.plugins.zoom.limits.y2;
+
+                if (y2Limits) {
+                    const y2ViewRange = y2Scale.max - y2Scale.min;
+                    const y2ScrollableRange = (y2Limits.max - y2Limits.min) - y2ViewRange;
+
+                    const y2NewMin = y2Limits.min + (y2ScrollableRange * scrollValue / 100);
+                    const y2NewMax = y2NewMin + y2ViewRange;
+
+                    const y2ClampedMin = Math.max(y2Limits.min, Math.min(y2Limits.max - y2ViewRange, y2NewMin));
+                    const y2ClampedMax = y2ClampedMin + y2ViewRange;
+
+                    chart.scales.y2.options.min = y2ClampedMin;
+                    chart.scales.y2.options.max = y2ClampedMax;
+                }
+            }
+
+            chart.update('none');
+
+            updateScrollbarsFromChart();
+        }
+
+        // 軸をパン
+        function panAxis(axis, delta) {
+            if (!chart || !chart.scales[axis]) return;
+
+            const scale = chart.scales[axis];
+            const limits = chart.options.plugins.zoom.limits[axis];
+            if (!limits) return;
+
+            const currentRange = scale.max - scale.min;
+
+            // 新しいmin/maxを計算
+            let newMin = scale.min + delta;
+            let newMax = scale.max + delta;
+
+            // 範囲を制限内に収める
+            if (newMin < limits.min) {
+                newMin = limits.min;
+                newMax = limits.min + currentRange;
+            }
+            if (newMax > limits.max) {
+                newMax = limits.max;
+                newMin = limits.max - currentRange;
+            }
+
+            // スケールを更新
+            chart.scales[axis].options.min = newMin;
+            chart.scales[axis].options.max = newMax;
+
+            // Y軸の場合は第2軸（y2）も一緒に移動
+            if (axis === 'y' && chart.scales.y2) {
+                const y2Scale = chart.scales.y2;
+                const y2Limits = chart.options.plugins.zoom.limits.y2;
+
+                if (y2Limits) {
+                    const y2CurrentRange = y2Scale.max - y2Scale.min;
+                    let y2NewMin = y2Scale.min + delta;
+                    let y2NewMax = y2Scale.max + delta;
+
+                    // 範囲を制限内に収める
+                    if (y2NewMin < y2Limits.min) {
+                        y2NewMin = y2Limits.min;
+                        y2NewMax = y2Limits.min + y2CurrentRange;
+                    }
+                    if (y2NewMax > y2Limits.max) {
+                        y2NewMax = y2Limits.max;
+                        y2NewMin = y2Limits.max - y2CurrentRange;
+                    }
+
+                    chart.scales.y2.options.min = y2NewMin;
+                    chart.scales.y2.options.max = y2NewMax;
+                }
+            }
+
+            chart.update('none');
+
+            updateScrollbarsFromChart();
+        }
+
+        // 連続パン
+        function continuousPan() {
+            if (!chart) return;
+
+            const speedX = parseFloat(panSpeedXInput.value) || 5;
+            const speedY = parseFloat(panSpeedYInput.value) || 0.05;
+
+            if (keysPressed.ArrowRight) panAxis('x', -speedX);
+            if (keysPressed.ArrowLeft) panAxis('x', speedX);
+            if (keysPressed.ArrowUp) panAxis('y', speedY);
+            if (keysPressed.ArrowDown) panAxis('y', -speedY);
+
+            if (keysPressed.ArrowRight || keysPressed.ArrowLeft ||
+                keysPressed.ArrowUp || keysPressed.ArrowDown) {
+                animationFrameId = requestAnimationFrame(continuousPan);
+            }
+        }
+
+        // スクロールバーイベント
+        xScrollbar.addEventListener('input', (e) => {
+            if (!chart) return;
+            panFromScrollbar('x', parseFloat(e.target.value));
+        });
+
+        yScrollbar.addEventListener('input', (e) => {
+            if (!chart) return;
+            panFromScrollbar('y', parseFloat(e.target.value));
+        });
+
+        // キーボードイベント
+        document.addEventListener('keydown', (e) => {
+            if (!chart) return;
+
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' ||
+                e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault();
+
+                if (!keysPressed[e.key]) {
+                    keysPressed[e.key] = true;
+                    if (!animationFrameId) {
+                        continuousPan();
+                    }
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' ||
+                e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                keysPressed[e.key] = false;
+
+                if (!keysPressed.ArrowRight && !keysPressed.ArrowLeft &&
+                    !keysPressed.ArrowUp && !keysPressed.ArrowDown) {
+                    if (animationFrameId) {
+                        cancelAnimationFrame(animationFrameId);
+                        animationFrameId = null;
+                    }
+                }
+            }
+        });
+
+        // 音声ファイルの読み込み
+        audioInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                // AudioContextの初期化
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+
+                // ファイルをArrayBufferとして読み込む
+                const arrayBuffer = await file.arrayBuffer();
+
+                // AudioBufferにデコード
+                audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                // コントロールを表示
+                controlsContainer.style.display = 'flex';
+
+                // 音声を解析してグラフを描画
+                await analyzeAudio();
+
+            } catch (error) {
+                console.error('音声ファイルの読み込みエラー:', error);
+                alert('音声ファイルの読み込みに失敗しました: ' + error.message);
+            }
+        });
+
+        // 音声を解析する関数（長時間データ対応版）
+        async function analyzeAudio() {
+            if (!audioBuffer) return;
+
+            // チャンネルデータを取得（モノラルに変換）
+            const channelData = audioBuffer.getChannelData(0);
+            const sampleRate = audioBuffer.sampleRate;
+            const duration = audioBuffer.duration;
+
+            // 周波数帯域の設定（機械加工の異常検知に最適化）
+            // 周波数が上がるごとに暗い色→明るい色のグラデーション
+            const freqBands = {
+                all: { min: 500, max: 10000, label: '全帯域 (500Hz-10kHz)', color: 'rgb(37, 99, 235)' },
+                verylow: { min: 500, max: 1000, label: '超低域 (500-1kHz): ベアリング摩耗', color: 'rgb(127, 29, 29)' }, // 暗い赤
+                low: { min: 1000, max: 2000, label: '低域 (1-2kHz): 工具摩耗', color: 'rgb(220, 38, 38)' }, // 赤
+                mid: { min: 2000, max: 4000, label: '中域 (2-4kHz): 切削異常', color: 'rgb(251, 146, 60)' }, // オレンジ
+                highmid: { min: 4000, max: 7000, label: '中高域 (4-7kHz): ビビリ振動', color: 'rgb(250, 204, 21)' }, // 黄色
+                high: { min: 7000, max: 10000, label: '高域 (7-10kHz): 工具破損', color: 'rgb(134, 239, 172)' } // 明るい緑
+            };
+
+            // 詳細分析用の帯域リスト
+            const multiBands = ['verylow', 'low', 'mid', 'highmid', 'high'];
+
+            // 長時間データの場合は自動的にサンプリング
+            let actualTimeInterval = timeInterval;
+            const maxDataPoints = 1000; // 最大データポイント数
+            let numTimePoints = Math.floor(duration / actualTimeInterval);
+
+            if (numTimePoints > maxDataPoints) {
+                actualTimeInterval = duration / maxDataPoints;
+                numTimePoints = maxDataPoints;
+            }
+
+            // 詳細分析モード: 5つの帯域それぞれを追跡
+            let bandDataMap = new Map(); // 帯域名 -> 時系列データ
+            const batchSize = 50; // バッチサイズ（UI更新頻度）
+
+            multiBands.forEach(bandKey => {
+                bandDataMap.set(bandKey, []);
+            });
+
+            // バッチ処理でFFTを実行（UI凍結を防ぐ）
+            for (let batchStart = 0; batchStart < numTimePoints; batchStart += batchSize) {
+                const batchEnd = Math.min(batchStart + batchSize, numTimePoints);
+
+                // バッチ内の処理
+                for (let i = batchStart; i < batchEnd; i++) {
+                    const currentTime = i * actualTimeInterval;
+                    const startSample = Math.floor(currentTime * sampleRate);
+
+                    if (startSample + fftSize > channelData.length) break;
+
+                    // この時間の周辺データを抽出してFFT
+                    const frame = channelData.slice(startSample, startSample + fftSize);
+                    const windowedFrame = applyHammingWindow(frame);
+
+                    // FFTを実行（高速版）- 1回のFFTで全周波数を取得
+                    const fftResult = performFFTFast(windowedFrame);
+
+                    // 各帯域のパワーを計算
+                    bandDataMap.forEach((dataArray, bandKey) => {
+                        const band = freqBands[bandKey];
+                        const freqBinMin = Math.floor(band.min * fftSize / sampleRate);
+                        const freqBinMax = Math.floor(band.max * fftSize / sampleRate);
+
+                        let power = 0;
+                        for (let j = freqBinMin; j < freqBinMax && j < fftResult.length; j++) {
+                            power += fftResult[j];
+                        }
+                        power = power / (freqBinMax - freqBinMin);
+
+                        dataArray.push({ x: currentTime, y: power });
+                    });
+                }
+
+                // UIを更新するために少し待機
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+
+            // 移動平均でスムージング
+            const smoothedBandData = new Map();
+            bandDataMap.forEach((dataArray, bandKey) => {
+                smoothedBandData.set(bandKey, applyMovingAverage(dataArray, smoothWindow));
+            });
+
+            // RMS（実効値）を計算（時間刻みに合わせて集約）
+            const rmsData = [];
+            for (let i = 0; i < numTimePoints; i++) {
+                const currentTime = i * actualTimeInterval;
+                const nextTime = (i + 1) * actualTimeInterval;
+
+                const startSample = Math.floor(currentTime * sampleRate);
+                const endSample = Math.floor(nextTime * sampleRate);
+
+                if (endSample > channelData.length) break;
+
+                const window = channelData.slice(startSample, endSample);
+                if (window.length > 0) {
+                    const rms = Math.sqrt(window.reduce((sum, val) => sum + val * val, 0) / window.length);
+                    rmsData.push({ x: currentTime, y: rms });
+                }
+            }
+
+            // グラフを描画
+            renderChartMultiBand(smoothedBandData, rmsData, freqBands, duration);
+        }
+
+        // ハミング窓を適用
+        function applyHammingWindow(frame) {
+            const N = frame.length;
+            const windowed = new Float32Array(N);
+            for (let i = 0; i < N; i++) {
+                windowed[i] = frame[i] * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1)));
+            }
+            return windowed;
+        }
+
+        // FFTを実行（高速版 - Cooley-Tukey FFTアルゴリズム）
+        function performFFTFast(frame) {
+            const N = frame.length;
+
+            // Nが2の累乗でない場合は従来版を使用
+            if ((N & (N - 1)) !== 0) {
+                return performFFTSlow(frame);
+            }
+
+            // 複素数配列を作成
+            const real = new Float32Array(N);
+            const imag = new Float32Array(N);
+
+            for (let i = 0; i < N; i++) {
+                real[i] = frame[i];
+                imag[i] = 0;
+            }
+
+            // Cooley-Tukey FFTアルゴリズム（Radix-2 DIT）
+            fftRadix2(real, imag);
+
+            // マグニチュードを計算
+            const magnitude = new Float32Array(N / 2);
+            for (let i = 0; i < N / 2; i++) {
+                magnitude[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]) / N;
+            }
+
+            return magnitude;
+        }
+
+        // Cooley-Tukey FFT（Radix-2 Decimation-In-Time）
+        function fftRadix2(real, imag) {
+            const N = real.length;
+
+            // ビット反転並び替え
+            let j = 0;
+            for (let i = 0; i < N - 1; i++) {
+                if (i < j) {
+                    [real[i], real[j]] = [real[j], real[i]];
+                    [imag[i], imag[j]] = [imag[j], imag[i]];
+                }
+                let k = N >> 1;
+                while (k <= j) {
+                    j -= k;
+                    k >>= 1;
+                }
+                j += k;
+            }
+
+            // バタフライ演算
+            for (let size = 2; size <= N; size *= 2) {
+                const halfSize = size / 2;
+                const angle = -2 * Math.PI / size;
+
+                for (let i = 0; i < N; i += size) {
+                    for (let j = 0; j < halfSize; j++) {
+                        const k = i + j;
+                        const l = k + halfSize;
+
+                        const twiddle_real = Math.cos(angle * j);
+                        const twiddle_imag = Math.sin(angle * j);
+
+                        const t_real = twiddle_real * real[l] - twiddle_imag * imag[l];
+                        const t_imag = twiddle_real * imag[l] + twiddle_imag * real[l];
+
+                        real[l] = real[k] - t_real;
+                        imag[l] = imag[k] - t_imag;
+                        real[k] += t_real;
+                        imag[k] += t_imag;
+                    }
+                }
+            }
+        }
+
+        // FFTを実行（遅い版 - フォールバック用）
+        function performFFTSlow(frame) {
+            const N = frame.length;
+            const magnitude = new Float32Array(N / 2);
+
+            // 各周波数ビンの大きさを計算
+            for (let k = 0; k < N / 2; k++) {
+                let real = 0;
+                let imag = 0;
+                for (let n = 0; n < N; n++) {
+                    const angle = -2 * Math.PI * k * n / N;
+                    real += frame[n] * Math.cos(angle);
+                    imag += frame[n] * Math.sin(angle);
+                }
+                magnitude[k] = Math.sqrt(real * real + imag * imag) / N;
+            }
+            return magnitude;
+        }
+
+        // 移動平均でスムージング
+        function applyMovingAverage(data, windowSize) {
+            if (windowSize <= 1) return data;
+
+            const smoothed = [];
+            for (let i = 0; i < data.length; i++) {
+                const start = Math.max(0, i - Math.floor(windowSize / 2));
+                const end = Math.min(data.length, i + Math.ceil(windowSize / 2));
+                const windowData = data.slice(start, end);
+                const avg = windowData.reduce((sum, d) => sum + d.y, 0) / windowData.length;
+                smoothed.push({ x: data[i].x, y: avg });
+            }
+            return smoothed;
+        }
+
+
+        // グラフを描画（複数帯域対応版）
+        function renderChartMultiBand(smoothedBandData, rmsData, freqBands, duration) {
+            const ctx = document.getElementById('myChart').getContext('2d');
+
+            if (chart) {
+                chart.destroy();
+            }
+
+            const datasets = [];
+
+            // 各周波数帯域のデータセットを追加
+            smoothedBandData.forEach((data, bandKey) => {
+                const band = freqBands[bandKey];
+                datasets.push({
+                    label: band.label,
+                    data: data,
+                    borderColor: band.color,
+                    backgroundColor: band.color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    tension: 0.1,
+                    fill: false,
+                    yAxisID: 'y'
+                });
+            });
+
+            // RMS振幅レベルを追加
+            datasets.push({
+                label: 'RMS振幅レベル',
+                data: rmsData,
+                borderColor: 'rgb(37, 99, 235)',
+                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                tension: 0.1,
+                fill: false,
+                yAxisID: 'y2'
+            });
+
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 12,
+                                font: { size: 12 }
+                            }
+                        },
+                        tooltip: {
+                            enabled: true,
+                            mode: 'nearest',
+                            intersect: false,
+                            callbacks: {
+                                title: function(context) {
+                                    return `時刻: ${context[0].parsed.x.toFixed(3)}秒`;
+                                },
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(4)}`;
+                                }
+                            }
+                        },
+                        zoom: {
+                            zoom: {
+                                wheel: { enabled: true },
+                                drag: {
+                                    enabled: true,
+                                    backgroundColor: 'rgba(102, 126, 234, 0.3)',
+                                    borderColor: 'rgba(102, 126, 234, 1)',
+                                    borderWidth: 2
+                                },
+                                mode: 'xy',
+                                onZoomComplete: function({chart}) {
+                                    updateScrollbarsFromChart();
+                                }
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'xy',
+                                modifierKey: 'shift',
+                                onPanComplete: function({chart}) {
+                                    updateScrollbarsFromChart();
+                                }
+                            },
+                            limits: {
+                                x: { min: 'original', max: 'original' },
+                                y: { min: 'original', max: 'original' },
+                                y2: { min: 'original', max: 'original' }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            display: true,
+                            title: {
+                                display: true,
+                                text: '時間 (秒)',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        y: {
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: '周波数パワー',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        y2: {
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'RMS振幅',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+
+            resetZoomBtn.style.display = 'inline-block';
+
+            // limitsを実際の数値に設定（'original'から変換）
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            const y2Scale = chart.scales.y2;
+
+            const xRange = xScale.max - xScale.min;
+            const yRange = yScale.max - yScale.min;
+            const y2Range = y2Scale.max - y2Scale.min;
+
+            chart.options.plugins.zoom.limits.x = {
+                min: xScale.min - xRange * 0.1,
+                max: xScale.max + xRange * 0.1
+            };
+            chart.options.plugins.zoom.limits.y = {
+                min: yScale.min - yRange * 0.1,
+                max: yScale.max + yRange * 0.1
+            };
+            chart.options.plugins.zoom.limits.y2 = {
+                min: y2Scale.min - y2Range * 0.1,
+                max: y2Scale.max + y2Range * 0.1
+            };
+
+            // スクロールバーを初期化
+            updateScrollbarsFromChart();
+        }
+    </script>
+</body>
+</html>

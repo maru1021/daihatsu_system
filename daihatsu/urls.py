@@ -14,6 +14,7 @@ from daihatsu.views.port_test import PortTestView
 from daihatsu.views.graph_maker_view import GraphMakerView
 from daihatsu.views.schedule_import import ScheduleImport
 from daihatsu.views.get_local_error import GetLocalError
+from daihatsu.views.audio_anomaly_detection import AudioAnomalyDetectionView
 
 urlpatterns = [
     path('', TemplateView.as_view(template_name='home.html'), name='home'),
@@ -22,6 +23,8 @@ urlpatterns = [
     path('auth/password-change/', PasswordChangeView.as_view(), name='password_change'),
     path('tools/port-test/', PortTestView.as_view(), name='port_test'),
     path('tools/graph-maker/', GraphMakerView.as_view(), name='graph_maker'),
+    path('tools/graph-maker/<str:template_type>/', GraphMakerView.as_view(), name='graph_maker_with_type'),
+    path('tools/audio-anomaly-detection/', AudioAnomalyDetectionView.as_view(), name='audio_anomaly_detection'),
     path('administrator/', include('administrator.urls'), name='administrator'),
     path('resource/', ResourceView.as_view(), name='resource'),
     path('resource/data/real-time', ResourceDataView.as_view(), name='resource_data'),
