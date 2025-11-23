@@ -176,7 +176,7 @@ class CastingItemProhibitedPattern(models.Model):
     line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
     item_name1 = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番1", related_name='casting_item_prohibited_pattern_item1', null=True, blank=True)
     item_name2 = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番2", related_name='casting_item_prohibited_pattern_item2', null=True, blank=True)
-    count = models.IntegerField(verbose_name="同時生産禁止数", null=True, blank=True, default=2)
+    count = models.IntegerField(verbose_name="同時生産上限", null=True, blank=True, default=2)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 

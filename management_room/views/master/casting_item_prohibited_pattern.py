@@ -19,8 +19,8 @@ class CastingItemProhibitedPatternView(ManagementRoomPermissionMixin, BasicTable
     form_action_url = 'management_room:casting_item_prohibited_pattern'
     edit_url = 'management_room:casting_item_prohibited_pattern_edit'
     delete_url = 'management_room:casting_item_prohibited_pattern_delete'
-    admin_table_header = ['ライン', '品番1', '品番2', '同時生産禁止数', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['ライン', '品番1', '品番2', '同時生産禁止数', 'アクティブ', '最終更新者']
+    admin_table_header = ['ライン', '品番1', '品番2', '同時生産上限', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['ライン', '品番1', '品番2', '同時生産上限', 'アクティブ', '最終更新者']
     search_fields = ['line__name', 'item_name1__name', 'item_name2__name']
 
     def get_context_data(self, **kwargs):
@@ -69,14 +69,14 @@ class CastingItemProhibitedPatternView(ManagementRoomPermissionMixin, BasicTable
             if not item_name1_id:
                 errors['item_name1_id'] = '品番1は必須です。'
             if not count:
-                errors['count'] = '同時生産禁止数は必須です。'
+                errors['count'] = '同時生産上限は必須です。'
             else:
                 try:
                     count_int = int(count)
                     if count_int < 1:
-                        errors['count'] = '同時生産禁止数は1以上である必要があります。'
+                        errors['count'] = '同時生産上限は1以上である必要があります。'
                 except ValueError:
-                    errors['count'] = '同時生産禁止数は数値である必要があります。'
+                    errors['count'] = '同時生産上限は数値である必要があります。'
 
             # 同じ品番のチェック（品番2が指定されている場合のみ）
             if item_name1_id and item_name2_id and item_name1_id == item_name2_id:

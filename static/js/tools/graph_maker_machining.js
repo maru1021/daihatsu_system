@@ -107,7 +107,6 @@ let simulation3D = {
 // Three.jsの読み込み完了を待つ
 window.addEventListener('threejs-loaded', () => {
     simulation3D.isThreeJsLoaded = true;
-    console.log('Three.js loaded successfully');
 });
 
 // ===========================
@@ -3639,11 +3638,6 @@ function init() {
         analysisStartValue = parseInt(document.getElementById('analysisStart').value) || null;
         analysisEndValue = parseInt(document.getElementById('analysisEnd').value) || null;
 
-        console.log('データ範囲設定:', {
-            noLoad: { start: noLoadStartValue, end: noLoadEndValue },
-            analysis: { start: analysisStartValue, end: analysisEndValue }
-        });
-
         dataRangeModal.style.display = 'none';
 
         // 散布図を作成（レイアウト調整のため先に実行）
@@ -3753,18 +3747,14 @@ function init3DSimulation(parsedData, fileDataToOriginalName) {
 
     // データが空の場合は何もしない
     if (!parsedData || parsedData.length === 0) {
-        console.log('No data to display in 3D simulation');
         return;
     }
 
     // Three.jsの読み込みを待つ
     if (!window.THREE || !window.OrbitControls) {
-        console.log('Waiting for Three.js to load...');
         setTimeout(() => init3DSimulation(parsedData, fileDataToOriginalName), 100);
         return;
     }
-
-    console.log('Initializing 3D simulation...');
 
     // 既存のシミュレーションをクリーンアップ
     cleanup3DSimulation();
@@ -3933,8 +3923,6 @@ function addAxisLabel(text, x, y, z, color) {
 function create3DTrajectories(parsedData, fileDataToOriginalName) {
     simulation3D.animationData = [];
 
-    console.log('Creating 3D trajectories from parsed data:', parsedData.length, 'files');
-
     const fileColors = [
         0x0000ff, // 青
         0x00ff00, // 緑
@@ -3949,7 +3937,6 @@ function create3DTrajectories(parsedData, fileDataToOriginalName) {
     parsedData.forEach((fileData, fileIndex) => {
         const originalFileName = fileDataToOriginalName.get(fileData.fileName) || fileData.fileName;
         if (excludedFiles.includes(originalFileName)) {
-            console.log('Skipping excluded file:', originalFileName);
             return;
         }
 
@@ -3958,22 +3945,11 @@ function create3DTrajectories(parsedData, fileDataToOriginalName) {
         const yTcmdDataset = fileData.datasets.find(ds => ds.label.includes('Y-TCMD'));
         const zTcmdDataset = fileData.datasets.find(ds => ds.label.includes('Z-TCMD'));
 
-        console.log('File:', originalFileName, 'Datasets found:', {
-            'X-TCMD': !!xTcmdDataset,
-            'Y-TCMD': !!yTcmdDataset,
-            'Z-TCMD': !!zTcmdDataset
-        });
-
         if (!xTcmdDataset || !yTcmdDataset || !zTcmdDataset) {
-            console.log('Missing required datasets for file:', originalFileName);
             return;
         }
 
-        // オフセット値を取得（インデックスのオフセット）
-        const fileOffset = fileOffsets.get(originalFileName) || 0;
-        console.log('File:', originalFileName, 'Offset:', fileOffset);
-
-        // データを配列に変換（オフセットは適用しない - 座標値そのものを使用）
+        // データを配列に変換（座標値そのものを使用）
         const xData = xTcmdDataset.data.map(point => point.y);
         const yData = yTcmdDataset.data.map(point => point.y);
         const zData = zTcmdDataset.data.map(point => point.y);
@@ -3985,8 +3961,6 @@ function create3DTrajectories(parsedData, fileDataToOriginalName) {
         const trajectoryGroup = create3DTrajectory(xData, yData, zData, color);
         simulation3D.scene.add(trajectoryGroup);
 
-        console.log('Trajectory created for:', originalFileName, 'Data points:', xData.length);
-
         // アニメーションデータを保存
         simulation3D.animationData.push({
             name: originalFileName,
@@ -3997,8 +3971,6 @@ function create3DTrajectories(parsedData, fileDataToOriginalName) {
             color: color
         });
     });
-
-    console.log('Total scatter plots created:', simulation3D.animationData.length);
 
     // 凡例を更新
     update3DLegend();
