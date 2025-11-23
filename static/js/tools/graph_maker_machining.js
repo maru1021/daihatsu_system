@@ -32,6 +32,7 @@ let scatterChart = null;     // X-TCMD vs Y-TCMD 散布図
 let deviationChart = null;  // 移動平均からの絶対値積算グラフ
 let averageChart = null;    // 平均値グラフ
 let maxChart = null;         // 最大値グラフ
+let derivativeChart = null; // トルク変動率グラフ
 let uploadedFiles = [];
 let fileOffsets = new Map();
 let preserveZoom = false;
@@ -40,6 +41,9 @@ let datasetVisibility = new Map();
 let blinkTimer = null;
 let blinkState = true;
 let isInitialLoad = true;    // 初回読み込みフラグ
+
+// アクティブなグラフの管理
+let activeChart = null; // 'main' or 'derivative'
 
 // 閾値設定
 let upperThresholdValue = null;
@@ -84,6 +88,27 @@ let animationFrameId = null;
 
 // スクロールバー用
 let isScrollbarUpdating = false; // スクロールバー更新中フラグ（無限ループ防止）
+
+// 3Dシミュレーション用
+let simulation3D = {
+    scene: null,
+    camera: null,
+    renderer: null,
+    controls: null,
+    drillGroup: null,
+    workpiece: null,
+    animationData: [],
+    currentFrame: 0,
+    isPlaying: false,
+    animationInterval: null,
+    isThreeJsLoaded: false
+};
+
+// Three.jsの読み込み完了を待つ
+window.addEventListener('threejs-loaded', () => {
+    simulation3D.isThreeJsLoaded = true;
+    console.log('Three.js loaded successfully');
+});
 
 // ===========================
 // DOM要素の取得
@@ -142,6 +167,65 @@ const elements = {
  */
 function rgbToRgba(rgb, alpha) {
     return rgb.replace('rgb', 'rgba').replace(')', `, ${alpha})`);
+}
+
+/**
+ * 3軸の合成負荷を計算
+ * @param {number} xTcmd - X軸トルク指令値
+ * @param {number} yTcmd - Y軸トルク指令値
+ * @param {number} zTcmd - Z軸トルク指令値
+ * @returns {number} 合成負荷
+ */
+function calculateCompositeLoad(xTcmd, yTcmd, zTcmd) {
+    return Math.sqrt(xTcmd * xTcmd + yTcmd * yTcmd + zTcmd * zTcmd);
+}
+
+/**
+ * データセットから指定されたラベルを含むデータセットを取得
+ * @param {Array} datasets - データセット配列
+ * @param {string} labelPart - 検索するラベルの一部
+ * @returns {Object|undefined} 見つかったデータセット
+ */
+function findDatasetByLabel(datasets, labelPart) {
+    return datasets.find(d => d.label.includes(labelPart));
+}
+
+/**
+ * 複数のデータセットを一度に取得
+ * @param {Object} fileData - ファイルデータ
+ * @param {Array<string>} labelParts - 検索するラベルの配列
+ * @returns {Object} ラベル名をキーとしたデータセットのマップ
+ */
+function getDatasets(fileData, labelParts) {
+    const result = {};
+    for (const label of labelParts) {
+        result[label] = findDatasetByLabel(fileData.datasets, label);
+    }
+    return result;
+}
+
+/**
+ * ヒートマップ用の色変換（0-1の比率から青→緑→黄→赤のグラデーション）
+ * @param {number} ratio - 0から1の範囲の比率
+ * @returns {string} RGB色文字列
+ */
+function getHeatmapColor(ratio) {
+    if (ratio < 0.25) {
+        // 青 → 緑
+        return `rgb(${Math.floor(ratio * 400)}, ${100 + Math.floor(ratio * 620)}, 255)`;
+    } else if (ratio < 0.5) {
+        // 緑 → 黄
+        const r = (ratio - 0.25) * 4;
+        return `rgb(${Math.floor(r * 255)}, 255, ${255 - Math.floor(r * 155)})`;
+    } else if (ratio < 0.75) {
+        // 黄 → オレンジ
+        const r = (ratio - 0.5) * 4;
+        return `rgb(255, ${255 - Math.floor(r * 155)}, ${100 - Math.floor(r * 100)})`;
+    } else {
+        // オレンジ → 赤
+        const r = (ratio - 0.75) * 4;
+        return `rgb(255, ${100 - Math.floor(r * 100)}, 0)`;
+    }
 }
 
 /**
@@ -297,6 +381,7 @@ function panFromScrollbar(axis, scrollValue) {
     saveCurrentZoomState();
 }
 
+
 /**
  * 軸をパン（移動）する
  */
@@ -349,6 +434,70 @@ function panAxis(axis, delta) {
     }
 
     saveCurrentZoomState();
+}
+
+/**
+ * 任意のチャートの軸をパン（移動）する
+ */
+function panAxisForChart(targetChart, axis, delta) {
+    if (!targetChart || !targetChart.scales[axis]) return;
+
+    const scale = targetChart.scales[axis];
+    const currentRange = scale.max - scale.min;
+    const chartArea = targetChart.chartArea;
+    const dimension = axis === 'x'
+        ? chartArea.right - chartArea.left
+        : chartArea.bottom - chartArea.top;
+    const pixelPerUnit = dimension / currentRange;
+    const deltaInPixels = delta * pixelPerUnit;
+
+    const panConfig = {};
+    panConfig[axis] = deltaInPixels;
+    targetChart.pan(panConfig, undefined, 'none');
+
+    // メインチャートの場合のみ、Y軸の第2～第4軸も一緒に移動
+    if (targetChart === chart && axis === 'y') {
+        ['y2', 'y3', 'y4'].forEach(yAxis => {
+            if (targetChart.scales[yAxis]) {
+                const yScale = targetChart.scales[yAxis];
+                const yLimits = targetChart.options.plugins.zoom.limits[yAxis];
+
+                if (yLimits) {
+                    const yCurrentRange = yScale.max - yScale.min;
+                    let yNewMin = yScale.min + delta;
+                    let yNewMax = yScale.max + delta;
+
+                    // 範囲を制限内に収める
+                    if (yNewMin < yLimits.min) {
+                        yNewMin = yLimits.min;
+                        yNewMax = yLimits.min + yCurrentRange;
+                    }
+                    if (yNewMax > yLimits.max) {
+                        yNewMax = yLimits.max;
+                        yNewMin = yLimits.max - yCurrentRange;
+                    }
+
+                    targetChart.scales[yAxis].options.min = yNewMin;
+                    targetChart.scales[yAxis].options.max = yNewMax;
+                }
+            }
+        });
+
+        // 第2軸以降を更新した場合は再描画
+        targetChart.update('none');
+    }
+
+    // スクロールバーを更新
+    updateScrollbarsForChart(targetChart);
+}
+
+/**
+ * チャートに応じてスクロールバーを更新
+ */
+function updateScrollbarsForChart(targetChart) {
+    if (targetChart === chart) {
+        saveCurrentZoomState();
+    }
 }
 
 /**
@@ -847,6 +996,12 @@ async function renderChartFromFiles() {
     const datasets = buildDatasets(parsedData, fileDataToOriginalName, columnNameToColorFamily, minIndex, maxIndex);
 
     if (datasets.length > 0) {
+        // メイングラフエリアを表示
+        const chartsContainer = document.getElementById('chartsContainer');
+        if (chartsContainer) {
+            chartsContainer.style.display = 'flex';
+        }
+
         renderChart(datasets);
         // 統計グラフを作成
         renderStatisticsCharts(parsedData, fileDataToOriginalName);
@@ -855,6 +1010,25 @@ async function renderChartFromFiles() {
         if (statisticsCard) {
             statisticsCard.style.display = 'block';
         }
+        // トルク変動率グラフを作成
+        renderDerivativeChart(parsedData, fileDataToOriginalName);
+        // トルク変動率エリアを表示
+        const derivativeCard = document.getElementById('derivativeCard');
+        if (derivativeCard) {
+            derivativeCard.style.display = 'block';
+        }
+        // ファイル間比較解析エリアを表示
+        const fileComparisonCard = document.getElementById('fileComparisonCard');
+        if (fileComparisonCard) {
+            fileComparisonCard.style.display = 'block';
+        }
+        // 3D散布図エリアを表示
+        const simulation3dCard = document.getElementById('simulation3dCard');
+        if (simulation3dCard) {
+            simulation3dCard.removeAttribute('hidden');
+        }
+        // 3D散布図を作成
+        init3DSimulation(parsedData, fileDataToOriginalName);
     }
 }
 
@@ -1121,6 +1295,9 @@ function renderChart(datasets) {
 
     // 閾値違反の点滅を開始
     startBlinking(datasets);
+
+    // メイングラフをアクティブにする
+    activeChart = 'main';
 }
 
 /**
@@ -1679,21 +1856,195 @@ function exportChartDataToCsv() {
  * 連続パンを実行
  */
 function continuousPan() {
-    if (!chart) return;
+    // アクティブなグラフに応じて操作対象を決定
+    const targetChart = activeChart === 'main' ? chart :
+                       activeChart === 'derivative' ? derivativeChart : null;
+
+    if (!targetChart) return;
 
     // 入力フィールドから現在の速度を取得
     const speedX = parseFloat(elements.panSpeedXInput.value) || PAN_SPEED_X;
     const speedY = parseFloat(elements.panSpeedYInput.value) || PAN_SPEED_Y;
 
-    if (keysPressed.ArrowRight) panAxis('x', -speedX);
-    if (keysPressed.ArrowLeft) panAxis('x', speedX);
-    if (keysPressed.ArrowUp) panAxis('y', speedY);
-    if (keysPressed.ArrowDown) panAxis('y', -speedY);
+    if (keysPressed.ArrowRight) panAxisForChart(targetChart, 'x', -speedX);
+    if (keysPressed.ArrowLeft) panAxisForChart(targetChart, 'x', speedX);
+    if (keysPressed.ArrowUp) panAxisForChart(targetChart, 'y', speedY);
+    if (keysPressed.ArrowDown) panAxisForChart(targetChart, 'y', -speedY);
 
     if (keysPressed.ArrowRight || keysPressed.ArrowLeft ||
         keysPressed.ArrowUp || keysPressed.ArrowDown) {
         animationFrameId = requestAnimationFrame(continuousPan);
     }
+}
+
+// ===========================
+// トルク変動率解析
+// ===========================
+
+/**
+ * トルク変動率グラフを作成
+ */
+function renderDerivativeChart(parsedData, fileDataToOriginalName) {
+    const ctx = document.getElementById('derivativeChart');
+    if (!ctx) return;
+
+    // 既存のチャートがあれば破棄
+    if (derivativeChart) {
+        derivativeChart.destroy();
+    }
+
+    const datasets = [];
+
+    // ファイルごとに異なる色を割り当て
+    const fileColors = [
+        'rgb(220, 38, 38)',     // 赤
+        'rgb(59, 130, 246)',    // 青
+        'rgb(234, 88, 12)',     // オレンジ
+        'rgb(22, 163, 74)',     // 緑
+        'rgb(147, 51, 234)',    // 紫
+        'rgb(8, 145, 178)',     // シアン
+        'rgb(234, 179, 8)',     // 黄
+        'rgb(219, 39, 119)'     // ピンク
+    ];
+
+    // Z-TCMDの変動率を計算
+    parsedData.forEach((fileData, fileIndex) => {
+        const originalFileName = fileDataToOriginalName.get(fileData.fileName) || fileData.fileName;
+        if (excludedFiles.includes(originalFileName)) return;
+
+        // Z-TCMDデータを取得
+        const zTcmdDataset = fileData.datasets.find(ds => ds.label.includes('Z-TCMD'));
+        if (!zTcmdDataset || !zTcmdDataset.data || zTcmdDataset.data.length < 2) return;
+
+        const derivativeData = [];
+
+        // 変動率を計算（微分）
+        for (let i = 1; i < zTcmdDataset.data.length; i++) {
+            const current = zTcmdDataset.data[i].y;
+            const previous = zTcmdDataset.data[i - 1].y;
+            const derivative = current - previous;
+
+            derivativeData.push({
+                x: zTcmdDataset.data[i].x,
+                y: derivative
+            });
+        }
+
+        // ファイルごとに異なる色を割り当て
+        const colorIndex = fileIndex % fileColors.length;
+        const color = fileColors[colorIndex];
+
+        datasets.push({
+            label: `${originalFileName} - Z-TCMD変動率`,
+            data: derivativeData,
+            borderColor: color,
+            backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            tension: 0,
+            fill: false
+        });
+    });
+
+    if (datasets.length === 0) return;
+
+    derivativeChart = new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    enabled: tooltipEnabled,
+                    mode: tooltipSingleMode ? 'nearest' : 'index',
+                    intersect: false,
+                    axis: 'x',
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    titleFont: { size: 14 },
+                    bodyFont: { size: 13 },
+                    callbacks: {
+                        title: function(context) {
+                            if (tooltipSingleMode && context.length > 0) {
+                                return `データポイント: ${context[0].parsed.x}`;
+                            }
+                            return '';
+                        },
+                        label: function(context) {
+                            return `${context.dataset.label}: ${context.parsed.y}`;
+                        }
+                    }
+                },
+                zoom: {
+                    zoom: {
+                        wheel: { enabled: true },
+                        drag: {
+                            enabled: true,
+                            backgroundColor: 'rgba(102, 126, 234, 0.3)',
+                            borderColor: 'rgba(102, 126, 234, 1)',
+                            borderWidth: 2,
+                            threshold: 50,
+                            drawTime: 'afterDatasetsDraw'
+                        },
+                        mode: 'xy'
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'xy',
+                        modifierKey: 'shift'
+                    },
+                    limits: {
+                        x: { min: 'original', max: 'original' },
+                        y: { min: 'original', max: 'original' }
+                    }
+                },
+                annotation: {
+                    annotations: {
+                        zeroLine: {
+                            type: 'line',
+                            yMin: 0,
+                            yMax: 0,
+                            borderColor: 'rgba(0, 0, 0, 0.5)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            label: {
+                                display: true,
+                                content: '変化なし',
+                                position: 'end'
+                            }
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: {
+                        display: true,
+                        text: 'データポイント'
+                    },
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.1)'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: '変動率（負荷変化量）'
+                    },
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.1)'
+                    }
+                }
+            }
+        }
+    });
 }
 
 // ===========================
@@ -1714,6 +2065,19 @@ function renderStatisticsCharts(parsedData, fileDataToOriginalName) {
 
     // 最大値グラフ
     createBarChart('maxChart', statistics.max, maxChart);
+
+    // 適合率を計算して表示
+    const conformityRates = calculateConformityRates(parsedData, fileDataToOriginalName);
+    displayConformityRates(conformityRates);
+
+    // 位置-負荷相関分析を実行
+    analyzePositionLoadCorrelation(parsedData, fileDataToOriginalName);
+
+    // 位置別負荷ヒートマップを描画
+    drawPositionLoadHeatmap(parsedData, fileDataToOriginalName);
+
+    // セグメント別分析を実行
+    analyzeSegments(parsedData, fileDataToOriginalName);
 }
 
 /**
@@ -1727,10 +2091,25 @@ function updateStatisticsChartsOptions() {
             chart.options.plugins.legend.display = tooltipEnabled;
             chart.options.plugins.tooltip.enabled = tooltipEnabled;
             chart.options.plugins.tooltip.mode = tooltipSingleMode ? 'nearest' : 'index';
+            chart.options.plugins.tooltip.intersect = tooltipSingleMode ? true : false;
             chart.options.plugins.tooltip.axis = tooltipSingleMode ? 'xy' : 'x';
             chart.update('none');
         }
     });
+}
+
+/**
+ * トルク変動率グラフのツールチップ設定を更新（凡例は常に表示）
+ */
+function updateDerivativeChartOptions() {
+    if (derivativeChart) {
+        // 凡例は常に表示（display: trueのまま）
+        derivativeChart.options.plugins.tooltip.enabled = tooltipEnabled;
+        derivativeChart.options.plugins.tooltip.mode = tooltipSingleMode ? 'nearest' : 'index';
+        derivativeChart.options.plugins.tooltip.intersect = tooltipSingleMode ? true : false;
+        derivativeChart.options.plugins.tooltip.axis = tooltipSingleMode ? 'xy' : 'x';
+        derivativeChart.update('none');
+    }
 }
 
 /**
@@ -1744,6 +2123,767 @@ function updateScatterChartOptions() {
         scatterChart.options.plugins.tooltip.axis = tooltipSingleMode ? 'xy' : 'x';
         scatterChart.update('none');
     }
+}
+
+/**
+ * 相関係数を計算
+ */
+function calculateCorrelation(array1, array2) {
+    if (array1.length !== array2.length || array1.length === 0) return 0;
+
+    const n = array1.length;
+    const mean1 = array1.reduce((sum, val) => sum + val, 0) / n;
+    const mean2 = array2.reduce((sum, val) => sum + val, 0) / n;
+
+    let numerator = 0;
+    let sumSq1 = 0;
+    let sumSq2 = 0;
+
+    for (let i = 0; i < n; i++) {
+        const diff1 = array1[i] - mean1;
+        const diff2 = array2[i] - mean2;
+        numerator += diff1 * diff2;
+        sumSq1 += diff1 * diff1;
+        sumSq2 += diff2 * diff2;
+    }
+
+    const denominator = Math.sqrt(sumSq1 * sumSq2);
+    if (denominator === 0) return 0;
+
+    return numerator / denominator;
+}
+
+/**
+ * 波形特徴量を計算
+ */
+function calculateWaveformFeatures(dataPoints) {
+    if (!dataPoints || dataPoints.length === 0) {
+        return { max: 0, min: 0, avg: 0, std: 0, cv: 0, peakIndex: 0 };
+    }
+
+    const values = dataPoints.map(p => p.y);
+
+    // 最大値・最小値
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+
+    // 平均値
+    const avg = values.reduce((sum, val) => sum + val, 0) / values.length;
+
+    // 標準偏差
+    const variance = values.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / values.length;
+    const std = Math.sqrt(variance);
+
+    // 変動係数（CV: Coefficient of Variation）
+    const cv = avg !== 0 ? (std / Math.abs(avg)) * 100 : 0;
+
+    // ピーク位置（絶対値最大の位置）
+    let peakIndex = 0;
+    let maxAbs = 0;
+    values.forEach((val, idx) => {
+        if (Math.abs(val) > maxAbs) {
+            maxAbs = Math.abs(val);
+            peakIndex = idx;
+        }
+    });
+
+    return { max, min, avg, std, cv, peakIndex: dataPoints[peakIndex].x };
+}
+
+/**
+ * 定数: 適合率計算用パラメータ
+ */
+const CONFORMITY_CONFIG = {
+    TARGET_COLUMNS: ['X-TCMD', 'Y-TCMD', 'Z-TCMD', 'S-TCMD'],
+    MEAN_DIFF_WEIGHT: 20,  // 平均値差の重み係数
+    CORRELATION_WEIGHT: 0.3,  // 相関係数の重み
+    RMSE_WEIGHT: 0.7  // RMSEの重み
+};
+
+/**
+ * 修正RMSEを計算（平均値差を考慮）
+ */
+function calculateModifiedRMSE(fileValues, avgValues) {
+    // 平均値の差を計算
+    const fileMean = fileValues.reduce((sum, val) => sum + val, 0) / fileValues.length;
+    const avgMean = avgValues.reduce((sum, val) => sum + val, 0) / avgValues.length;
+    const meanDiff = Math.abs(fileMean - avgMean);
+
+    // 通常のRMSE
+    let sumSquaredError = 0;
+    for (let i = 0; i < fileValues.length; i++) {
+        const error = fileValues[i] - avgValues[i];
+        sumSquaredError += error * error;
+    }
+    const rmse = Math.sqrt(sumSquaredError / fileValues.length);
+
+    // 修正RMSE = √(RMSE² + (平均値差 × 重み係数)²)
+    const rmseModified = Math.sqrt(
+        rmse * rmse +
+        (meanDiff * CONFORMITY_CONFIG.MEAN_DIFF_WEIGHT) * (meanDiff * CONFORMITY_CONFIG.MEAN_DIFF_WEIGHT)
+    );
+
+    return { rmseModified, rmse, meanDiff, fileMean, avgMean };
+}
+
+/**
+ * Leave-One-Out方式で平均パターンを計算
+ */
+function calculateLeaveOneOutAverages(fileDataMap, sortedXIndices, targetColumns) {
+    const averageByXByFile = new Map();
+    const fileNames = Array.from(fileDataMap.keys());
+
+    fileNames.forEach(targetFileName => {
+        const averageByX = new Map();
+
+        sortedXIndices.forEach(xIndex => {
+            const columnAverages = new Map();
+
+            targetColumns.forEach(columnName => {
+                const values = [];
+                fileDataMap.forEach((columnMap, fileName) => {
+                    // 評価対象ファイルを除外して平均を計算
+                    if (fileName !== targetFileName && columnMap.has(columnName)) {
+                        const yValue = columnMap.get(columnName).get(xIndex);
+                        if (yValue !== undefined) {
+                            values.push(yValue);
+                        }
+                    }
+                });
+
+                if (values.length > 0) {
+                    const avg = values.reduce((sum, val) => sum + val, 0) / values.length;
+                    columnAverages.set(columnName, avg);
+                }
+            });
+
+            averageByX.set(xIndex, columnAverages);
+        });
+
+        averageByXByFile.set(targetFileName, averageByX);
+    });
+
+    return averageByXByFile;
+}
+
+/**
+ * 軸ごとの適合率を計算
+ */
+function calculateAxisConformityRate(correlation, rmse, maxRmse) {
+    // 相関係数スコア (0-100)
+    const correlationScore = Math.max(0, Math.min(100, correlation * 100));
+
+    // RMSEスコア (0-100, 小さいほど高得点)
+    const normalizedRmse = rmse / maxRmse;
+    const rmseScore = Math.max(0, (1 - normalizedRmse) * 100);
+
+    // 組み合わせ（相関30% + RMSE70%）
+    const rate = correlationScore * CONFORMITY_CONFIG.CORRELATION_WEIGHT +
+                 rmseScore * CONFORMITY_CONFIG.RMSE_WEIGHT;
+
+    return { rate, correlationScore, rmseScore };
+}
+
+/**
+ * 適合率を計算（相関係数ベース）
+ */
+function calculateConformityRates(parsedData, fileDataToOriginalName) {
+    const targetColumns = CONFORMITY_CONFIG.TARGET_COLUMNS;
+
+    // ファイルごとのデータを整理（オフセット適用済み、Map化して高速検索）
+    const fileDataMap = new Map(); // Map<fileName, Map<columnName, Map<x, y>>>
+
+    parsedData.forEach(fileData => {
+        const originalFileName = fileDataToOriginalName.get(fileData.fileName) || fileData.fileName;
+        if (excludedFiles.includes(originalFileName)) return;
+
+        if (!fileDataMap.has(originalFileName)) {
+            fileDataMap.set(originalFileName, new Map());
+        }
+
+        // オフセット値を取得
+        const fileOffset = fileOffsets.get(originalFileName) || 0;
+
+        fileData.datasets.forEach(dataset => {
+            const columnName = dataset.label.split(' - ')[1] || '';
+            if (!targetColumns.includes(columnName)) return;
+            if (xAxisPattern && columnName === xAxisPattern) return;
+            if (excludedColumns.includes(columnName)) return;
+
+            // オフセットを適用し、MapでX軸→Y値の高速検索を可能に
+            const dataMap = new Map();
+            dataset.data.forEach(point => {
+                const xWithOffset = parseInt(point.x) + fileOffset;
+                dataMap.set(xWithOffset, point.y);
+            });
+
+            fileDataMap.get(originalFileName).set(columnName, dataMap);
+        });
+    });
+
+    // X軸の全インデックスを収集
+    const allXIndices = new Set();
+    fileDataMap.forEach(columnMap => {
+        columnMap.forEach(dataMap => {
+            dataMap.forEach((_, x) => allXIndices.add(x));
+        });
+    });
+    const sortedXIndices = Array.from(allXIndices).sort((a, b) => a - b);
+
+    // Leave-One-Out方式で平均パターンを計算
+    const averageByXByFile = calculateLeaveOneOutAverages(fileDataMap, sortedXIndices, targetColumns);
+
+    // ファイルごとに適合率と波形特徴量を計算
+    const conformityRates = [];
+    const rmseByAxis = {}; // 軸ごとの全ファイルのRMSEを収集（正規化用）
+
+    // 第1パス: 相関係数とRMSEを計算
+    const tempResults = [];
+    fileDataMap.forEach((columnMap, fileName) => {
+        const correlationsByAxis = {};  // 軸ごとの相関係数
+        const rmsesByAxis = {};  // 軸ごとのRMSE
+        const features = {
+            zTcmd: null  // Z-TCMDの特徴量（負荷の代表として使用）
+        };
+
+        // このファイルの平均パターン（Leave-One-Out）を取得
+        const averageByX = averageByXByFile.get(fileName);
+        if (!averageByX) return;
+
+        targetColumns.forEach(columnName => {
+            if (!columnMap.has(columnName)) return;
+
+            const dataMap = columnMap.get(columnName);
+            const fileValues = [];
+            const avgValues = [];
+
+            // Map化されたデータを使用して高速検索
+            sortedXIndices.forEach(xIndex => {
+                const avgValue = averageByX.get(xIndex)?.get(columnName);
+                const yValue = dataMap.get(xIndex);
+
+                if (yValue !== undefined && avgValue !== undefined) {
+                    fileValues.push(yValue);
+                    avgValues.push(avgValue);
+                }
+            });
+
+            if (fileValues.length > 0) {
+                // 相関係数を計算
+                const correlation = calculateCorrelation(fileValues, avgValues);
+                correlationsByAxis[columnName] = correlation;
+
+                // 修正RMSEを計算
+                const { rmseModified } = calculateModifiedRMSE(fileValues, avgValues);
+                rmsesByAxis[columnName] = rmseModified;
+
+                // 軸ごとのRMSEを収集（正規化用）
+                if (!rmseByAxis[columnName]) {
+                    rmseByAxis[columnName] = [];
+                }
+                rmseByAxis[columnName].push(rmseModified);
+            }
+
+            // Z-TCMDの波形特徴量を計算（Map→Array変換）
+            if (columnName === 'Z-TCMD' && columnMap.has(columnName)) {
+                const dataArray = Array.from(dataMap.entries()).map(([x, y]) => ({ x, y }));
+                features.zTcmd = calculateWaveformFeatures(dataArray);
+            }
+        });
+
+        tempResults.push({
+            fileName: fileName,
+            correlationsByAxis: correlationsByAxis,
+            rmsesByAxis: rmsesByAxis,
+            features: features
+        });
+    });
+
+    // 第2パス: RMSEを正規化して適合率を計算
+    const maxRmseByAxis = {};
+    targetColumns.forEach(columnName => {
+        if (rmseByAxis[columnName] && rmseByAxis[columnName].length > 0) {
+            maxRmseByAxis[columnName] = Math.max(...rmseByAxis[columnName], 0.01);
+        }
+    });
+
+    tempResults.forEach(result => {
+        const { fileName, correlationsByAxis, rmsesByAxis, features } = result;
+
+        // 各軸の適合率を計算
+        const calculateAxisRate = (columnName) => {
+            if (correlationsByAxis[columnName] === undefined) return null;
+
+            const correlation = correlationsByAxis[columnName];
+            const rmse = rmsesByAxis[columnName];
+            const maxRmse = maxRmseByAxis[columnName];
+
+            const { rate } = calculateAxisConformityRate(correlation, rmse, maxRmse);
+            return rate;
+        };
+
+        const xRate = calculateAxisRate('X-TCMD');
+        const yRate = calculateAxisRate('Y-TCMD');
+        const zRate = calculateAxisRate('Z-TCMD');
+        const sRate = calculateAxisRate('S-TCMD');
+
+        // 4軸の適合率の平均を適合率（計）とする
+        const rates = [xRate, yRate, zRate, sRate].filter(r => r !== null);
+        const conformityRate = rates.length > 0
+            ? rates.reduce((sum, val) => sum + val, 0) / rates.length
+            : 0;
+
+        conformityRates.push({
+            fileName: fileName,
+            conformityRate: conformityRate,
+            xRate: xRate,
+            yRate: yRate,
+            zRate: zRate,
+            sRate: sRate,
+            count: rates.length,
+            features: features
+        });
+    });
+
+    // 適合率でソート（高い順）
+    conformityRates.sort((a, b) => b.conformityRate - a.conformityRate);
+
+    return conformityRates;
+}
+
+/**
+ * 適合率を表示
+ */
+function displayConformityRates(conformityRates) {
+    const container = document.getElementById('conformityRatesContainer');
+    if (!container) return;
+
+    // 適合率の色を判定する関数
+    const getRateColor = (rate) => {
+        if (rate === null) return '#999';
+        return rate >= 80 ? '#4CAF50' : rate >= 60 ? '#FF9800' : '#f44336';
+    };
+
+    const formatRate = (rate) => {
+        return rate !== null ? rate.toFixed(2) + '%' : '-';
+    };
+
+    let html = '<table style="width: 100%; border-collapse: collapse; font-size: 14px;">';
+    html += '<thead><tr style="background: #4CAF50; color: white;">';
+    html += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">ファイル名</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">適合率(計)</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd; background: #45a049;">X軸</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd; background: #45a049;">Y軸</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd; background: #45a049;">Z軸</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd; background: #45a049;">S軸</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">最大負荷</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">平均負荷</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">変動係数</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">ピーク位置</th>';
+    html += '</tr></thead><tbody>';
+
+    conformityRates.forEach((rate, index) => {
+        const bgColor = index % 2 === 0 ? '#f9f9f9' : 'white';
+        const totalRateColor = getRateColor(rate.conformityRate);
+        const xRateColor = getRateColor(rate.xRate);
+        const yRateColor = getRateColor(rate.yRate);
+        const zRateColor = getRateColor(rate.zRate);
+        const sRateColor = getRateColor(rate.sRate);
+
+        const features = rate.features.zTcmd;
+        const maxLoad = features ? features.max.toFixed(2) : '-';
+        const avgLoad = features ? features.avg.toFixed(2) : '-';
+        const cv = features ? features.cv.toFixed(2) + '%' : '-';
+        const peakPos = features ? 'X=' + features.peakIndex : '-';
+
+        html += `<tr style="background: ${bgColor};">`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd;">${rate.fileName}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right; font-weight: bold; color: ${totalRateColor};">${formatRate(rate.conformityRate)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right; color: ${xRateColor}; font-weight: 600;">${formatRate(rate.xRate)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right; color: ${yRateColor}; font-weight: 600;">${formatRate(rate.yRate)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right; color: ${zRateColor}; font-weight: 600;">${formatRate(rate.zRate)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right; color: ${sRateColor}; font-weight: 600;">${formatRate(rate.sRate)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${maxLoad}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${avgLoad}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${cv}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${peakPos}</td>`;
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+/**
+ * 位置-負荷相関分析を実行・表示
+ */
+function analyzePositionLoadCorrelation(parsedData, fileDataToOriginalName) {
+    const container = document.getElementById('positionLoadCorrelationContainer');
+    if (!container) return;
+
+    // 各ファイルについて分析
+    const analysisResults = [];
+
+    parsedData.forEach(fileData => {
+        const originalFileName = fileDataToOriginalName.get(fileData.fileName) || fileData.fileName;
+        if (excludedFiles.includes(originalFileName)) return;
+
+        // 必要なデータを取得
+        const datasets = getDatasets(fileData, ['X-POSF', 'Y-POSF', 'X-TCMD', 'Y-TCMD', 'Z-TCMD']);
+        const { 'X-POSF': xPosfDataset, 'Y-POSF': yPosfDataset, 'X-TCMD': xTcmdDataset,
+                'Y-TCMD': yTcmdDataset, 'Z-TCMD': zTcmdDataset } = datasets;
+
+        if (!xPosfDataset || !yPosfDataset) return;
+
+        // 平均位置を計算（簡易的に全データの平均）
+        const xPosfValues = xPosfDataset.data.map(d => d.y);
+        const yPosfValues = yPosfDataset.data.map(d => d.y);
+        const avgXPosf = xPosfValues.reduce((sum, v) => sum + v, 0) / xPosfValues.length;
+        const avgYPosf = yPosfValues.reduce((sum, v) => sum + v, 0) / yPosfValues.length;
+
+        // 位置誤差（平均からの距離）を計算
+        const positionErrors = [];
+        const loads = [];
+
+        for (let i = 0; i < xPosfValues.length; i++) {
+            const dx = xPosfValues[i] - avgXPosf;
+            const dy = yPosfValues[i] - avgYPosf;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            positionErrors.push(distance);
+
+            // 合成負荷を計算（XYZの二乗和の平方根）
+            const xTcmd = xTcmdDataset ? (xTcmdDataset.data[i]?.y || 0) : 0;
+            const yTcmd = yTcmdDataset ? (yTcmdDataset.data[i]?.y || 0) : 0;
+            const zTcmd = zTcmdDataset ? (zTcmdDataset.data[i]?.y || 0) : 0;
+            const totalLoad = calculateCompositeLoad(xTcmd, yTcmd, zTcmd);
+            loads.push(totalLoad);
+        }
+
+        // 相関係数を計算
+        const correlation = calculateCorrelation(positionErrors, loads);
+
+        // 平均値を計算
+        const avgPositionError = positionErrors.reduce((sum, v) => sum + v, 0) / positionErrors.length;
+        const avgLoad = loads.reduce((sum, v) => sum + v, 0) / loads.length;
+
+        analysisResults.push({
+            fileName: originalFileName,
+            correlation: correlation,
+            avgPositionError: avgPositionError,
+            avgLoad: avgLoad,
+            maxPositionError: Math.max(...positionErrors),
+            maxLoad: Math.max(...loads)
+        });
+    });
+
+    // 結果をテーブルで表示
+    let html = '<table style="width: 100%; border-collapse: collapse; font-size: 14px;">';
+    html += '<thead><tr style="background: #4CAF50; color: white;">';
+    html += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">ファイル名</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">相関係数</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">平均位置誤差</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">最大位置誤差</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">平均負荷</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">最大負荷</th>';
+    html += '</tr></thead><tbody>';
+
+    analysisResults.forEach((result, index) => {
+        const bgColor = index % 2 === 0 ? '#f9f9f9' : 'white';
+        const corrColor = Math.abs(result.correlation) > 0.7 ? '#F44336' :
+                          Math.abs(result.correlation) > 0.4 ? '#FF9800' : '#4CAF50';
+
+        html += `<tr style="background: ${bgColor};">`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd;">${result.fileName}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right; font-weight: bold; color: ${corrColor};">${result.correlation.toFixed(4)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${result.avgPositionError.toFixed(4)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${result.maxPositionError.toFixed(4)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${result.avgLoad.toFixed(2)}</td>`;
+        html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${result.maxLoad.toFixed(2)}</td>`;
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+
+    container.innerHTML = html;
+}
+
+/**
+ * 位置別負荷ヒートマップを描画
+ */
+function drawPositionLoadHeatmap(parsedData, fileDataToOriginalName) {
+    const container = document.getElementById('positionLoadHeatmapContainer');
+    if (!container) return;
+
+    const gridSize = 20;
+    const allGridData = [];
+    let globalMaxLoad = 0;
+
+    // 第1パス: 全ファイルのグリッドデータを計算し、最大負荷を取得
+    parsedData.forEach((fileData) => {
+        const originalFileName = fileDataToOriginalName.get(fileData.fileName) || fileData.fileName;
+        if (excludedFiles.includes(originalFileName)) return;
+
+        // 必要なデータを取得
+        const datasets = getDatasets(fileData, ['X-POSF', 'Y-POSF', 'X-TCMD', 'Y-TCMD', 'Z-TCMD']);
+        const { 'X-POSF': xPosfDataset, 'Y-POSF': yPosfDataset, 'X-TCMD': xTcmdDataset,
+                'Y-TCMD': yTcmdDataset, 'Z-TCMD': zTcmdDataset } = datasets;
+
+        if (!xPosfDataset || !yPosfDataset || !zTcmdDataset) return;
+
+        // データを収集
+        const dataPoints = [];
+        for (let i = 0; i < xPosfDataset.data.length; i++) {
+            const xPos = xPosfDataset.data[i].y;
+            const yPos = yPosfDataset.data[i].y;
+            const xTcmd = xTcmdDataset ? (xTcmdDataset.data[i]?.y || 0) : 0;
+            const yTcmd = yTcmdDataset ? (yTcmdDataset.data[i]?.y || 0) : 0;
+            const zTcmd = zTcmdDataset.data[i].y;
+            const totalLoad = calculateCompositeLoad(xTcmd, yTcmd, zTcmd);
+
+            dataPoints.push({ x: xPos, y: yPos, load: totalLoad });
+        }
+
+        // X-Y空間をグリッド分割
+        const xMin = Math.min(...dataPoints.map(p => p.x));
+        const xMax = Math.max(...dataPoints.map(p => p.x));
+        const yMin = Math.min(...dataPoints.map(p => p.y));
+        const yMax = Math.max(...dataPoints.map(p => p.y));
+
+        const xStep = (xMax - xMin) / gridSize;
+        const yStep = (yMax - yMin) / gridSize;
+
+        // グリッドごとの平均負荷を計算
+        const grid = [];
+        for (let i = 0; i < gridSize; i++) {
+            grid[i] = [];
+            for (let j = 0; j < gridSize; j++) {
+                const xStart = xMin + i * xStep;
+                const xEnd = xStart + xStep;
+                const yStart = yMin + j * yStep;
+                const yEnd = yStart + yStep;
+
+                const pointsInCell = dataPoints.filter(p =>
+                    p.x >= xStart && p.x < xEnd && p.y >= yStart && p.y < yEnd
+                );
+
+                if (pointsInCell.length > 0) {
+                    const avgLoad = pointsInCell.reduce((sum, p) => sum + p.load, 0) / pointsInCell.length;
+                    grid[i][j] = avgLoad;
+                    globalMaxLoad = Math.max(globalMaxLoad, avgLoad);
+                } else {
+                    grid[i][j] = null;
+                }
+            }
+        }
+
+        allGridData.push({ fileName: originalFileName, grid: grid });
+    });
+
+    // 第2パス: 統一されたカラースケールでヒートマップを描画
+    let html = '<div style="display: flex; gap: 20px; margin-bottom: 20px;">';
+    html += '<div style="flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">';
+
+    allGridData.forEach((fileGridData) => {
+        const { fileName, grid } = fileGridData;
+
+        // ヒートマップをHTMLテーブルで描画（正方形セルにするため固定サイズ）
+        const cellSize = 15; // 20×20グリッドなので各セルは正方形
+        html += `<div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">`;
+        html += `<h4 style="font-size: 13px; margin-bottom: 10px; color: #333; text-align: center;">${fileName}</h4>`;
+        html += `<div style="display: flex; gap: 10px; align-items: flex-start; justify-content: center;">`;
+
+        // ヒートマップグリッド
+        html += `<div style="position: relative;">`;
+        html += `<table style="border-collapse: collapse; border: 2px solid #333; table-layout: fixed;">`;
+
+        // Y軸は上から下へ（逆順）
+        for (let j = gridSize - 1; j >= 0; j--) {
+            html += '<tr>';
+            for (let i = 0; i < gridSize; i++) {
+                const load = grid[i][j];
+                let color = '#f0f0f0'; // デフォルト（データなし）
+
+                if (load !== null) {
+                    const ratio = load / globalMaxLoad; // グローバル最大値を使用
+                    color = getHeatmapColor(ratio);
+                }
+
+                html += `<td style="width: ${cellSize}px; height: ${cellSize}px; background: ${color}; border: 1px solid #ddd; padding: 0;" title="Load: ${load ? load.toFixed(2) : 'N/A'}"></td>`;
+            }
+            html += '</tr>';
+        }
+        html += '</table>';
+
+        // 軸ラベル
+        html += `<div style="text-align: center; margin-top: 5px; font-size: 10px; color: #666;">X-POSF →</div>`;
+        html += `<div style="position: absolute; left: -35px; top: 50%; transform: translateY(-50%) rotate(-90deg); font-size: 10px; color: #666; white-space: nowrap;">Y-POSF →</div>`;
+        html += `</div>`;
+        html += `</div>`;
+        html += `</div>`;
+    });
+
+    html += '</div>'; // グリッドレイアウトを閉じる
+
+    // 統一されたカラーバー（右側に表示）
+    html += `<div style="display: flex; flex-direction: column; justify-content: center; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">`;
+    html += `<div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; text-align: center;">負荷スケール</div>`;
+    html += `<div style="display: flex; flex-direction: column;">`;
+
+    const colorSteps = 10;
+    for (let k = colorSteps - 1; k >= 0; k--) {
+        const ratio = k / (colorSteps - 1);
+        const load = globalMaxLoad * ratio;
+        const color = getHeatmapColor(ratio);
+
+        html += `<div style="display: flex; align-items: center; margin-bottom: 4px;">`;
+        html += `<div style="width: 40px; height: 20px; background: ${color}; border: 1px solid #999;"></div>`;
+        html += `<span style="margin-left: 10px; font-size: 12px; min-width: 50px;">${load.toFixed(1)}</span>`;
+        html += `</div>`;
+    }
+
+    html += `</div>`;
+    html += `<div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #ddd; font-size: 11px; color: #666; text-align: center;">`;
+    html += `</div>`;
+    html += `</div>`;
+    html += '</div>'; // 全体のflexコンテナを閉じる
+
+    container.innerHTML = html;
+}
+
+/**
+ * セグメント別分析を実行・表示
+ */
+function analyzeSegments(parsedData, fileDataToOriginalName) {
+    const container = document.getElementById('segmentAnalysisContainer');
+    if (!container) return;
+
+    const segmentResults = [];
+
+    parsedData.forEach(fileData => {
+        const originalFileName = fileDataToOriginalName.get(fileData.fileName) || fileData.fileName;
+        if (excludedFiles.includes(originalFileName)) return;
+
+        // 必要なデータを取得
+        const datasets = getDatasets(fileData, ['X-TCMD', 'Y-TCMD', 'Z-TCMD']);
+        const { 'X-TCMD': xTcmdDataset, 'Y-TCMD': yTcmdDataset, 'Z-TCMD': zTcmdDataset } = datasets;
+
+        if (!zTcmdDataset) return;
+
+        // オフセット値を取得
+        const fileOffset = fileOffsets.get(originalFileName) || 0;
+
+        // オフセットを適用したデータ範囲を計算
+        const startIndex = Math.max(0, fileOffset);
+        const endIndex = zTcmdDataset.data.length;
+        const effectiveLength = endIndex - startIndex;
+
+        if (effectiveLength <= 0) return;
+
+        // 3つのセグメントに分割（オフセット適用後）
+        const segment1End = startIndex + Math.floor(effectiveLength * 0.33);
+        const segment2End = startIndex + Math.floor(effectiveLength * 0.67);
+
+        const segments = [
+            { name: '開始', range: '0-33%', startIdx: startIndex, endIdx: segment1End },
+            { name: '中盤', range: '33-67%', startIdx: segment1End, endIdx: segment2End },
+            { name: '終盤', range: '67-100%', startIdx: segment2End, endIdx: endIndex }
+        ];
+
+        const segmentStats = segments.map(segment => {
+            // 1パスで統計量を計算（パフォーマンス最適化）
+            let sum = 0;
+            let maxLoad = -Infinity;
+            let minLoad = Infinity;
+            let count = 0;
+            const loads = [];
+
+            for (let i = segment.startIdx; i < segment.endIdx && i < zTcmdDataset.data.length; i++) {
+                const zTcmd = zTcmdDataset.data[i].y;
+                const xTcmd = xTcmdDataset && i < xTcmdDataset.data.length ? xTcmdDataset.data[i].y : 0;
+                const yTcmd = yTcmdDataset && i < yTcmdDataset.data.length ? yTcmdDataset.data[i].y : 0;
+                const totalLoad = calculateCompositeLoad(xTcmd, yTcmd, zTcmd);
+
+                loads.push(totalLoad);
+                sum += totalLoad;
+                maxLoad = Math.max(maxLoad, totalLoad);
+                minLoad = Math.min(minLoad, totalLoad);
+                count++;
+            }
+
+            if (count === 0) {
+                return {
+                    name: segment.name,
+                    range: segment.range,
+                    avgLoad: 0,
+                    maxLoad: 0,
+                    minLoad: 0,
+                    stdDev: 0,
+                    variationCoeff: 0
+                };
+            }
+
+            const avgLoad = sum / count;
+            const stdDev = Math.sqrt(loads.reduce((sum, v) => sum + Math.pow(v - avgLoad, 2), 0) / count);
+
+            return {
+                name: segment.name,
+                range: segment.range,
+                avgLoad: avgLoad,
+                maxLoad: maxLoad,
+                minLoad: minLoad,
+                stdDev: stdDev,
+                variationCoeff: (stdDev / Math.abs(avgLoad)) * 100
+            };
+        });
+
+        segmentResults.push({
+            fileName: originalFileName,
+            segments: segmentStats
+        });
+    });
+
+    // テーブルで結果を表示
+    let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">';
+    html += '<thead><tr style="background: #4CAF50; color: white;">';
+    html += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">ファイル名</th>';
+    html += '<th style="padding: 10px; text-align: center; border: 1px solid #ddd;">セグメント</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">平均負荷</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">最大負荷</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">最小負荷</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">標準偏差</th>';
+    html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">変動係数(%)</th>';
+    html += '</tr></thead><tbody>';
+
+    segmentResults.forEach((result, fileIndex) => {
+        result.segments.forEach((segment, segIndex) => {
+            const bgColor = fileIndex % 2 === 0 ? '#f9f9f9' : 'white';
+            const isFirst = segIndex === 0;
+
+            // 変動係数で色分け
+            let variationColor = '#4CAF50'; // 緑（安定）
+            if (segment.variationCoeff > 50) {
+                variationColor = '#F44336'; // 赤（不安定）
+            } else if (segment.variationCoeff > 30) {
+                variationColor = '#FF9800'; // オレンジ（中程度）
+            }
+
+            html += `<tr style="background: ${bgColor};">`;
+            if (isFirst) {
+                html += `<td rowspan="3" style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${result.fileName}</td>`;
+            }
+            html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;"><strong>${segment.name}</strong><br><span style="font-size: 11px; color: #666;">(${segment.range})</span></td>`;
+            html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${segment.avgLoad.toFixed(2)}</td>`;
+            html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${segment.maxLoad.toFixed(2)}</td>`;
+            html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${segment.minLoad.toFixed(2)}</td>`;
+            html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${segment.stdDev.toFixed(2)}</td>`;
+            html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: right; font-weight: bold; color: ${variationColor};">${segment.variationCoeff.toFixed(1)}%</td>`;
+            html += '</tr>';
+        });
+    });
+
+    html += '</tbody></table>';
+
+    container.innerHTML = html;
 }
 
 /**
@@ -2194,6 +3334,11 @@ async function createScatterPlot() {
  * 初期化
  */
 function init() {
+    // ページ読み込み時にファイル入力をクリア
+    if (elements.csvInput) {
+        elements.csvInput.value = '';
+    }
+
     // ファイル入力
     elements.csvInput.addEventListener('change', async (e) => {
         const files = Array.from(e.target.files);
@@ -2238,6 +3383,9 @@ function init() {
             savedZoomState = null;
             preserveZoom = false;
         }
+        if (derivativeChart) {
+            derivativeChart.resetZoom();
+        }
     });
 
     // CSV出力
@@ -2258,9 +3406,10 @@ function init() {
             preserveZoom = true;
             await renderChartFromFiles();
         }
-        // 統計グラフと散布図も更新
+        // 統計グラフと散布図とトルク変動率グラフも更新
         updateStatisticsChartsOptions();
         updateScatterChartOptions();
+        updateDerivativeChartOptions();
     });
 
     // 凡例(単体)チェックボックス
@@ -2277,9 +3426,10 @@ function init() {
             preserveZoom = true;
             await renderChartFromFiles();
         }
-        // 統計グラフと散布図も更新
+        // 統計グラフと散布図とトルク変動率グラフも更新
         updateStatisticsChartsOptions();
         updateScatterChartOptions();
+        updateDerivativeChartOptions();
     });
 
     // 移動平均列選択
@@ -2389,7 +3539,18 @@ function init() {
 
     // キーボード操作
     document.addEventListener('keydown', (e) => {
-        if (!chart) return;
+        // アクティブなグラフがない場合は何もしない
+        if (!activeChart) return;
+
+        // input、textarea、select要素にフォーカスがある場合は何もしない
+        const activeElement = document.activeElement;
+        if (activeElement && (
+            activeElement.tagName === 'INPUT' ||
+            activeElement.tagName === 'TEXTAREA' ||
+            activeElement.tagName === 'SELECT'
+        )) {
+            return;
+        }
 
         if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' ||
             e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -2430,12 +3591,27 @@ function init() {
         panFromScrollbar('y', parseFloat(e.target.value));
     });
 
-    // グラフエリアの右クリックイベント
+    // メイングラフエリアのイベント
     const chartCanvas = document.getElementById('myChart');
     if (chartCanvas) {
+        // クリックでアクティブ化
+        chartCanvas.addEventListener('click', () => {
+            activeChart = 'main';
+        });
+
+        // 右クリックイベント
         chartCanvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             showDataRangeModal();
+        });
+    }
+
+    // トルク変動率グラフエリアのイベント
+    const derivativeCanvas = document.getElementById('derivativeChart');
+    if (derivativeCanvas) {
+        // クリックでアクティブ化
+        derivativeCanvas.addEventListener('click', () => {
+            activeChart = 'derivative';
         });
     }
 
@@ -2562,6 +3738,440 @@ function showDataRangeModal() {
     if (firstInput) {
         setTimeout(() => firstInput.focus(), 100);
     }
+}
+
+// ===========================
+// 3Dシミュレーション
+// ===========================
+
+/**
+ * 3Dシミュレーションを初期化
+ */
+function init3DSimulation(parsedData, fileDataToOriginalName) {
+    const container = document.getElementById('simulation3dContainer');
+    if (!container) return;
+
+    // データが空の場合は何もしない
+    if (!parsedData || parsedData.length === 0) {
+        console.log('No data to display in 3D simulation');
+        return;
+    }
+
+    // Three.jsの読み込みを待つ
+    if (!window.THREE || !window.OrbitControls) {
+        console.log('Waiting for Three.js to load...');
+        setTimeout(() => init3DSimulation(parsedData, fileDataToOriginalName), 100);
+        return;
+    }
+
+    console.log('Initializing 3D simulation...');
+
+    // 既存のシミュレーションをクリーンアップ
+    cleanup3DSimulation();
+
+    // シーンの作成
+    simulation3D.scene = new THREE.Scene();
+    simulation3D.scene.background = new THREE.Color(0x1a1a1a);
+
+    // カメラの作成
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    simulation3D.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 2000);
+    simulation3D.camera.position.set(150, 150, 150);
+    simulation3D.camera.lookAt(0, 0, 0);
+
+    // レンダラーの作成
+    simulation3D.renderer = new THREE.WebGLRenderer({ antialias: true });
+    simulation3D.renderer.setSize(width, height);
+    simulation3D.renderer.shadowMap.enabled = true;
+    simulation3D.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.innerHTML = '';
+    container.appendChild(simulation3D.renderer.domElement);
+
+    // OrbitControlsの追加（グローバルに公開されたOrbitControlsクラスを使用）
+    simulation3D.controls = new window.OrbitControls(simulation3D.camera, simulation3D.renderer.domElement);
+    simulation3D.controls.enableDamping = true;
+    simulation3D.controls.dampingFactor = 0.05;
+
+    // ライトの追加
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    simulation3D.scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(20, 30, 20);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    simulation3D.scene.add(directionalLight);
+
+    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+    directionalLight2.position.set(-20, 20, -20);
+    simulation3D.scene.add(directionalLight2);
+
+    // 座標軸を追加
+    addColoredAxes();
+
+    // 複数ファイルの3D軌跡を作成
+    create3DTrajectories(parsedData, fileDataToOriginalName);
+
+    // アニメーションループ
+    function animate() {
+        requestAnimationFrame(animate);
+        if (simulation3D.controls) {
+            simulation3D.controls.update();
+        }
+        if (simulation3D.renderer && simulation3D.scene && simulation3D.camera) {
+            simulation3D.renderer.render(simulation3D.scene, simulation3D.camera);
+        }
+    }
+    animate();
+
+    // リサイズ対応
+    const resizeObserver = new ResizeObserver(() => {
+        if (!simulation3D.camera || !simulation3D.renderer) return;
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        simulation3D.camera.aspect = width / height;
+        simulation3D.camera.updateProjectionMatrix();
+        simulation3D.renderer.setSize(width, height);
+    });
+    resizeObserver.observe(container);
+
+    // コントロールイベントの設定
+    setup3DControls();
+}
+
+/**
+ * 色付き座標軸を追加
+ */
+function addColoredAxes() {
+    const axisLength = 50;
+    const arrowLength = 5;
+    const arrowWidth = 2;
+
+    // X軸（赤）
+    const xAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(axisLength, 0, 0)
+    ]);
+    const xAxisMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+    const xAxis = new THREE.Line(xAxisGeometry, xAxisMaterial);
+    simulation3D.scene.add(xAxis);
+
+    // X軸矢印
+    const xArrowGeometry = new THREE.ConeGeometry(arrowWidth, arrowLength, 8);
+    const xArrowMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const xArrow = new THREE.Mesh(xArrowGeometry, xArrowMaterial);
+    xArrow.position.set(axisLength, 0, 0);
+    xArrow.rotation.z = -Math.PI / 2;
+    simulation3D.scene.add(xArrow);
+
+    // Y軸（緑）
+    const yAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, axisLength, 0)
+    ]);
+    const yAxisMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+    const yAxis = new THREE.Line(yAxisGeometry, yAxisMaterial);
+    simulation3D.scene.add(yAxis);
+
+    // Y軸矢印
+    const yArrowGeometry = new THREE.ConeGeometry(arrowWidth, arrowLength, 8);
+    const yArrowMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    const yArrow = new THREE.Mesh(yArrowGeometry, yArrowMaterial);
+    yArrow.position.set(0, axisLength, 0);
+    simulation3D.scene.add(yArrow);
+
+    // Z軸（青）
+    const zAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, axisLength)
+    ]);
+    const zAxisMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 2 });
+    const zAxis = new THREE.Line(zAxisGeometry, zAxisMaterial);
+    simulation3D.scene.add(zAxis);
+
+    // Z軸矢印
+    const zArrowGeometry = new THREE.ConeGeometry(arrowWidth, arrowLength, 8);
+    const zArrowMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+    const zArrow = new THREE.Mesh(zArrowGeometry, zArrowMaterial);
+    zArrow.position.set(0, 0, axisLength);
+    zArrow.rotation.x = Math.PI / 2;
+    simulation3D.scene.add(zArrow);
+
+    // 軸ラベル
+    addAxisLabel('X-TCMD', axisLength + 5, 0, 0, 0xff0000);
+    addAxisLabel('Z-TCMD (負荷)', 0, axisLength + 5, 0, 0x00ff00);
+    addAxisLabel('Y-TCMD', 0, 0, axisLength + 5, 0x0000ff);
+}
+
+/**
+ * 軸ラベルを追加
+ */
+function addAxisLabel(text, x, y, z, color) {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 64;
+
+    context.fillStyle = '#' + color.toString(16).padStart(6, '0');
+    context.font = 'Bold 32px Arial';
+    context.textAlign = 'center';
+    context.fillText(text, 128, 45);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+    const sprite = new THREE.Sprite(spriteMaterial);
+    sprite.scale.set(8, 2, 1);
+    sprite.position.set(x, y, z);
+    simulation3D.scene.add(sprite);
+}
+
+/**
+ * 複数ファイルの3D軌跡を作成
+ */
+function create3DTrajectories(parsedData, fileDataToOriginalName) {
+    simulation3D.animationData = [];
+
+    console.log('Creating 3D trajectories from parsed data:', parsedData.length, 'files');
+
+    const fileColors = [
+        0x0000ff, // 青
+        0x00ff00, // 緑
+        0xffff00, // 黄色
+        0xffffff, // 白
+        0xff00ff, // マゼンタ
+        0x00ffff, // シアン
+        0xffa500, // オレンジ
+        0xff1493  // ディープピンク
+    ];
+
+    parsedData.forEach((fileData, fileIndex) => {
+        const originalFileName = fileDataToOriginalName.get(fileData.fileName) || fileData.fileName;
+        if (excludedFiles.includes(originalFileName)) {
+            console.log('Skipping excluded file:', originalFileName);
+            return;
+        }
+
+        // X-TCMD, Y-TCMD, Z-TCMDのデータを取得
+        const xTcmdDataset = fileData.datasets.find(ds => ds.label.includes('X-TCMD'));
+        const yTcmdDataset = fileData.datasets.find(ds => ds.label.includes('Y-TCMD'));
+        const zTcmdDataset = fileData.datasets.find(ds => ds.label.includes('Z-TCMD'));
+
+        console.log('File:', originalFileName, 'Datasets found:', {
+            'X-TCMD': !!xTcmdDataset,
+            'Y-TCMD': !!yTcmdDataset,
+            'Z-TCMD': !!zTcmdDataset
+        });
+
+        if (!xTcmdDataset || !yTcmdDataset || !zTcmdDataset) {
+            console.log('Missing required datasets for file:', originalFileName);
+            return;
+        }
+
+        // オフセット値を取得（インデックスのオフセット）
+        const fileOffset = fileOffsets.get(originalFileName) || 0;
+        console.log('File:', originalFileName, 'Offset:', fileOffset);
+
+        // データを配列に変換（オフセットは適用しない - 座標値そのものを使用）
+        const xData = xTcmdDataset.data.map(point => point.y);
+        const yData = yTcmdDataset.data.map(point => point.y);
+        const zData = zTcmdDataset.data.map(point => point.y);
+
+        const colorIndex = fileIndex % fileColors.length;
+        const color = fileColors[colorIndex];
+
+        // 3D軌跡ラインとマーカーを作成
+        const trajectoryGroup = create3DTrajectory(xData, yData, zData, color);
+        simulation3D.scene.add(trajectoryGroup);
+
+        console.log('Trajectory created for:', originalFileName, 'Data points:', xData.length);
+
+        // アニメーションデータを保存
+        simulation3D.animationData.push({
+            name: originalFileName,
+            trajectoryGroup: trajectoryGroup,
+            xData: xData,
+            yData: yData,
+            zData: zData,
+            color: color
+        });
+    });
+
+    console.log('Total scatter plots created:', simulation3D.animationData.length);
+
+    // 凡例を更新
+    update3DLegend();
+}
+
+/**
+ * 3D凡例を更新
+ */
+function update3DLegend() {
+    const legendContainer = document.getElementById('simulation3dLegend');
+    if (!legendContainer) return;
+
+    legendContainer.innerHTML = '';
+
+    if (simulation3D.animationData.length === 0) {
+        legendContainer.innerHTML = '<div style="color: #999; font-size: 12px;">ファイルがありません</div>';
+        return;
+    }
+
+    simulation3D.animationData.forEach((data) => {
+        const colorHex = '#' + data.color.toString(16).padStart(6, '0');
+
+        const legendItem = document.createElement('div');
+        legendItem.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px; background: white; border-radius: 6px; border: 2px solid ' + colorHex + ';';
+
+        // カラーサークル
+        const colorCircle = document.createElement('div');
+        colorCircle.style.cssText = 'width: 16px; height: 16px; border-radius: 50%; background: ' + colorHex + '; flex-shrink: 0;';
+
+        // ファイル名
+        const fileName = document.createElement('span');
+        fileName.style.cssText = 'font-size: 13px; font-weight: 500; color: #333; word-break: break-all;';
+        fileName.textContent = data.name;
+
+        // データポイント数
+        const dataCount = document.createElement('span');
+        dataCount.style.cssText = 'font-size: 11px; color: #666; margin-left: auto; white-space: nowrap;';
+
+        legendItem.appendChild(colorCircle);
+        legendItem.appendChild(fileName);
+        legendItem.appendChild(dataCount);
+
+        legendContainer.appendChild(legendItem);
+    });
+}
+
+/**
+ * 3D散布図（ポイントクラウド）を作成
+ */
+function create3DTrajectory(xData, yData, zData, color) {
+    const scale = 10; // 固定倍率
+    const pointSize = 0.4; // 固定ポイントサイズ
+    const opacity = 0.7; // 固定透明度
+
+    // ポイントの位置データを作成
+    const positions = new Float32Array(xData.length * 3);
+    for (let i = 0; i < xData.length; i++) {
+        positions[i * 3] = xData[i] * scale;
+        positions[i * 3 + 1] = -zData[i] * scale; // Z軸（負荷）をY軸にマッピング（反転）
+        positions[i * 3 + 2] = yData[i] * scale;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    // ポイントマテリアル
+    const material = new THREE.PointsMaterial({
+        color: color,
+        size: pointSize,
+        transparent: true,
+        opacity: opacity,
+        sizeAttenuation: true
+    });
+
+    const points = new THREE.Points(geometry, material);
+
+    // userDataに参照を保存（倍率変更時の再構築用）
+    points.userData = {
+        xData: xData,
+        yData: yData,
+        zData: zData,
+        color: color
+    };
+
+    return points;
+}
+
+/**
+ * 3Dコントロールのイベント設定
+ */
+function setup3DControls() {
+    const viewXYBtn = document.getElementById('viewXY');
+    const viewXZBtn = document.getElementById('viewXZ');
+    const viewYZBtn = document.getElementById('viewYZ');
+    const viewResetBtn = document.getElementById('viewReset');
+
+    // XY平面（上から見る）
+    if (viewXYBtn) {
+        viewXYBtn.addEventListener('click', () => {
+            setCameraView(0, 250, 0);
+        });
+    }
+
+    // XZ平面（横から見る）
+    if (viewXZBtn) {
+        viewXZBtn.addEventListener('click', () => {
+            setCameraView(0, 0, 250);
+        });
+    }
+
+    // YZ平面（正面から見る）
+    if (viewYZBtn) {
+        viewYZBtn.addEventListener('click', () => {
+            setCameraView(250, 0, 0);
+        });
+    }
+
+    // リセット
+    if (viewResetBtn) {
+        viewResetBtn.addEventListener('click', () => {
+            setCameraView(150, 150, 150);
+            if (simulation3D.controls) {
+                simulation3D.controls.reset();
+            }
+        });
+    }
+}
+
+/**
+ * カメラ視点を設定
+ */
+function setCameraView(x, y, z) {
+    if (!simulation3D.camera || !simulation3D.controls) return;
+
+    // カメラ位置を設定
+    simulation3D.camera.position.set(x, y, z);
+    simulation3D.camera.lookAt(0, 0, 0);
+
+    // コントロールのターゲットを更新
+    simulation3D.controls.target.set(0, 0, 0);
+    simulation3D.controls.update();
+}
+
+/**
+ * 3D散布図をクリーンアップ
+ */
+function cleanup3DSimulation() {
+
+    if (simulation3D.renderer) {
+        simulation3D.renderer.dispose();
+        simulation3D.renderer = null;
+    }
+
+    if (simulation3D.scene) {
+        simulation3D.scene.traverse((object) => {
+            if (object.geometry) object.geometry.dispose();
+            if (object.material) {
+                if (Array.isArray(object.material)) {
+                    object.material.forEach(material => material.dispose());
+                } else {
+                    object.material.dispose();
+                }
+            }
+        });
+        simulation3D.scene = null;
+    }
+
+    simulation3D.camera = null;
+    simulation3D.controls = null;
+    simulation3D.drillGroup = null;
+    simulation3D.workpiece = null;
+    simulation3D.animationData = [];
+    simulation3D.currentFrame = 0;
 }
 
 // ページ読み込み時に初期化

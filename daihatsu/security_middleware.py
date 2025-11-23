@@ -29,6 +29,7 @@ class LoginRequiredMiddleware:
             '/schedule_import', # Outlookからの予定取得
             '/local_error', # localで行うバッチ処理時のエラーの取得
             '/tools/graph-maker/', # グラフ作成ツール
+            '/static/', # 静的ファイル
         ]
 
     def __call__(self, request):
