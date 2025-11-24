@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>機械加工音 異常検知ツール</title>
+    <title>フーリエさん</title>
     {% load static %}
     <script src="{% static 'js/vendor/chartjs/chart.min.js' %}"></script>
     <script src="{% static 'js/vendor/chartjs/chartjs-plugin-zoom.min.js' %}"></script>
@@ -130,14 +130,78 @@
 
         .controls-container {
             display: flex;
-            flex-wrap: wrap;
             align-items: center;
             gap: 15px;
-            padding: 15px;
+            padding: 10px 15px;
             border: 2px solid #4da8da;
             border-radius: 8px;
             background: #f0f8ff;
-            margin-bottom: 20px;
+        }
+
+        .legend-threshold-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .legend-checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .legend-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .legend-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .offset-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .offset-label-text {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            white-space: nowrap;
+        }
+
+        #excludeContainer {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            max-width: 300px;
+            max-height: 80px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 5px;
+            border-radius: 4px;
+        }
+
+        #excludeContainer label {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            cursor: pointer;
+            white-space: nowrap;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        #excludeContainer span {
+            font-size: 12px;
+            font-weight: 500;
         }
 
         .control-group {
@@ -147,27 +211,24 @@
         }
 
         .control-label {
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 600;
             color: #333;
+            white-space: nowrap;
         }
 
         .control-input {
-            padding: 8px 12px;
+            width: 80px;
+            padding: 6px 10px;
             border: 2px solid #4da8da;
             border-radius: 6px;
             font-size: 14px;
-            min-width: 120px;
+            text-align: center;
         }
 
         .control-input:focus {
             outline: none;
             border-color: #2c8bb8;
-        }
-
-        .threshold-inputs {
-            display: flex;
-            gap: 10px;
         }
 
         .info-panel {
@@ -221,6 +282,51 @@
             font-size: 13px;
         }
 
+        .file-list-container {
+            display: flex;
+            flex-direction: column;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: flex-start;
+            max-height: 210px;
+        }
+
+        .file-item-control {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            width: 100px;
+        }
+
+        .file-name {
+            font-size: 12px;
+            color: #333;
+            font-weight: 500;
+            white-space: nowrap;
+            height: 16px;
+            line-height: 16px;
+            width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+        }
+
+
+        .offset-input {
+            width: 80px;
+            padding: 6px 10px;
+            border: 2px solid #4da8da;
+            border-radius: 6px;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .offset-input:focus {
+            outline: none;
+            border-color: #2c8bb8;
+        }
+
     </style>
 </head>
 <body>
@@ -229,39 +335,106 @@
             <div class="header-wrapper">
                 <h1>フーリエさん</h1>
                 <div class="header-buttons">
-                    <input type="file" id="audioInput" accept="audio/*">
+                    <input type="file" id="audioInput" accept="audio/*" multiple>
                     <label for="audioInput" class="file-input-label">
-                        音声ファイルを選択
+                        音声ファイルを選択（複数可）
                     </label>
-                    <button id="resetZoomBtn" class="file-input-label" style="display: none;">
-                        ズームリセット
+                    <button id="exportCsvBtn" class="file-input-label" style="display: none;">
+                        CSV出力
                     </button>
                 </div>
             </div>
 
             <div class="controls-container" style="display: none;" id="controlsContainer">
-                <div class="control-group">
-                    <label class="control-label">移動平均ウィンドウ</label>
-                    <input type="number" id="smoothWindow" class="control-input" value="10" min="1" max="100" placeholder="平滑化">
-                    <small style="font-size: 10px; color: #666; margin-top: 2px;">※ノイズ除去</small>
+                <!-- 凡例設定 -->
+                <div class="legend-threshold-wrapper">
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <div class="legend-checkbox-wrapper">
+                            <input type="checkbox" id="legendCheckbox" class="legend-checkbox">
+                            <label for="legendCheckbox" class="legend-label">凡例</label>
+                        </div>
+                        <div class="legend-checkbox-wrapper">
+                            <input type="checkbox" id="tooltipSingleCheckbox" class="legend-checkbox">
+                            <label for="tooltipSingleCheckbox" class="legend-label">凡例(単体)</label>
+                        </div>
+                    </div>
+                    <div class="offset-section">
+                        <span class="offset-label-text" style="min-width: 120px;">移動平均:</span>
+                        <input type="number" id="smoothWindow" class="offset-input" value="10" min="1" max="100" step="1" placeholder="ウィンドウ" style="width: 80px;">
+                    </div>
+                    <div class="offset-section">
+                        <span class="offset-label-text" style="min-width: 120px;">時間刻み (秒):</span>
+                        <input type="number" id="timeInterval" class="offset-input" value="0.2" min="0.01" max="10" step="0.01" style="width: 80px;">
+                    </div>
+                    <div class="offset-section">
+                        <span class="offset-label-text" style="min-width: 120px;">横移動速度:</span>
+                        <input type="number" id="panSpeedX" class="offset-input" value="0.1" min="0.1" max="100" step="0.1" style="width: 80px;">
+                    </div>
+                    <div class="offset-section">
+                        <span class="offset-label-text" style="min-width: 120px;">縦移動速度:</span>
+                        <input type="number" id="panSpeedY" class="offset-input" value="0.001" min="0.001" max="1" step="0.001" style="width: 80px;">
+                    </div>
                 </div>
 
-                <div class="control-group">
-                    <label class="control-label">時間刻み (秒)</label>
-                    <input type="number" id="timeInterval" class="control-input" value="0.2" min="0.1" max="10" step="0.1" placeholder="時間刻み">
-                    <small style="font-size: 10px; color: #666; margin-top: 2px;">※データのサンプリング間隔</small>
+                <!-- オフセット設定 -->
+                <div id="offsetSection" class="offset-section">
+                    <span class="offset-label-text">オフセット:</span>
+                    <div id="fileListContainer" class="file-list-container"></div>
                 </div>
 
-                <div class="control-group">
-                    <label class="control-label">横移動速度</label>
-                    <input type="number" id="panSpeedX" class="control-input" value="5" min="1" max="100" step="1" placeholder="横移動速度">
-                    <small style="font-size: 10px; color: #666; margin-top: 2px;">※矢印キー左右の速度</small>
+                <!-- 除外設定 -->
+                <div class="offset-section">
+                    <span class="offset-label-text">除外:</span>
+                    <div id="excludeContainer"></div>
+                </div>
+                <div class="offset-section">
+                    <span class="offset-label-text" style="min-width: 120px;">パワー計算方法:</span>
+                    <select id="powerCalculationMode" class="offset-input" style="width: 100px;">
+                        <option value="sum">合計</option>
+                        <option value="average">平均</option>
+                    </select>
                 </div>
 
-                <div class="control-group">
-                    <label class="control-label">縦移動速度</label>
-                    <input type="number" id="panSpeedY" class="control-input" value="0.05" min="0.01" max="1" step="0.01" placeholder="縦移動速度">
-                    <small style="font-size: 10px; color: #666; margin-top: 2px;">※矢印キー上下の速度</small>
+                <!-- 周波数帯再設定 -->
+                <div class="offset-section">
+                    <span class="offset-label-text">周波数帯:</span>
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="text" id="freqVeryLowLabel" class="offset-input" value="超低域" style="width: 80px; font-size: 12px; font-weight: 500;">
+                            <input type="number" id="freqVeryLowMin" class="offset-input" value="500" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">〜</span>
+                            <input type="number" id="freqVeryLowMax" class="offset-input" value="1000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">Hz</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="text" id="freqLowLabel" class="offset-input" value="低域" style="width: 80px; font-size: 12px; font-weight: 500;">
+                            <input type="number" id="freqLowMin" class="offset-input" value="1000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">〜</span>
+                            <input type="number" id="freqLowMax" class="offset-input" value="2000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">Hz</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="text" id="freqMidLabel" class="offset-input" value="中域" style="width: 80px; font-size: 12px; font-weight: 500;">
+                            <input type="number" id="freqMidMin" class="offset-input" value="2000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">〜</span>
+                            <input type="number" id="freqMidMax" class="offset-input" value="4000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">Hz</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="text" id="freqHighMidLabel" class="offset-input" value="中高域" style="width: 80px; font-size: 12px; font-weight: 500;">
+                            <input type="number" id="freqHighMidMin" class="offset-input" value="4000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">〜</span>
+                            <input type="number" id="freqHighMidMax" class="offset-input" value="7000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">Hz</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="text" id="freqHighLabel" class="offset-input" value="高域" style="width: 80px; font-size: 12px; font-weight: 500;">
+                            <input type="number" id="freqHighMin" class="offset-input" value="7000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">〜</span>
+                            <input type="number" id="freqHighMax" class="offset-input" value="10000" min="0" max="20000" step="100" style="width: 90px;">
+                            <span style="font-size: 12px;">Hz</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -272,7 +445,7 @@
                         <input type="range" id="yScrollbar" class="chart-y-scrollbar" orient="vertical" min="0" max="100" value="50">
                     </div>
                     <div class="chart-content">
-                        <div class="chart-container">
+                        <div class="chart-container" id="chartContainer">
                             <canvas id="myChart"></canvas>
                         </div>
                         <div class="chart-x-scrollbar-container">
@@ -281,16 +454,219 @@
                     </div>
                 </div>
             </div>
+
+        </div>
+
+        <!-- 時間領域統計量カード -->
+        <div class="card" id="timeStatsCard" style="display: none; margin-top: 20px;">
+            <div class="header-wrapper">
+                <h1>時間領域統計量（異常検知指標）</h1>
+                <div class="header-buttons">
+                    <label style="font-size: 14px; font-weight: 600; color: #333; margin-right: 10px;">表示設定:</label>
+                    <label style="display: flex; align-items: center; gap: 5px; margin-right: 10px;">
+                        <input type="checkbox" id="showCrestFactor" checked>
+                        <span style="font-size: 12px;">クレストファクター</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; margin-right: 10px;">
+                        <input type="checkbox" id="showKurtosis" checked>
+                        <span style="font-size: 12px;">尖度</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="showPeak" checked>
+                        <span style="font-size: 12px;">ピーク値</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 指標の説明 -->
+            <div style="background: #f0f8ff; border: 2px solid #4da8da; border-radius: 8px; padding: 15px; margin: 15px 0;">
+                <h3 style="color: #2c8bb8; font-size: 14px; margin-bottom: 10px; font-weight: 600;">📊 各指標の見方</h3>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 12px;">
+                    <div>
+                        <strong style="color: #2563eb;">クレストファクター</strong>
+                        <div style="font-size: 11px; color: #666; margin: 3px 0; font-style: italic;">
+                            音の「尖り具合」。瞬間的な衝撃音の大きさを示す。
+                        </div>
+                        <div style="font-size: 10px; background: #e8f4f8; padding: 4px 6px; border-radius: 3px; margin: 3px 0; font-family: monospace;">
+                            <strong>計算式:</strong> CF = ピーク値 ÷ RMS
+                        </div>
+                        <ul style="margin: 5px 0 0 15px; padding: 0; line-height: 1.6;">
+                            <li><strong>正常:</strong> 2〜4（安定した値）</li>
+                            <li><strong>要注意:</strong> 5以上</li>
+                            <li><strong>異常:</strong> 7以上</li>
+                            <li style="color: #c00; font-weight: 600;">→ ビビり振動・工具折損</li>
+                        </ul>
+                        <div style="font-size: 10px; color: #555; margin-top: 5px; background: #fff; padding: 5px; border-radius: 4px;">
+                            <strong>見方:</strong> 急に跳ね上がる→衝撃音発生、全体的に高い→常に不安定（ビビり）
+                        </div>
+                    </div>
+                    <div>
+                        <strong style="color: #2563eb;">尖度</strong>
+                        <div style="font-size: 11px; color: #666; margin: 3px 0; font-style: italic;">
+                            音のインパルス性（衝撃性）。規則的な衝撃音の多さを示す。
+                        </div>
+                        <div style="font-size: 10px; background: #e8f4f8; padding: 4px 6px; border-radius: 3px; margin: 3px 0; font-family: monospace;">
+                            <strong>計算式:</strong> K = Σ[(x-μ)/σ]⁴ / N<br>
+                            <span style="font-size: 9px;">※μ=平均, σ=標準偏差, N=データ数</span>
+                        </div>
+                        <ul style="margin: 5px 0 0 15px; padding: 0; line-height: 1.6;">
+                            <li><strong>正常:</strong> 約3（正規分布）</li>
+                            <li><strong>軽度:</strong> 3〜5（初期兆候）</li>
+                            <li><strong>中度:</strong> 5〜10（要対応）</li>
+                            <li><strong>重度:</strong> 10以上（緊急）</li>
+                            <li style="color: #c00; font-weight: 600;">→ ベアリング異常（最重要）</li>
+                        </ul>
+                        <div style="font-size: 10px; color: #555; margin-top: 5px; background: #fff; padding: 5px; border-radius: 4px;">
+                            <strong>見方:</strong> 徐々に上昇→劣化進行中、急上昇→破損寸前。ベアリング予兆検出に最適。
+                        </div>
+                    </div>
+                    <div>
+                        <strong style="color: #2563eb;">ピーク値</strong>
+                        <div style="font-size: 11px; color: #666; margin: 3px 0; font-style: italic;">
+                            音の最大振幅。突発的なイベントを検出。
+                        </div>
+                        <div style="font-size: 10px; background: #e8f4f8; padding: 4px 6px; border-radius: 3px; margin: 3px 0; font-family: monospace;">
+                            <strong>計算式:</strong> Peak = max(|x|)<br>
+                            <span style="font-size: 9px;">※時間窓内の絶対値の最大値</span>
+                        </div>
+                        <ul style="margin: 5px 0 0 15px; padding: 0; line-height: 1.6;">
+                            <li><strong>正常:</strong> 0.1〜0.3（安定）</li>
+                            <li><strong>異常:</strong> 0.5以上</li>
+                            <li style="color: #c00; font-weight: 600;">→ 工具破損・突発衝撃</li>
+                            <li style="color: #666; font-style: italic;">瞬間的なスパイクに注目</li>
+                        </ul>
+                        <div style="font-size: 10px; color: #555; margin-top: 5px; background: #fff; padding: 5px; border-radius: 4px;">
+                            <strong>見方:</strong> 瞬間的に跳ね上がる→折損・衝突、全体的に高い→負荷過大
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-wrapper">
+                <div class="chart-container" id="timeStatsContainer" style="height: 500px;">
+                    <canvas id="timeStatsCanvas"></canvas>
+                </div>
+            </div>
+
+            <!-- 異常検知アラート表示 -->
+            <div id="anomalyAlertContainer" style="margin-top: 15px; display: none;">
+                <div style="background: #fee; border: 2px solid #f00; border-radius: 8px; padding: 15px;">
+                    <h3 style="color: #c00; font-size: 16px; margin-bottom: 10px;">⚠️ 異常検知</h3>
+                    <div id="anomalyAlertContent" style="font-size: 13px; color: #666;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- エンベロープ分析カード -->
+        <div class="card" id="envelopeCard" style="display: none; margin-top: 20px;">
+            <div class="header-wrapper">
+                <h1>エンベロープ分析（ベアリング異常検知）</h1>
+                <div class="header-buttons">
+                    <label style="font-size: 14px; font-weight: 600; color: #333; margin-right: 10px;">高周波帯域 (5-10kHz) の振幅変調</label>
+                </div>
+            </div>
+
+            <!-- エンベロープ分析の説明 -->
+            <div style="background: #fff9e6; border: 2px solid #ffc107; border-radius: 8px; padding: 15px; margin: 15px 0;">
+                <div>
+                    <strong style="color: #2563eb;">グラフの見方</strong>
+                    <table style="width: 100%; font-size: 11px; margin-top: 5px; border-collapse: collapse;">
+                        <tr style="background: #f0f0f0;">
+                            <th style="padding: 4px; border: 1px solid #ddd; text-align: left;">状態</th>
+                            <th style="padding: 4px; border: 1px solid #ddd;">振幅レベル</th>
+                            <th style="padding: 4px; border: 1px solid #ddd;">パターン</th>
+                            <th style="padding: 4px; border: 1px solid #ddd;">判定</th>
+                        </tr>
+                        <tr>
+                            <td style="padding: 4px; border: 1px solid #ddd;"><strong>正常</strong></td>
+                            <td style="padding: 4px; border: 1px solid #ddd;">0.001〜0.005</td>
+                            <td style="padding: 4px; border: 1px solid #ddd;">低く安定</td>
+                            <td style="padding: 4px; border: 1px solid #ddd; color: #080;">✓ 正常</td>
+                        </tr>
+                        <tr style="background: #fffacd;">
+                            <td style="padding: 4px; border: 1px solid #ddd;"><strong>初期異常</strong></td>
+                            <td style="padding: 4px; border: 1px solid #ddd;">0.005〜0.01</td>
+                            <td style="padding: 4px; border: 1px solid #ddd;">わずかに増加</td>
+                            <td style="padding: 4px; border: 1px solid #ddd; color: #f90;">⚠ 要監視</td>
+                        </tr>
+                        <tr style="background: #ffe8e8;">
+                            <td style="padding: 4px; border: 1px solid #ddd;"><strong>中度異常</strong></td>
+                            <td style="padding: 4px; border: 1px solid #ddd;">0.01〜0.05</td>
+                            <td style="padding: 4px; border: 1px solid #ddd;">明確に増加</td>
+                            <td style="padding: 4px; border: 1px solid #ddd; color: #f00;">⚠ 要対応</td>
+                        </tr>
+                        <tr style="background: #fdd;">
+                            <td style="padding: 4px; border: 1px solid #ddd;"><strong>重度異常</strong></td>
+                            <td style="padding: 4px; border: 1px solid #ddd;">0.05以上</td>
+                            <td style="padding: 4px; border: 1px solid #ddd;">大きく不規則</td>
+                            <td style="padding: 4px; border: 1px solid #ddd; color: #c00; font-weight: bold;">✕ 緊急</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <div class="chart-wrapper">
+                <div class="chart-container" id="envelopeContainer" style="height: 400px;">
+                    <canvas id="envelopeCanvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- スペクトログラムカード -->
+        <div class="card" id="spectrogramCard" style="display: none; margin-top: 20px;">
+            <div class="header-wrapper">
+                <h1>スペクトログラム</h1>
+                <div class="header-buttons">
+                    <label style="font-size: 14px; font-weight: 600; color: #333; margin-right: 10px;">ファイル選択:</label>
+                    <select id="spectrogramFileSelect" class="offset-input" style="width: 200px; font-size: 14px;">
+                    </select>
+                </div>
+            </div>
+
+            <div class="chart-wrapper">
+                <div class="chart-container" id="spectrogramContainer" style="height: 400px;">
+                    <canvas id="spectrogramCanvas"></canvas>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
         let chart = null;
         let audioContext = null;
-        let audioBuffer = null;
+        let uploadedFiles = []; // 複数ファイル対応
+        let fileOffsets = new Map(); // ファイルごとのオフセット
         let fftSize = 4096; // 固定: 4096（高精度）
         let smoothWindow = 10;
         let timeInterval = 0.2; // デフォルト: 0.2秒刻み（3分データでも高速処理）
+        let powerCalculationMode = 'sum'; // パワー計算方法: 'sum' or 'average'
+        let excludedBands = []; // 除外する周波数帯域
+        let excludedFiles = []; // 除外するファイル
+
+        // 新機能: 時間領域統計量、エンベロープ、トレンド監視
+        let timeStatsDataMap = new Map(); // ファイル名 -> 時間領域統計量データ
+        let envelopeDataMap = new Map(); // ファイル名 -> エンベロープデータ
+        let showTimeStats = true; // 時間領域統計量の表示
+        let showEnvelope = true; // エンベロープ分析の表示
+        let anomalyThresholds = {
+            crestFactor: 5.0,     // クレストファクター閾値
+            kurtosis: 3.0,        // 尖度閾値（正常時は約3）
+            peak: 0.5             // ピーク値閾値
+        };
+
+        // 周波数帯設定（動的に変更可能）
+        let freqBandRanges = {
+            verylow: { min: 500, max: 1000, label: '超低域' },
+            low: { min: 1000, max: 2000, label: '低域' },
+            mid: { min: 2000, max: 4000, label: '中域' },
+            highmid: { min: 4000, max: 7000, label: '中高域' },
+            high: { min: 7000, max: 10000, label: '高域' }
+        };
+
+        // UI設定
+        let tooltipEnabled = false;
+        let tooltipSingleMode = false; // 凡例(単体)モード
+        let spectrogramDataMap = new Map(); // ファイル名 -> スペクトログラムデータ
 
         // パン・スクロールバー用変数
         let isScrollbarUpdating = false;
@@ -302,39 +678,355 @@
         };
         let animationFrameId = null;
 
-        const audioInput = document.getElementById('audioInput');
-        const resetZoomBtn = document.getElementById('resetZoomBtn');
-        const controlsContainer = document.getElementById('controlsContainer');
-        const smoothWindowInput = document.getElementById('smoothWindow');
-        const timeIntervalInput = document.getElementById('timeInterval');
-        const panSpeedXInput = document.getElementById('panSpeedX');
-        const panSpeedYInput = document.getElementById('panSpeedY');
-        const xScrollbar = document.getElementById('xScrollbar');
-        const yScrollbar = document.getElementById('yScrollbar');
+        // DOM要素の取得
+        const elements = {
+            audioInput: document.getElementById('audioInput'),
+            exportCsvBtn: document.getElementById('exportCsvBtn'),
+            spectrogramCard: document.getElementById('spectrogramCard'),
+            spectrogramFileSelect: document.getElementById('spectrogramFileSelect'),
+            spectrogramContainer: document.getElementById('spectrogramContainer'),
+            spectrogramCanvas: document.getElementById('spectrogramCanvas'),
+            controlsContainer: document.getElementById('controlsContainer'),
+            fileListContainer: document.getElementById('fileListContainer'),
+            excludeContainer: document.getElementById('excludeContainer'),
+            legendCheckbox: document.getElementById('legendCheckbox'),
+            tooltipSingleCheckbox: document.getElementById('tooltipSingleCheckbox'),
+            smoothWindow: document.getElementById('smoothWindow'),
+            timeInterval: document.getElementById('timeInterval'),
+            powerCalculationMode: document.getElementById('powerCalculationMode'),
+            panSpeedX: document.getElementById('panSpeedX'),
+            panSpeedY: document.getElementById('panSpeedY'),
+            xScrollbar: document.getElementById('xScrollbar'),
+            yScrollbar: document.getElementById('yScrollbar'),
+            // 周波数帯設定
+            freqVeryLowLabel: document.getElementById('freqVeryLowLabel'),
+            freqVeryLowMin: document.getElementById('freqVeryLowMin'),
+            freqVeryLowMax: document.getElementById('freqVeryLowMax'),
+            freqLowLabel: document.getElementById('freqLowLabel'),
+            freqLowMin: document.getElementById('freqLowMin'),
+            freqLowMax: document.getElementById('freqLowMax'),
+            freqMidLabel: document.getElementById('freqMidLabel'),
+            freqMidMin: document.getElementById('freqMidMin'),
+            freqMidMax: document.getElementById('freqMidMax'),
+            freqHighMidLabel: document.getElementById('freqHighMidLabel'),
+            freqHighMidMin: document.getElementById('freqHighMidMin'),
+            freqHighMidMax: document.getElementById('freqHighMidMax'),
+            freqHighLabel: document.getElementById('freqHighLabel'),
+            freqHighMin: document.getElementById('freqHighMin'),
+            freqHighMax: document.getElementById('freqHighMax')
+        };
+
+        // 周波数帯域ごとの基本色定義
+        const bandBaseColors = {
+            'verylow': [127, 29, 29],    // 暗い赤
+            'low': [220, 38, 38],        // 赤
+            'mid': [251, 146, 60],       // オレンジ
+            'highmid': [250, 204, 21],   // 黄色
+            'high': [134, 239, 172]      // 明るい緑
+        };
+
+        // ファイルごとの明度調整係数（同系統の異なる色にする）
+        const fileColorVariants = [
+            1.0,   // オリジナル
+            0.7,   // 暗め
+            1.3,   // 明るめ
+            0.5,   // より暗め
+            1.5,   // より明るめ
+            0.85,  // 少し暗め
+            1.15,  // 少し明るめ
+            0.6    // 中間暗め
+        ];
+
+        // RGB値を調整して同系統の色を生成
+        function adjustColor(rgb, factor) {
+            return [
+                Math.min(255, Math.max(0, Math.round(rgb[0] * factor))),
+                Math.min(255, Math.max(0, Math.round(rgb[1] * factor))),
+                Math.min(255, Math.max(0, Math.round(rgb[2] * factor)))
+            ];
+        }
+
+        // ファイルごとの色定義（ファイルリスト表示用）
+        const fileColors = [
+            'rgb(37, 99, 235)',   // 青
+            'rgb(220, 38, 38)',   // 赤
+            'rgb(251, 146, 60)',  // オレンジ
+            'rgb(34, 197, 94)',   // 緑
+            'rgb(168, 85, 247)',  // 紫
+            'rgb(236, 72, 153)',  // ピンク
+            'rgb(14, 165, 233)',  // 水色
+            'rgb(234, 179, 8)'    // 黄色
+        ];
+
+        // ファイルリストを表示（オフセット入力付き）
+        function displayFileList(files) {
+            elements.fileListContainer.innerHTML = '';
+
+            files.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item-control';
+
+                const fileName = document.createElement('span');
+                fileName.className = 'file-name';
+                fileName.textContent = file.name;
+
+                const offsetInput = document.createElement('input');
+                offsetInput.type = 'number';
+                offsetInput.className = 'offset-input';
+                offsetInput.value = fileOffsets.get(file.name) || 0;
+                offsetInput.step = '0.1';
+                offsetInput.placeholder = '位置補正';
+                offsetInput.dataset.fileName = file.name;
+
+                offsetInput.addEventListener('input', async (e) => {
+                    const offset = parseFloat(e.target.value) || 0;
+                    fileOffsets.set(file.name, offset);
+                    await analyzeAllAudio();
+                });
+
+                fileItem.appendChild(fileName);
+                fileItem.appendChild(offsetInput);
+                elements.fileListContainer.appendChild(fileItem);
+            });
+        }
+
+        // 除外チェックボックスを更新
+        function updateExcludeCheckboxes() {
+            elements.excludeContainer.innerHTML = '';
+
+            const freqBands = {
+                'verylow': { label: `${freqBandRanges.verylow.label} (${freqBandRanges.verylow.min}-${freqBandRanges.verylow.max}Hz)`, color: [127, 29, 29] },
+                'low': { label: `${freqBandRanges.low.label} (${freqBandRanges.low.min}-${freqBandRanges.low.max}Hz)`, color: [220, 38, 38] },
+                'mid': { label: `${freqBandRanges.mid.label} (${freqBandRanges.mid.min}-${freqBandRanges.mid.max}Hz)`, color: [251, 146, 60] },
+                'highmid': { label: `${freqBandRanges.highmid.label} (${freqBandRanges.highmid.min}-${freqBandRanges.highmid.max}Hz)`, color: [250, 204, 21] },
+                'high': { label: `${freqBandRanges.high.label} (${freqBandRanges.high.min}-${freqBandRanges.high.max}Hz)`, color: [134, 239, 172] },
+                'rms': { label: 'RMS振幅', color: [37, 99, 235] }
+            };
+
+            // 周波数帯域のチェックボックス
+            Object.keys(freqBands).forEach(bandKey => {
+                const band = freqBands[bandKey];
+                const label = createExcludeLabel(bandKey, band.label, band.color, true);
+                elements.excludeContainer.appendChild(label);
+            });
+
+            // ファイル名のチェックボックス
+            uploadedFiles.forEach((file, index) => {
+                const color = fileColors[index % fileColors.length];
+                const rgb = color.match(/\d+/g).map(Number);
+                const label = createExcludeLabel(file.name, file.name, rgb, false);
+                elements.excludeContainer.appendChild(label);
+            });
+        }
+
+        // 除外ラベルを作成
+        function createExcludeLabel(value, displayName, color, isBand) {
+            const label = document.createElement('label');
+            label.style.backgroundColor = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.2)`;
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = value;
+            checkbox.checked = isBand
+                ? excludedBands.includes(value)
+                : excludedFiles.includes(value);
+
+            checkbox.addEventListener('change', async (e) => {
+                const targetArray = isBand ? excludedBands : excludedFiles;
+                if (e.target.checked) {
+                    if (!targetArray.includes(value)) targetArray.push(value);
+                } else {
+                    const index = targetArray.indexOf(value);
+                    if (index > -1) targetArray.splice(index, 1);
+                }
+                await analyzeAllAudio();
+            });
+
+            const span = document.createElement('span');
+            span.textContent = displayName;
+
+            label.appendChild(checkbox);
+            label.appendChild(span);
+            return label;
+        }
+
+        // 凡例チェックボックス
+        elements.legendCheckbox.addEventListener('change', async (e) => {
+            if (e.target.checked) {
+                tooltipEnabled = true;
+                tooltipSingleMode = false;
+                elements.tooltipSingleCheckbox.checked = false;
+            } else {
+                tooltipEnabled = false;
+            }
+            if (uploadedFiles.length > 0) {
+                await analyzeAllAudio();
+                // 新しいグラフにも反映
+                renderTimeStatsChart();
+                renderEnvelopeChart();
+            }
+        });
+
+        // 凡例(単体)チェックボックス
+        elements.tooltipSingleCheckbox.addEventListener('change', async (e) => {
+            if (e.target.checked) {
+                tooltipEnabled = true;
+                tooltipSingleMode = true;
+                elements.legendCheckbox.checked = false;
+            } else {
+                tooltipEnabled = false;
+                tooltipSingleMode = false;
+            }
+            if (uploadedFiles.length > 0) {
+                await analyzeAllAudio();
+                // 新しいグラフにも反映
+                renderTimeStatsChart();
+                renderEnvelopeChart();
+            }
+        });
 
         // 平滑化ウィンドウの変更
-        smoothWindowInput.addEventListener('input', async (e) => {
+        elements.smoothWindow.addEventListener('input', async (e) => {
             smoothWindow = parseInt(e.target.value) || 1;
-            if (audioBuffer) {
-                await analyzeAudio();
+            if (uploadedFiles.length > 0) {
+                await analyzeAllAudio();
             }
         });
 
         // 時間刻みの変更
-        timeIntervalInput.addEventListener('input', async (e) => {
+        elements.timeInterval.addEventListener('input', async (e) => {
             timeInterval = parseFloat(e.target.value) || 0.1;
-            if (audioBuffer) {
-                await analyzeAudio();
+            if (uploadedFiles.length > 0) {
+                await analyzeAllAudio();
             }
         });
 
-        // ズームリセット
-        resetZoomBtn.addEventListener('click', () => {
-            if (chart) {
-                chart.resetZoom();
-                updateScrollbarsFromChart();
+        // パワー計算方法の変更
+        elements.powerCalculationMode.addEventListener('change', async (e) => {
+            powerCalculationMode = e.target.value;
+            if (uploadedFiles.length > 0) {
+                await analyzeAllAudio();
             }
         });
+
+        // 周波数帯設定の変更
+        const freqInputs = [
+            { band: 'verylow', label: elements.freqVeryLowLabel, min: elements.freqVeryLowMin, max: elements.freqVeryLowMax },
+            { band: 'low', label: elements.freqLowLabel, min: elements.freqLowMin, max: elements.freqLowMax },
+            { band: 'mid', label: elements.freqMidLabel, min: elements.freqMidMin, max: elements.freqMidMax },
+            { band: 'highmid', label: elements.freqHighMidLabel, min: elements.freqHighMidMin, max: elements.freqHighMidMax },
+            { band: 'high', label: elements.freqHighLabel, min: elements.freqHighMin, max: elements.freqHighMax }
+        ];
+
+        freqInputs.forEach(({ band, label, min, max }) => {
+            label.addEventListener('input', async (e) => {
+                freqBandRanges[band].label = e.target.value || '';
+                if (uploadedFiles.length > 0) {
+                    updateExcludeCheckboxes();
+                    await analyzeAllAudio();
+                }
+            });
+            min.addEventListener('input', async (e) => {
+                freqBandRanges[band].min = parseFloat(e.target.value) || 0;
+                if (uploadedFiles.length > 0) {
+                    updateExcludeCheckboxes();
+                    await analyzeAllAudio();
+                }
+            });
+            max.addEventListener('input', async (e) => {
+                freqBandRanges[band].max = parseFloat(e.target.value) || 0;
+                if (uploadedFiles.length > 0) {
+                    updateExcludeCheckboxes();
+                    await analyzeAllAudio();
+                }
+            });
+        });
+
+        // CSV出力
+        elements.exportCsvBtn.addEventListener('click', () => {
+            if (chart) exportChartDataToCsv();
+        });
+
+        // スペクトログラムファイル選択
+        elements.spectrogramFileSelect.addEventListener('change', (e) => {
+            const fileName = e.target.value;
+            const data = spectrogramDataMap.get(fileName);
+            if (data) {
+                renderSpectrogram(data);
+            }
+        });
+
+        // CSV出力関数
+        function exportChartDataToCsv() {
+            if (!chart || !chart.data.datasets || chart.data.datasets.length === 0) {
+                alert('出力するデータがありません');
+                return;
+            }
+
+            const datasets = chart.data.datasets;
+            const xScale = chart.scales.x;
+            const minX = Math.floor(xScale.min);
+            const maxX = Math.ceil(xScale.max);
+
+            // 表示範囲内のX座標を収集
+            const xValues = new Set();
+            datasets.forEach(dataset => {
+                if (dataset.data && Array.isArray(dataset.data)) {
+                    dataset.data.forEach(point => {
+                        if (point && typeof point === 'object' && point.x >= minX && point.x <= maxX) {
+                            xValues.add(point.x);
+                        }
+                    });
+                }
+            });
+
+            const sortedX = Array.from(xValues).sort((a, b) => a - b);
+
+            if (sortedX.length === 0) {
+                alert('表示範囲内にデータがありません');
+                return;
+            }
+
+            // CSVヘッダー
+            let csvContent = '時刻(秒)';
+            datasets.forEach(dataset => {
+                const columnName = dataset.label.split(' - ')[1] || dataset.label;
+                csvContent += ',' + columnName;
+            });
+            csvContent += '\n';
+
+            // データ行
+            sortedX.forEach(x => {
+                csvContent += x;
+                datasets.forEach(dataset => {
+                    const point = dataset.data.find(p => p && p.x === x);
+                    const value = point ? point.y : '';
+                    csvContent += ',' + value;
+                });
+                csvContent += '\n';
+            });
+
+            // ダウンロード
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            const now = new Date();
+            const timestamp = now.getFullYear() +
+                String(now.getMonth() + 1).padStart(2, '0') +
+                String(now.getDate()).padStart(2, '0') + '_' +
+                String(now.getHours()).padStart(2, '0') +
+                String(now.getMinutes()).padStart(2, '0') +
+                String(now.getSeconds()).padStart(2, '0');
+            const filename = `audio_analysis_${timestamp}.csv`;
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
 
         // スクロールバー更新関数
         function updateScrollbarsFromChart() {
@@ -489,8 +1181,8 @@
         function continuousPan() {
             if (!chart) return;
 
-            const speedX = parseFloat(panSpeedXInput.value) || 5;
-            const speedY = parseFloat(panSpeedYInput.value) || 0.05;
+            const speedX = parseFloat(elements.panSpeedX.value) || 5;
+            const speedY = parseFloat(elements.panSpeedY.value) || 0.05;
 
             if (keysPressed.ArrowRight) panAxis('x', speedX);
             if (keysPressed.ArrowLeft) panAxis('x', -speedX);
@@ -504,12 +1196,12 @@
         }
 
         // スクロールバーイベント
-        xScrollbar.addEventListener('input', (e) => {
+        elements.xScrollbar.addEventListener('input', (e) => {
             if (!chart) return;
             panFromScrollbar('x', parseFloat(e.target.value));
         });
 
-        yScrollbar.addEventListener('input', (e) => {
+        elements.yScrollbar.addEventListener('input', (e) => {
             if (!chart) return;
             panFromScrollbar('y', parseFloat(e.target.value));
         });
@@ -517,6 +1209,12 @@
         // キーボードイベント
         document.addEventListener('keydown', (e) => {
             if (!chart) return;
+
+            // 入力フィールドにフォーカスがある場合は矢印キーを無効化
+            const activeElement = document.activeElement;
+            if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'SELECT')) {
+                return;
+            }
 
             if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' ||
                 e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -532,6 +1230,12 @@
         });
 
         document.addEventListener('keyup', (e) => {
+            // 入力フィールドにフォーカスがある場合は矢印キーを無効化
+            const activeElement = document.activeElement;
+            if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'SELECT')) {
+                return;
+            }
+
             if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' ||
                 e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                 keysPressed[e.key] = false;
@@ -547,9 +1251,13 @@
         });
 
         // 音声ファイルの読み込み
-        audioInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+        elements.audioInput.addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+
+            uploadedFiles = files;
+            fileOffsets.clear();
+            files.forEach(file => fileOffsets.set(file.name, 0));
 
             try {
                 // AudioContextの初期化
@@ -557,17 +1265,29 @@
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
 
-                // ファイルをArrayBufferとして読み込む
-                const arrayBuffer = await file.arrayBuffer();
+                // ファイルリストを表示
+                displayFileList(files);
 
-                // AudioBufferにデコード
-                audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                // 除外チェックボックスを更新
+                updateExcludeCheckboxes();
 
                 // コントロールを表示
-                controlsContainer.style.display = 'flex';
+                elements.controlsContainer.style.display = 'flex';
 
-                // 音声を解析してグラフを描画
-                await analyzeAudio();
+                // 段階的にグラフを描画（高速化）
+                // 1. まずフーリエ変換グラフを表示（最優先）
+                await analyzeAllAudio();
+
+                // 2. 次に時間領域統計量とエンベロープ分析を表示
+                // （すでにanalyzeAllAudio内で計算済みのデータを使用）
+                await new Promise(resolve => setTimeout(resolve, 10)); // 最小限の待機
+                renderTimeStatsChart();
+                renderEnvelopeChart();
+                detectAnomalies();
+
+                // 3. 最後にスペクトログラムを計算（重い処理は最後）
+                await new Promise(resolve => setTimeout(resolve, 10)); // 最小限の待機
+                await calculateAllSpectrograms();
 
             } catch (error) {
                 console.error('音声ファイルの読み込みエラー:', error);
@@ -575,8 +1295,47 @@
             }
         });
 
+        // 全音声ファイルを解析する関数（複数ファイル対応）
+        async function analyzeAllAudio() {
+            if (uploadedFiles.length === 0) return;
+
+            const allBandDataMap = new Map(); // ファイル名 -> 帯域データMap
+            const allRmsData = new Map(); // ファイル名 -> RMSデータ
+            let maxDuration = 0;
+
+            // 各ファイルを解析
+            for (let i = 0; i < uploadedFiles.length; i++) {
+                const file = uploadedFiles[i];
+
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                    const result = await analyzeAudio(audioBuffer);
+
+                    allBandDataMap.set(file.name, result.bandDataMap);
+                    allRmsData.set(file.name, result.rmsData);
+
+                    // 新機能のデータを保存
+                    timeStatsDataMap.set(file.name, result.timeStatsData);
+                    envelopeDataMap.set(file.name, result.envelopeData);
+
+                    if (result.duration > maxDuration) {
+                        maxDuration = result.duration;
+                    }
+                } catch (error) {
+                    console.error(`ファイル ${file.name} の解析エラー:`, error);
+                }
+            }
+
+            // グラフを描画（フーリエ変換グラフのみ）
+            renderChartMultiFile(allBandDataMap, allRmsData, maxDuration);
+
+            // 注意: 時間領域統計量とエンベロープ分析は呼び出し元で段階的に描画
+        }
+
         // 音声を解析する関数（長時間データ対応版）
-        async function analyzeAudio() {
+        async function analyzeAudio(audioBuffer) {
             if (!audioBuffer) return;
 
             // チャンネルデータを取得（モノラルに変換）
@@ -588,19 +1347,19 @@
             // 周波数が上がるごとに暗い色→明るい色のグラデーション
             const freqBands = {
                 all: { min: 500, max: 10000, label: '全帯域 (500Hz-10kHz)', color: 'rgb(37, 99, 235)' },
-                verylow: { min: 500, max: 1000, label: '超低域 (500-1kHz): ベアリング摩耗', color: 'rgb(127, 29, 29)' }, // 暗い赤
-                low: { min: 1000, max: 2000, label: '低域 (1-2kHz): 工具摩耗', color: 'rgb(220, 38, 38)' }, // 赤
-                mid: { min: 2000, max: 4000, label: '中域 (2-4kHz): 切削異常', color: 'rgb(251, 146, 60)' }, // オレンジ
-                highmid: { min: 4000, max: 7000, label: '中高域 (4-7kHz): ビビリ振動', color: 'rgb(250, 204, 21)' }, // 黄色
-                high: { min: 7000, max: 10000, label: '高域 (7-10kHz): 工具破損', color: 'rgb(134, 239, 172)' } // 明るい緑
+                verylow: { min: freqBandRanges.verylow.min, max: freqBandRanges.verylow.max, label: `${freqBandRanges.verylow.label} (${freqBandRanges.verylow.min}-${freqBandRanges.verylow.max}Hz): ベアリング摩耗`, color: 'rgb(127, 29, 29)' }, // 暗い赤
+                low: { min: freqBandRanges.low.min, max: freqBandRanges.low.max, label: `${freqBandRanges.low.label} (${freqBandRanges.low.min}-${freqBandRanges.low.max}Hz): 工具摩耗`, color: 'rgb(220, 38, 38)' }, // 赤
+                mid: { min: freqBandRanges.mid.min, max: freqBandRanges.mid.max, label: `${freqBandRanges.mid.label} (${freqBandRanges.mid.min}-${freqBandRanges.mid.max}Hz): 切削異常`, color: 'rgb(251, 146, 60)' }, // オレンジ
+                highmid: { min: freqBandRanges.highmid.min, max: freqBandRanges.highmid.max, label: `${freqBandRanges.highmid.label} (${freqBandRanges.highmid.min}-${freqBandRanges.highmid.max}Hz): ビビリ振動`, color: 'rgb(250, 204, 21)' }, // 黄色
+                high: { min: freqBandRanges.high.min, max: freqBandRanges.high.max, label: `${freqBandRanges.high.label} (${freqBandRanges.high.min}-${freqBandRanges.high.max}Hz): 工具破損`, color: 'rgb(134, 239, 172)' } // 明るい緑
             };
 
             // 詳細分析用の帯域リスト
             const multiBands = ['verylow', 'low', 'mid', 'highmid', 'high'];
 
-            // 長時間データの場合は自動的にサンプリング
+            // 長時間データの場合は自動的にサンプリング（高速化）
             let actualTimeInterval = timeInterval;
-            const maxDataPoints = 1000; // 最大データポイント数
+            const maxDataPoints = 500; // 最大データポイント数を削減（1000→500）
             let numTimePoints = Math.floor(duration / actualTimeInterval);
 
             if (numTimePoints > maxDataPoints) {
@@ -616,42 +1375,39 @@
                 bandDataMap.set(bandKey, []);
             });
 
-            // バッチ処理でFFTを実行（UI凍結を防ぐ）
-            for (let batchStart = 0; batchStart < numTimePoints; batchStart += batchSize) {
-                const batchEnd = Math.min(batchStart + batchSize, numTimePoints);
+            // FFT処理を一括実行（バッチ待機なし - 高速化）
+            for (let i = 0; i < numTimePoints; i++) {
+                const currentTime = i * actualTimeInterval;
+                const startSample = Math.floor(currentTime * sampleRate);
 
-                // バッチ内の処理
-                for (let i = batchStart; i < batchEnd; i++) {
-                    const currentTime = i * actualTimeInterval;
-                    const startSample = Math.floor(currentTime * sampleRate);
+                if (startSample + fftSize > channelData.length) break;
 
-                    if (startSample + fftSize > channelData.length) break;
+                // この時間の周辺データを抽出してFFT
+                const frame = channelData.slice(startSample, startSample + fftSize);
+                const windowedFrame = applyHammingWindow(frame);
 
-                    // この時間の周辺データを抽出してFFT
-                    const frame = channelData.slice(startSample, startSample + fftSize);
-                    const windowedFrame = applyHammingWindow(frame);
+                // FFTを実行（高速版）- 1回のFFTで全周波数を取得
+                const fftResult = performFFTFast(windowedFrame);
 
-                    // FFTを実行（高速版）- 1回のFFTで全周波数を取得
-                    const fftResult = performFFTFast(windowedFrame);
+                // 各帯域のパワーを計算
+                bandDataMap.forEach((dataArray, bandKey) => {
+                    const band = freqBands[bandKey];
+                    const freqBinMin = Math.floor(band.min * fftSize / sampleRate);
+                    const freqBinMax = Math.floor(band.max * fftSize / sampleRate);
 
-                    // 各帯域のパワーを計算
-                    bandDataMap.forEach((dataArray, bandKey) => {
-                        const band = freqBands[bandKey];
-                        const freqBinMin = Math.floor(band.min * fftSize / sampleRate);
-                        const freqBinMax = Math.floor(band.max * fftSize / sampleRate);
+                    let power = 0;
+                    for (let j = freqBinMin; j < freqBinMax && j < fftResult.length; j++) {
+                        power += fftResult[j];
+                    }
 
-                        let power = 0;
-                        for (let j = freqBinMin; j < freqBinMax && j < fftResult.length; j++) {
-                            power += fftResult[j];
-                        }
+                    // パワー計算方法に応じて処理
+                    if (powerCalculationMode === 'average') {
                         power = power / (freqBinMax - freqBinMin);
+                    }
+                    // 'sum'の場合は合計値をそのまま使用
 
-                        dataArray.push({ x: currentTime, y: power });
-                    });
-                }
-
-                // UIを更新するために少し待機
-                await new Promise(resolve => setTimeout(resolve, 0));
+                    dataArray.push({ x: currentTime, y: power });
+                });
             }
 
             // 移動平均でスムージング
@@ -678,8 +1434,150 @@
                 }
             }
 
-            // グラフを描画
-            renderChartMultiBand(smoothedBandData, rmsData, freqBands, duration);
+            // ===========================
+            // 新機能1: 時間領域統計量の計算
+            // ===========================
+            const timeStatsData = calculateTimeStats(channelData, sampleRate, numTimePoints, actualTimeInterval);
+
+            // ===========================
+            // 新機能2: エンベロープ分析
+            // ===========================
+            const envelopeData = calculateEnvelope(channelData, sampleRate, numTimePoints, actualTimeInterval);
+
+            // 結果を返す
+            return {
+                bandDataMap: smoothedBandData,
+                rmsData: rmsData,
+                timeStatsData: timeStatsData,
+                envelopeData: envelopeData,
+                duration: duration
+            };
+        }
+
+        // ===========================
+        // 新機能1: 時間領域統計量の計算
+        // ===========================
+        function calculateTimeStats(channelData, sampleRate, numTimePoints, timeInterval) {
+            const crestFactorData = [];
+            const kurtosisData = [];
+            const peakData = [];
+
+            for (let i = 0; i < numTimePoints; i++) {
+                const currentTime = i * timeInterval;
+                const startSample = Math.floor(currentTime * sampleRate);
+                const endSample = Math.floor((currentTime + timeInterval) * sampleRate);
+
+                if (endSample > channelData.length) break;
+
+                const window = channelData.slice(startSample, endSample);
+                if (window.length === 0) continue;
+
+                // RMS（実効値）
+                const rms = Math.sqrt(window.reduce((sum, val) => sum + val * val, 0) / window.length);
+
+                // ピーク値（絶対値の最大）
+                const peak = Math.max(...window.map(Math.abs));
+
+                // クレストファクター = ピーク値 / RMS
+                const crestFactor = rms > 0 ? peak / rms : 0;
+
+                // 尖度 (Kurtosis)
+                const mean = window.reduce((sum, val) => sum + val, 0) / window.length;
+                const variance = window.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / window.length;
+                const stdDev = Math.sqrt(variance);
+
+                let kurtosis = 0;
+                if (stdDev > 0) {
+                    const fourthMoment = window.reduce((sum, val) => sum + Math.pow((val - mean) / stdDev, 4), 0) / window.length;
+                    kurtosis = fourthMoment; // 正規分布の場合は3
+                }
+
+                crestFactorData.push({ x: currentTime, y: crestFactor });
+                kurtosisData.push({ x: currentTime, y: kurtosis });
+                peakData.push({ x: currentTime, y: peak });
+            }
+
+            return {
+                crestFactor: crestFactorData,
+                kurtosis: kurtosisData,
+                peak: peakData
+            };
+        }
+
+        // ===========================
+        // 新機能2: エンベロープ分析（ヒルベルト変換）
+        // ===========================
+        function calculateEnvelope(channelData, sampleRate, numTimePoints, timeInterval) {
+            // 高周波帯域（5kHz-10kHz）をバンドパスフィルタ
+            const filteredData = bandpassFilter(channelData, sampleRate, 5000, 10000);
+
+            // エンベロープを計算（移動平均による簡易版）
+            const envelopeData = [];
+            const envelopeFFTData = [];
+
+            for (let i = 0; i < numTimePoints; i++) {
+                const currentTime = i * timeInterval;
+                const startSample = Math.floor(currentTime * sampleRate);
+                const endSample = Math.floor((currentTime + timeInterval) * sampleRate);
+
+                if (endSample > filteredData.length) break;
+
+                const window = filteredData.slice(startSample, endSample);
+                if (window.length === 0) continue;
+
+                // エンベロープ = 絶対値の移動平均
+                const envelope = window.reduce((sum, val) => sum + Math.abs(val), 0) / window.length;
+                envelopeData.push({ x: currentTime, y: envelope });
+            }
+
+            return {
+                envelope: envelopeData
+            };
+        }
+
+        // バンドパスフィルタ（簡易版：FFTベース）
+        function bandpassFilter(data, sampleRate, lowFreq, highFreq) {
+            const N = data.length;
+
+            // FFTサイズを2の累乗に調整
+            let fftSizeFilter = 1;
+            while (fftSizeFilter < N) {
+                fftSizeFilter *= 2;
+            }
+
+            // ゼロパディング
+            const paddedData = new Float32Array(fftSizeFilter);
+            paddedData.set(data);
+
+            // FFT実行
+            const real = new Float32Array(paddedData);
+            const imag = new Float32Array(fftSizeFilter);
+            fftRadix2(real, imag);
+
+            // バンドパスフィルタ適用
+            const lowBin = Math.floor(lowFreq * fftSizeFilter / sampleRate);
+            const highBin = Math.floor(highFreq * fftSizeFilter / sampleRate);
+
+            for (let i = 0; i < fftSizeFilter; i++) {
+                if (i < lowBin || i > highBin) {
+                    if (i < fftSizeFilter / 2 || i > fftSizeFilter - lowBin) {
+                        real[i] = 0;
+                        imag[i] = 0;
+                    }
+                }
+            }
+
+            // 逆FFT
+            for (let i = 0; i < fftSizeFilter; i++) {
+                imag[i] = -imag[i];
+            }
+            fftRadix2(real, imag);
+            for (let i = 0; i < fftSizeFilter; i++) {
+                real[i] /= fftSizeFilter;
+            }
+
+            // 元のサイズに戻す
+            return real.slice(0, N);
         }
 
         // ハミング窓を適用
@@ -801,8 +1699,8 @@
         }
 
 
-        // グラフを描画（複数帯域対応版）
-        function renderChartMultiBand(smoothedBandData, rmsData, freqBands, duration) {
+        // グラフを描画（複数ファイル対応版）
+        function renderChartMultiFile(allBandDataMap, allRmsData, maxDuration) {
             const ctx = document.getElementById('myChart').getContext('2d');
 
             if (chart) {
@@ -810,38 +1708,98 @@
             }
 
             const datasets = [];
+            const freqBands = {
+                verylow: { min: freqBandRanges.verylow.min, max: freqBandRanges.verylow.max, label: `${freqBandRanges.verylow.label} (${freqBandRanges.verylow.min}-${freqBandRanges.verylow.max}Hz)`, color: 'rgb(127, 29, 29)' },
+                low: { min: freqBandRanges.low.min, max: freqBandRanges.low.max, label: `${freqBandRanges.low.label} (${freqBandRanges.low.min}-${freqBandRanges.low.max}Hz)`, color: 'rgb(220, 38, 38)' },
+                mid: { min: freqBandRanges.mid.min, max: freqBandRanges.mid.max, label: `${freqBandRanges.mid.label} (${freqBandRanges.mid.min}-${freqBandRanges.mid.max}Hz)`, color: 'rgb(251, 146, 60)' },
+                highmid: { min: freqBandRanges.highmid.min, max: freqBandRanges.highmid.max, label: `${freqBandRanges.highmid.label} (${freqBandRanges.highmid.min}-${freqBandRanges.highmid.max}Hz)`, color: 'rgb(250, 204, 21)' },
+                high: { min: freqBandRanges.high.min, max: freqBandRanges.high.max, label: `${freqBandRanges.high.label} (${freqBandRanges.high.min}-${freqBandRanges.high.max}Hz)`, color: 'rgb(134, 239, 172)' }
+            };
+            const multiBands = ['verylow', 'low', 'mid', 'highmid', 'high'];
 
-            // 各周波数帯域のデータセットを追加
-            smoothedBandData.forEach((data, bandKey) => {
-                const band = freqBands[bandKey];
+            // 各ファイルのデータセットを追加
+            let fileIndex = 0;
+            allBandDataMap.forEach((bandDataMap, fileName) => {
+                // 除外されたファイルはスキップ
+                if (excludedFiles.includes(fileName)) {
+                    fileIndex++;
+                    return;
+                }
+
+                const colorVariant = fileColorVariants[fileIndex % fileColorVariants.length];
+                const offset = fileOffsets.get(fileName) || 0;
+
+                // 各周波数帯域のデータセット
+                multiBands.forEach(bandKey => {
+                    // 除外された帯域はスキップ
+                    if (excludedBands.includes(bandKey)) return;
+
+                    const band = freqBands[bandKey];
+                    let data = bandDataMap.get(bandKey) || [];
+
+                    // オフセットを適用
+                    if (offset !== 0) {
+                        data = data.map(point => ({ x: point.x + offset, y: point.y }));
+                    }
+
+                    // 帯域の基本色を取得し、ファイルごとに調整
+                    const baseColor = bandBaseColors[bandKey];
+                    const adjustedColor = adjustColor(baseColor, colorVariant);
+                    const colorString = `rgb(${adjustedColor[0]}, ${adjustedColor[1]}, ${adjustedColor[2]})`;
+
+                    datasets.push({
+                        label: `${fileName} - ${band.label}`,
+                        data: data,
+                        borderColor: colorString,
+                        backgroundColor: `rgba(${adjustedColor[0]}, ${adjustedColor[1]}, ${adjustedColor[2]}, 0.1)`,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        tension: 0.1,
+                        fill: false,
+                        yAxisID: 'y'
+                    });
+                });
+
+                fileIndex++;
+            });
+
+            // RMS振幅レベルを追加
+            fileIndex = 0;
+            const rmsBaseColor = [37, 99, 235]; // 青系
+            allRmsData.forEach((rmsData, fileName) => {
+                // 除外されたファイルまたはRMS帯域はスキップ
+                if (excludedFiles.includes(fileName) || excludedBands.includes('rms')) {
+                    fileIndex++;
+                    return;
+                }
+
+                const colorVariant = fileColorVariants[fileIndex % fileColorVariants.length];
+                const adjustedColor = adjustColor(rmsBaseColor, colorVariant);
+                const colorString = `rgb(${adjustedColor[0]}, ${adjustedColor[1]}, ${adjustedColor[2]})`;
+                const offset = fileOffsets.get(fileName) || 0;
+
+                // オフセットを適用
+                let data = rmsData;
+                if (offset !== 0) {
+                    data = data.map(point => ({ x: point.x + offset, y: point.y }));
+                }
+
                 datasets.push({
-                    label: band.label,
+                    label: `${fileName} - RMS振幅`,
                     data: data,
-                    borderColor: band.color,
-                    backgroundColor: band.color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    borderColor: colorString,
+                    backgroundColor: `rgba(${adjustedColor[0]}, ${adjustedColor[1]}, ${adjustedColor[2]}, 0.1)`,
                     borderWidth: 2,
                     pointRadius: 0,
                     pointHoverRadius: 0,
                     tension: 0.1,
                     fill: false,
-                    yAxisID: 'y'
+                    yAxisID: 'y2'
                 });
-            });
 
-            // RMS振幅レベルを追加
-            datasets.push({
-                label: 'RMS振幅レベル',
-                data: rmsData,
-                borderColor: 'rgb(37, 99, 235)',
-                backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                borderWidth: 2,
-                pointRadius: 0,
-                pointHoverRadius: 0,
-                tension: 0.1,
-                fill: false,
-                yAxisID: 'y2'
+                fileIndex++;
             });
-
 
             chart = new Chart(ctx, {
                 type: 'line',
@@ -857,18 +1815,29 @@
                             labels: {
                                 usePointStyle: true,
                                 padding: 12,
-                                font: { size: 12 }
+                                font: { size: 11 }
                             }
                         },
                         tooltip: {
-                            enabled: true,
-                            mode: 'nearest',
+                            enabled: tooltipEnabled,
+                            mode: tooltipSingleMode ? 'nearest' : 'index',
                             intersect: false,
+                            axis: tooltipSingleMode ? 'xy' : 'x',
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            titleFont: { size: 14 },
+                            bodyFont: { size: 13 },
                             callbacks: {
                                 title: function(context) {
-                                    return `時刻: ${context[0].parsed.x.toFixed(3)}秒`;
+                                    if (tooltipSingleMode && context.length > 0) {
+                                        return `時刻: ${context[0].parsed.x.toFixed(3)}秒`;
+                                    }
+                                    return '';
                                 },
                                 label: function(context) {
+                                    if (tooltipSingleMode) {
+                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(4)}`;
+                                    }
                                     return `${context.dataset.label}: ${context.parsed.y.toFixed(4)}`;
                                 }
                             }
@@ -945,7 +1914,189 @@
                 }
             });
 
-            resetZoomBtn.style.display = 'inline-block';
+            elements.exportCsvBtn.style.display = 'inline-block';
+
+            // limitsを実際の数値に設定
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            const y2Scale = chart.scales.y2;
+
+            const xRange = xScale.max - xScale.min;
+            const yRange = yScale.max - yScale.min;
+            const y2Range = y2Scale.max - y2Scale.min;
+
+            chart.options.plugins.zoom.limits.x = {
+                min: xScale.min - xRange * 0.1,
+                max: xScale.max + xRange * 0.1
+            };
+            chart.options.plugins.zoom.limits.y = {
+                min: yScale.min - yRange * 0.1,
+                max: yScale.max + yRange * 0.1
+            };
+            chart.options.plugins.zoom.limits.y2 = {
+                min: y2Scale.min - y2Range * 0.1,
+                max: y2Scale.max + y2Range * 0.1
+            };
+
+            updateScrollbarsFromChart();
+        }
+
+        // グラフを描画（複数帯域対応版）
+        function renderChartMultiBand(smoothedBandData, rmsData, freqBands, duration) {
+            const ctx = document.getElementById('myChart').getContext('2d');
+
+            if (chart) {
+                chart.destroy();
+            }
+
+            const datasets = [];
+
+            // 各周波数帯域のデータセットを追加
+            smoothedBandData.forEach((data, bandKey) => {
+                const band = freqBands[bandKey];
+                datasets.push({
+                    label: band.label,
+                    data: data,
+                    borderColor: band.color,
+                    backgroundColor: band.color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    tension: 0.1,
+                    fill: false,
+                    yAxisID: 'y'
+                });
+            });
+
+            // RMS振幅レベルを追加
+            datasets.push({
+                label: 'RMS振幅レベル',
+                data: rmsData,
+                borderColor: 'rgb(37, 99, 235)',
+                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                tension: 0.1,
+                fill: false,
+                yAxisID: 'y2'
+            });
+
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 12,
+                                font: { size: 12 }
+                            }
+                        },
+                        tooltip: {
+                            enabled: tooltipEnabled,
+                            mode: tooltipSingleMode ? 'nearest' : 'index',
+                            intersect: false,
+                            axis: tooltipSingleMode ? 'xy' : 'x',
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            titleFont: { size: 14 },
+                            bodyFont: { size: 13 },
+                            callbacks: {
+                                title: function(context) {
+                                    if (tooltipSingleMode && context.length > 0) {
+                                        return `時刻: ${context[0].parsed.x.toFixed(3)}秒`;
+                                    }
+                                    return '';
+                                },
+                                label: function(context) {
+                                    if (tooltipSingleMode) {
+                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(4)}`;
+                                    }
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(4)}`;
+                                }
+                            }
+                        },
+                        zoom: {
+                            zoom: {
+                                wheel: { enabled: true },
+                                drag: {
+                                    enabled: true,
+                                    backgroundColor: 'rgba(102, 126, 234, 0.3)',
+                                    borderColor: 'rgba(102, 126, 234, 1)',
+                                    borderWidth: 2
+                                },
+                                mode: 'xy',
+                                onZoomComplete: function({chart}) {
+                                    updateScrollbarsFromChart();
+                                }
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'xy',
+                                modifierKey: 'shift',
+                                onPanComplete: function({chart}) {
+                                    updateScrollbarsFromChart();
+                                }
+                            },
+                            limits: {
+                                x: { min: 'original', max: 'original' },
+                                y: { min: 'original', max: 'original' },
+                                y2: { min: 'original', max: 'original' }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            display: true,
+                            title: {
+                                display: true,
+                                text: '時間 (秒)',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        y: {
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: '周波数パワー',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        y2: {
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'RMS振幅',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+
+            elements.exportCsvBtn.style.display = 'inline-block';
 
             // limitsを実際の数値に設定（'original'から変換）
             const xScale = chart.scales.x;
@@ -972,6 +2123,653 @@
             // スクロールバーを初期化
             updateScrollbarsFromChart();
         }
+
+        // ===========================
+        // スペクトログラム機能
+        // ===========================
+
+        // スペクトログラムを計算する関数
+        async function calculateSpectrogram(audioBuffer, fileName) {
+            const channelData = audioBuffer.getChannelData(0);
+            const sampleRate = audioBuffer.sampleRate;
+            const duration = audioBuffer.duration;
+
+            // スペクトログラム設定
+            const fftSizeSpec = 2048; // スペクトログラム用FFTサイズ
+            const hopSize = Math.floor(fftSizeSpec / 4); // オーバーラップ75%
+            const numFrames = Math.floor((channelData.length - fftSizeSpec) / hopSize);
+            const numFreqBins = fftSizeSpec / 2;
+
+            // 周波数範囲（500Hz - 10000Hz）
+            const minFreq = 500;
+            const maxFreq = 10000;
+            const minBin = Math.floor(minFreq * fftSizeSpec / sampleRate);
+            const maxBin = Math.floor(maxFreq * fftSizeSpec / sampleRate);
+
+            // スペクトログラムデータを格納
+            const spectrogram = [];
+            const timeStamps = [];
+
+            for (let i = 0; i < numFrames; i++) {
+                const startSample = i * hopSize;
+                const frame = channelData.slice(startSample, startSample + fftSizeSpec);
+
+                if (frame.length < fftSizeSpec) break;
+
+                const windowedFrame = applyHammingWindow(frame);
+                const fftResult = performFFTFast(windowedFrame);
+
+                // 指定周波数範囲のみ抽出
+                const freqSlice = Array.from(fftResult.slice(minBin, maxBin));
+                spectrogram.push(freqSlice);
+                timeStamps.push(startSample / sampleRate);
+            }
+
+            return {
+                spectrogram: spectrogram,
+                timeStamps: timeStamps,
+                freqMin: minFreq,
+                freqMax: maxFreq,
+                duration: duration,
+                fileName: fileName
+            };
+        }
+
+        // スペクトログラムを描画する関数
+        function renderSpectrogram(data) {
+            const canvas = elements.spectrogramCanvas;
+            const ctx = canvas.getContext('2d');
+
+            // キャンバスサイズを親要素に合わせる
+            const container = elements.spectrogramContainer;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+
+            // マージン設定（軸ラベル用のスペース）
+            const margin = {
+                top: 20,
+                right: 20,
+                bottom: 40,
+                left: 60
+            };
+
+            const spectrogram = data.spectrogram;
+            const timeStamps = data.timeStamps;
+            const numFrames = spectrogram.length;
+            const numFreqBins = spectrogram[0].length;
+
+            // 対数スケール（dB）に変換
+            const spectrogramDB = [];
+            for (let i = 0; i < numFrames; i++) {
+                spectrogramDB[i] = [];
+                for (let j = 0; j < numFreqBins; j++) {
+                    // デシベル変換: 20 * log10(value)
+                    // 最小値を設定して-Infinityを防ぐ
+                    const value = Math.max(spectrogram[i][j], 1e-10);
+                    const db = 20 * Math.log10(value);
+                    spectrogramDB[i][j] = db;
+                }
+            }
+
+            // dBの最大値・最小値を取得
+            let minDB = Infinity;
+            let maxDB = -Infinity;
+            for (let i = 0; i < numFrames; i++) {
+                for (let j = 0; j < numFreqBins; j++) {
+                    if (spectrogramDB[i][j] < minDB) minDB = spectrogramDB[i][j];
+                    if (spectrogramDB[i][j] > maxDB) maxDB = spectrogramDB[i][j];
+                }
+            }
+
+            // ダイナミックレンジを制限（見やすくするため）
+            const dynamicRange = 60; // dB
+            const dbMin = maxDB - dynamicRange;
+
+            // 描画領域のサイズを計算
+            const plotWidth = canvas.width - margin.left - margin.right;
+            const plotHeight = canvas.height - margin.top - margin.bottom;
+
+            // ピクセルサイズを計算
+            const pixelWidth = plotWidth / numFrames;
+            const pixelHeight = plotHeight / numFreqBins;
+
+            // 背景を白で塗りつぶし
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // スペクトログラムを描画（下から上へ、周波数が高いほど上）
+            for (let i = 0; i < numFrames; i++) {
+                for (let j = 0; j < numFreqBins; j++) {
+                    const db = spectrogramDB[i][j];
+                    // ダイナミックレンジ内で正規化
+                    const normalized = Math.max(0, Math.min(1, (db - dbMin) / dynamicRange));
+
+                    // カラーマップ（青→緑→黄→赤）
+                    const color = getHeatMapColor(normalized);
+                    ctx.fillStyle = color;
+
+                    const x = margin.left + i * pixelWidth;
+                    const y = margin.top + plotHeight - (j + 1) * pixelHeight; // 下から上へ
+
+                    ctx.fillRect(x, y, Math.ceil(pixelWidth), Math.ceil(pixelHeight));
+                }
+            }
+
+            // 軸ラベルと枠を追加
+            drawSpectrogramAxes(ctx, canvas, data, margin, plotWidth, plotHeight);
+        }
+
+        // ヒートマップカラーを取得（0-1の値を色に変換）
+        function getHeatMapColor(value) {
+            // 青(0) → シアン(0.25) → 緑(0.5) → 黄(0.75) → 赤(1.0)
+            let r, g, b;
+
+            if (value < 0.25) {
+                // 青 → シアン
+                const t = value / 0.25;
+                r = 0;
+                g = Math.floor(255 * t);
+                b = 255;
+            } else if (value < 0.5) {
+                // シアン → 緑
+                const t = (value - 0.25) / 0.25;
+                r = 0;
+                g = 255;
+                b = Math.floor(255 * (1 - t));
+            } else if (value < 0.75) {
+                // 緑 → 黄
+                const t = (value - 0.5) / 0.25;
+                r = Math.floor(255 * t);
+                g = 255;
+                b = 0;
+            } else {
+                // 黄 → 赤
+                const t = (value - 0.75) / 0.25;
+                r = 255;
+                g = Math.floor(255 * (1 - t));
+                b = 0;
+            }
+
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        // スペクトログラムの軸ラベルを描画
+        function drawSpectrogramAxes(ctx, canvas, data, margin, plotWidth, plotHeight) {
+            ctx.fillStyle = '#333';
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            ctx.font = '12px sans-serif';
+
+            // 枠を描画
+            ctx.strokeRect(margin.left, margin.top, plotWidth, plotHeight);
+
+            // X軸ラベル（時間）
+            ctx.textAlign = 'center';
+            ctx.fillText('時間 (秒)', margin.left + plotWidth / 2, canvas.height - 10);
+
+            // X軸の目盛り（簡易版）
+            const numXTicks = 5;
+            ctx.font = '10px sans-serif';
+            for (let i = 0; i <= numXTicks; i++) {
+                const x = margin.left + (plotWidth * i / numXTicks);
+                const time = (data.duration * i / numXTicks).toFixed(1);
+                ctx.fillText(time, x, canvas.height - 25);
+
+                // 目盛り線
+                ctx.beginPath();
+                ctx.moveTo(x, margin.top + plotHeight);
+                ctx.lineTo(x, margin.top + plotHeight + 5);
+                ctx.stroke();
+            }
+
+            // Y軸ラベル（周波数）
+            ctx.save();
+            ctx.translate(15, margin.top + plotHeight / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.font = '12px sans-serif';
+            ctx.fillText('周波数 (Hz)', 0, 0);
+            ctx.restore();
+
+            // Y軸の目盛り
+            const numYTicks = 5;
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'right';
+            for (let i = 0; i <= numYTicks; i++) {
+                const y = margin.top + plotHeight - (plotHeight * i / numYTicks);
+                const freq = Math.round(data.freqMin + (data.freqMax - data.freqMin) * i / numYTicks);
+                ctx.fillText(freq, margin.left - 10, y + 3);
+
+                // 目盛り線
+                ctx.beginPath();
+                ctx.moveTo(margin.left - 5, y);
+                ctx.lineTo(margin.left, y);
+                ctx.stroke();
+            }
+        }
+
+        // 全ファイルのスペクトログラムを計算
+        async function calculateAllSpectrograms() {
+            if (uploadedFiles.length === 0) return;
+
+            // スペクトログラムデータをクリア
+            spectrogramDataMap.clear();
+
+            // selectをクリア
+            elements.spectrogramFileSelect.innerHTML = '';
+
+            // 各ファイルのスペクトログラムを計算
+            for (let i = 0; i < uploadedFiles.length; i++) {
+                const file = uploadedFiles[i];
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    const data = await calculateSpectrogram(audioBuffer, file.name);
+
+                    // データを保存
+                    spectrogramDataMap.set(file.name, data);
+
+                    // selectに追加
+                    const option = document.createElement('option');
+                    option.value = file.name;
+                    option.textContent = file.name;
+                    elements.spectrogramFileSelect.appendChild(option);
+                } catch (error) {
+                    console.error(`スペクトログラム計算エラー (${file.name}):`, error);
+                }
+            }
+
+            // スペクトログラムカードを表示
+            if (spectrogramDataMap.size > 0) {
+                elements.spectrogramCard.style.display = 'block';
+
+                // 最初のファイルのスペクトログラムを描画
+                const firstFileName = uploadedFiles[0].name;
+                const firstData = spectrogramDataMap.get(firstFileName);
+                if (firstData) {
+                    renderSpectrogram(firstData);
+                }
+            }
+        }
+
+        // ===========================
+        // 新機能3: 時間領域統計量グラフの描画
+        // ===========================
+        let timeStatsChart = null;
+
+        function renderTimeStatsChart() {
+            const canvas = document.getElementById('timeStatsCanvas');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+
+            if (timeStatsChart) {
+                timeStatsChart.destroy();
+            }
+
+            const datasets = [];
+
+            // 各ファイルのデータを追加
+            let fileIndex = 0;
+            timeStatsDataMap.forEach((statsData, fileName) => {
+                if (excludedFiles.includes(fileName)) {
+                    fileIndex++;
+                    return;
+                }
+
+                const color = fileColors[fileIndex % fileColors.length];
+                const offset = fileOffsets.get(fileName) || 0;
+
+                // クレストファクター
+                if (document.getElementById('showCrestFactor')?.checked) {
+                    let data = statsData.crestFactor;
+                    if (offset !== 0) {
+                        data = data.map(point => ({ x: point.x + offset, y: point.y }));
+                    }
+                    datasets.push({
+                        label: `${fileName} - クレストファクター`,
+                        data: data,
+                        borderColor: color,
+                        backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1,
+                        yAxisID: 'y1'
+                    });
+                }
+
+                // 尖度
+                if (document.getElementById('showKurtosis')?.checked) {
+                    let data = statsData.kurtosis;
+                    if (offset !== 0) {
+                        data = data.map(point => ({ x: point.x + offset, y: point.y }));
+                    }
+                    datasets.push({
+                        label: `${fileName} - 尖度`,
+                        data: data,
+                        borderColor: color.replace('rgb', 'rgba').replace(')', ', 0.7)'),
+                        backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1,
+                        yAxisID: 'y2'
+                    });
+                }
+
+                // ピーク値
+                if (document.getElementById('showPeak')?.checked) {
+                    let data = statsData.peak;
+                    if (offset !== 0) {
+                        data = data.map(point => ({ x: point.x + offset, y: point.y }));
+                    }
+                    datasets.push({
+                        label: `${fileName} - ピーク値`,
+                        data: data,
+                        borderColor: color.replace('rgb', 'rgba').replace(')', ', 0.4)'),
+                        backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1,
+                        yAxisID: 'y3'
+                    });
+                }
+
+                fileIndex++;
+            });
+
+            timeStatsChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            enabled: tooltipEnabled,
+                            mode: tooltipSingleMode ? 'nearest' : 'index',
+                            intersect: false,
+                            axis: tooltipSingleMode ? 'xy' : 'x',
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            titleFont: { size: 14 },
+                            bodyFont: { size: 13 },
+                            callbacks: {
+                                title: function(context) {
+                                    if (tooltipSingleMode && context.length > 0) {
+                                        return `時刻: ${context[0].parsed.x.toFixed(3)}秒`;
+                                    }
+                                    return '';
+                                },
+                                label: function(context) {
+                                    if (tooltipSingleMode) {
+                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(4)}`;
+                                    }
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(4)}`;
+                                }
+                            }
+                        },
+                        zoom: {
+                            zoom: {
+                                wheel: { enabled: true },
+                                drag: { enabled: true },
+                                mode: 'xy'
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'xy'
+                            },
+                            limits: {
+                                x: { min: 'original', max: 'original' },
+                                y1: { min: 'original', max: 'original' },
+                                y2: { min: 'original', max: 'original' },
+                                y3: { min: 'original', max: 'original' }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            display: true,
+                            title: {
+                                display: true,
+                                text: '時間 (秒)'
+                            }
+                        },
+                        y1: {
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'クレストファクター'
+                            },
+                            grid: { display: true }
+                        },
+                        y2: {
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: '尖度'
+                            },
+                            grid: { display: false }
+                        },
+                        y3: {
+                            display: false,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'ピーク値'
+                            }
+                        }
+                    }
+                }
+            });
+
+            document.getElementById('timeStatsCard').style.display = 'block';
+        }
+
+        // ===========================
+        // 新機能4: エンベロープ分析グラフの描画
+        // ===========================
+        let envelopeChart = null;
+
+        function renderEnvelopeChart() {
+            const canvas = document.getElementById('envelopeCanvas');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+
+            if (envelopeChart) {
+                envelopeChart.destroy();
+            }
+
+            const datasets = [];
+
+            // 各ファイルのエンベロープデータを追加
+            let fileIndex = 0;
+            envelopeDataMap.forEach((envData, fileName) => {
+                if (excludedFiles.includes(fileName)) {
+                    fileIndex++;
+                    return;
+                }
+
+                const color = fileColors[fileIndex % fileColors.length];
+                const offset = fileOffsets.get(fileName) || 0;
+
+                let data = envData.envelope;
+                if (offset !== 0) {
+                    data = data.map(point => ({ x: point.x + offset, y: point.y }));
+                }
+
+                datasets.push({
+                    label: `${fileName} - エンベロープ`,
+                    data: data,
+                    borderColor: color,
+                    backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    fill: false
+                });
+
+                fileIndex++;
+            });
+
+            envelopeChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            enabled: tooltipEnabled,
+                            mode: tooltipSingleMode ? 'nearest' : 'index',
+                            intersect: false,
+                            axis: tooltipSingleMode ? 'xy' : 'x',
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            titleFont: { size: 14 },
+                            bodyFont: { size: 13 },
+                            callbacks: {
+                                title: function(context) {
+                                    if (tooltipSingleMode && context.length > 0) {
+                                        return `時刻: ${context[0].parsed.x.toFixed(3)}秒`;
+                                    }
+                                    return '';
+                                },
+                                label: function(context) {
+                                    if (tooltipSingleMode) {
+                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(6)}`;
+                                    }
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(6)}`;
+                                }
+                            }
+                        },
+                        zoom: {
+                            zoom: {
+                                wheel: { enabled: true },
+                                drag: { enabled: true },
+                                mode: 'xy'
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'xy'
+                            },
+                            limits: {
+                                x: { min: 'original', max: 'original' },
+                                y: { min: 'original', max: 'original' }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            display: true,
+                            title: {
+                                display: true,
+                                text: '時間 (秒)'
+                            }
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'エンベロープ振幅'
+                            }
+                        }
+                    }
+                }
+            });
+
+            document.getElementById('envelopeCard').style.display = 'block';
+        }
+
+        // ===========================
+        // 新機能5: 異常検知とアラート
+        // ===========================
+        function detectAnomalies() {
+            const anomalies = [];
+
+            timeStatsDataMap.forEach((statsData, fileName) => {
+                if (excludedFiles.includes(fileName)) return;
+
+                // クレストファクターの異常チェック
+                const crestFactorMax = Math.max(...statsData.crestFactor.map(d => d.y));
+                if (crestFactorMax > anomalyThresholds.crestFactor) {
+                    anomalies.push({
+                        file: fileName,
+                        type: 'クレストファクター異常',
+                        value: crestFactorMax.toFixed(2),
+                        threshold: anomalyThresholds.crestFactor,
+                        message: 'ビビり振動または工具折損の可能性'
+                    });
+                }
+
+                // 尖度の異常チェック
+                const kurtosisMax = Math.max(...statsData.kurtosis.map(d => d.y));
+                if (kurtosisMax > 10) {
+                    anomalies.push({
+                        file: fileName,
+                        type: '尖度異常（重度）',
+                        value: kurtosisMax.toFixed(2),
+                        threshold: 10,
+                        message: 'ベアリング異常（進行段階）の可能性'
+                    });
+                } else if (kurtosisMax > anomalyThresholds.kurtosis) {
+                    anomalies.push({
+                        file: fileName,
+                        type: '尖度異常（軽度）',
+                        value: kurtosisMax.toFixed(2),
+                        threshold: anomalyThresholds.kurtosis,
+                        message: 'ベアリング異常（初期段階）の可能性'
+                    });
+                }
+
+                // ピーク値の異常チェック
+                const peakMax = Math.max(...statsData.peak.map(d => d.y));
+                if (peakMax > anomalyThresholds.peak) {
+                    anomalies.push({
+                        file: fileName,
+                        type: 'ピーク値異常',
+                        value: peakMax.toFixed(4),
+                        threshold: anomalyThresholds.peak,
+                        message: '突発的な衝撃または工具破損の可能性'
+                    });
+                }
+            });
+
+            // アラート表示
+            const alertContainer = document.getElementById('anomalyAlertContainer');
+            const alertContent = document.getElementById('anomalyAlertContent');
+
+            if (anomalies.length > 0) {
+                let html = '<ul style="margin: 0; padding-left: 20px;">';
+                anomalies.forEach(anomaly => {
+                    html += `<li><strong>${anomaly.file}</strong>: ${anomaly.type} (値: ${anomaly.value}, 閾値: ${anomaly.threshold})<br>→ ${anomaly.message}</li>`;
+                });
+                html += '</ul>';
+                alertContent.innerHTML = html;
+                alertContainer.style.display = 'block';
+            } else {
+                alertContainer.style.display = 'none';
+            }
+        }
+
+        // チェックボックスのイベントリスナー
+        document.getElementById('showCrestFactor')?.addEventListener('change', renderTimeStatsChart);
+        document.getElementById('showKurtosis')?.addEventListener('change', renderTimeStatsChart);
+        document.getElementById('showPeak')?.addEventListener('change', renderTimeStatsChart);
     </script>
 </body>
 </html>
