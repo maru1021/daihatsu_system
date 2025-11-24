@@ -1154,80 +1154,102 @@ function getConsecutiveShiftCount(dateIndex, shift, machineIndex, currentItem) {
     let searchShift = shift;
 
     // まず同一設備で直前に同じ品番があるかチェック
-    // 前の直に移動
-    if (searchShift === 'day') {
-        searchDateIndex--;
-        searchShift = 'night';
-    } else {
-        searchShift = 'day';
-    }
+    // 前の直を探す（土日休出や休日をスキップする可能性を考慮して最大10直前まで探す）
+    let prevSelectSameMachine = null;
+    let prevSearchDateIndex = dateIndex;
+    let prevSearchShift = shift;
 
-    // 範囲内の場合、同一設備をチェック
-    if (searchDateIndex >= 0) {
-        const prevSelectSameMachine = document.querySelector(
-            `.vehicle-select[data-shift="${searchShift}"][data-date-index="${searchDateIndex}"][data-machine-index="${machineIndex}"]`
+    for (let offset = 1; offset <= 10; offset++) {
+        // 前の直に移動
+        if (prevSearchShift === 'day') {
+            prevSearchDateIndex--;
+            prevSearchShift = 'night';
+        } else {
+            prevSearchShift = 'day';
+        }
+
+        // 範囲外になったら終了
+        if (prevSearchDateIndex < 0) break;
+
+        // selectが存在するかチェック
+        const candidateSelect = document.querySelector(
+            `.vehicle-select[data-shift="${prevSearchShift}"][data-date-index="${prevSearchDateIndex}"][data-machine-index="${machineIndex}"]`
         );
 
-        if (prevSelectSameMachine) {
-            const prevItemSameMachine = prevSelectSameMachine.value || null;
+        // selectが存在し、かつ品番が入っている場合（または存在して空の場合はスキップ）
+        if (candidateSelect) {
+            const candidateValue = candidateSelect.value || '';
+            if (candidateValue.trim() !== '') {
+                // 品番が入っている直を見つけた
+                prevSelectSameMachine = candidateSelect;
+                searchDateIndex = prevSearchDateIndex;
+                searchShift = prevSearchShift;
+                break;
+            }
+            // 品番が空の場合はさらに前を探す（continue）
+        }
+    }
 
-            // 同一設備で直前が同じ品番の場合のみ、カウント継続
-            if (prevItemSameMachine === currentItem) {
-                const prevMoldCountDisplay = document.querySelector(
-                    `.mold-count-display[data-shift="${searchShift}"][data-date-index="${searchDateIndex}"][data-machine-index="${machineIndex}"]`
-                );
+    // 前の直が見つかった場合
+    if (prevSelectSameMachine) {
+        const prevItemSameMachine = prevSelectSameMachine.value || null;
 
-                if (prevMoldCountDisplay && prevMoldCountDisplay.textContent) {
-                    const prevMoldCount = parseInt(prevMoldCountDisplay.textContent) || 0;
-                    const isManualBlock = prevMoldCountDisplay.getAttribute('data-manual-block') === 'true';
+        // 同一設備で直前が同じ品番の場合のみ、カウント継続
+        if (prevItemSameMachine === currentItem) {
+            const prevMoldCountDisplay = document.querySelector(
+                `.mold-count-display[data-shift="${searchShift}"][data-date-index="${searchDateIndex}"][data-machine-index="${machineIndex}"]`
+            );
 
-                    // 手動ブロックされている場合は1からスタート
-                    if (isManualBlock) {
-                        return { count: 1, inherited: false, source: null };
-                    }
+            if (prevMoldCountDisplay && prevMoldCountDisplay.textContent) {
+                const prevMoldCount = parseInt(prevMoldCountDisplay.textContent) || 0;
+                const isManualBlock = prevMoldCountDisplay.getAttribute('data-manual-block') === 'true';
 
-                    // リセット情報をチェック（6になった地点の情報）
-                    const resetInfoStr = prevMoldCountDisplay.getAttribute('data-reset-info');
-                    if (resetInfoStr) {
-                        try {
-                            const resetInfo = JSON.parse(resetInfoStr);
-                            // リセット情報が現在の直の直前の直を指している場合のみリセット
-                            // （つまり、前の直で6になった場合）
-                            if (resetInfo.dateIndex === searchDateIndex &&
-                                resetInfo.shift === searchShift &&
-                                resetInfo.itemName === currentItem) {
-                                return { count: 1, inherited: false, source: null };
-                            }
-                        } catch (e) {
-                            // JSON解析エラーは無視
-                        }
-                    }
-
-                    // 金型交換閾値（交換済み）の場合は1からスタート
-                    if (prevMoldCount % MOLD_CHANGE_THRESHOLD === 0 && prevMoldCount > 0) {
-                        return { count: 1, inherited: false, source: null };
-                    }
-
-                    // 続きからカウント（同一設備での連続生産なので引き継ぎではない）
-                    // 手動設定値も含めて引き継ぐ
-                    // 注意: inheritedをfalseにすることで、引き継ぎターゲット情報が設定されない
-                    // これにより途中交換した型は他の設備から引き継ぎ可能になる
-                    return { count: prevMoldCount + 1, inherited: false, source: null };
+                // 手動ブロックされている場合は1からスタート
+                if (isManualBlock) {
+                    return { count: 1, inherited: false, source: null };
                 }
-            }
 
-            // 同一設備で直前が異なる品番、または品番がない場合
-            // → 他の設備や過去の直から引き継ぎを探す
-            const inheritanceResult = searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem);
-            if (inheritanceResult.count > 1) {
-                return {
-                    count: inheritanceResult.count,
-                    inherited: true,
-                    source: inheritanceResult.source
-                };
-            } else {
-                return { count: 1, inherited: false, source: null };
+                // リセット情報をチェック（6になった地点の情報）
+                const resetInfoStr = prevMoldCountDisplay.getAttribute('data-reset-info');
+                if (resetInfoStr) {
+                    try {
+                        const resetInfo = JSON.parse(resetInfoStr);
+                        // リセット情報が現在の直の直前の直を指している場合のみリセット
+                        // （つまり、前の直で6になった場合）
+                        if (resetInfo.dateIndex === searchDateIndex &&
+                            resetInfo.shift === searchShift &&
+                            resetInfo.itemName === currentItem) {
+                            return { count: 1, inherited: false, source: null };
+                        }
+                    } catch (e) {
+                        // JSON解析エラーは無視
+                    }
+                }
+
+                // 金型交換閾値（交換済み）の場合は1からスタート
+                if (prevMoldCount % MOLD_CHANGE_THRESHOLD === 0 && prevMoldCount > 0) {
+                    return { count: 1, inherited: false, source: null };
+                }
+
+                // 続きからカウント（同一設備での連続生産なので引き継ぎではない）
+                // 手動設定値も含めて引き継ぐ
+                // 注意: inheritedをfalseにすることで、引き継ぎターゲット情報が設定されない
+                // これにより途中交換した型は他の設備から引き継ぎ可能になる
+                return { count: prevMoldCount + 1, inherited: false, source: null };
             }
+        }
+
+        // 同一設備で直前が異なる品番、または品番がない場合
+        // → 他の設備や過去の直から引き継ぎを探す
+        const inheritanceResult = searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem);
+        if (inheritanceResult.count > 1) {
+            return {
+                count: inheritanceResult.count,
+                inherited: true,
+                source: inheritanceResult.source
+            };
+        } else {
+            return { count: 1, inherited: false, source: null };
         }
     }
 
@@ -1504,10 +1526,33 @@ function calculateInventory(dateIndex, shift, itemName) {
         // 初日の日勤: 前月最終在庫
         previousInventory = previousMonthInventory[itemName] || 0;
     } else if (shift === 'day') {
-        // 日勤: 前日の夜勤の在庫
-        const prevKey = `night-${itemName}-${dateIndex - 1}`;
-        const prevNightInventoryInput = inventoryElementCache.inventory[prevKey];
-        previousInventory = parseFloat(prevNightInventoryInput?.value) || 0;
+        // 日勤: 前の稼働日の夜勤の在庫を探す（土日休出や休日をスキップ）
+        let foundPrevInventory = false;
+        for (let offset = 1; offset <= 10; offset++) {
+            const prevNightKey = `night-${itemName}-${dateIndex - offset}`;
+            const prevNightInventoryInput = inventoryElementCache.inventory[prevNightKey];
+
+            // 要素が存在し、かつ値が設定されている（生産があった）場合
+            if (prevNightInventoryInput && prevNightInventoryInput.value !== '') {
+                previousInventory = parseFloat(prevNightInventoryInput.value) || 0;
+                foundPrevInventory = true;
+                break;
+            }
+
+            // 前日の日勤も確認（休出の可能性）
+            const prevDayKey = `day-${itemName}-${dateIndex - offset}`;
+            const prevDayInventoryInput = inventoryElementCache.inventory[prevDayKey];
+            if (prevDayInventoryInput && prevDayInventoryInput.value !== '') {
+                previousInventory = parseFloat(prevDayInventoryInput.value) || 0;
+                foundPrevInventory = true;
+                break;
+            }
+        }
+
+        // 見つからない場合は前月最終在庫
+        if (!foundPrevInventory) {
+            previousInventory = previousMonthInventory[itemName] || 0;
+        }
     } else {
         // 夜勤: その日の日勤の在庫
         const dayKey = `day-${itemName}-${dateIndex}`;
@@ -2288,7 +2333,32 @@ function saveProductionPlan() {
     });
 
     // 使用可能金型数データを収集
-    const usableMoldsData = collectUsableMoldsData();
+    // 自動生成結果がある場合はそれを使用、なければ手動収集
+    let usableMoldsData;
+    if (window.autoGeneratedUnusedMolds && window.autoGeneratedUnusedMolds.length > 0) {
+        // 自動生成の未使用金型データを使用
+        usableMoldsData = window.autoGeneratedUnusedMolds.map(mold => {
+            // machine_nameからmachine_indexを取得
+            const machineRows = document.querySelectorAll('.facility-number');
+            let machineIndex = -1;
+            machineRows.forEach((row, index) => {
+                if (index < 4 && row.textContent.trim() === mold.machine_name) {
+                    machineIndex = index;
+                }
+            });
+
+            return {
+                machine_index: machineIndex,
+                item_name: mold.item_name,
+                used_count: mold.used_count,
+                end_of_month: mold.end_of_month
+            };
+        });
+        console.log('Using auto-generated unused molds:', usableMoldsData);
+    } else {
+        // 手動収集
+        usableMoldsData = collectUsableMoldsData();
+    }
 
     // CSRFトークンを取得
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || getCookie('csrftoken');
@@ -2438,6 +2508,10 @@ function autoProductionPlan() {
             if (data.status === 'success') {
                 // デバッグ: 最初の数件を確認
                 console.log('Auto plan data (first 5):', data.data.slice(0, 5));
+                console.log('Unused molds:', data.unused_molds);
+
+                // 使用されなかった金型データをグローバル変数に保存
+                window.autoGeneratedUnusedMolds = data.unused_molds || [];
 
                 // 生産計画を画面に反映
                 applyAutoProductionPlan(data.data);

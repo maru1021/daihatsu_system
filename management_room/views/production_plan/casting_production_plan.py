@@ -912,7 +912,8 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
             return JsonResponse({
                 'status': 'success',
-                'data': result
+                'data': result.get('plans', []),
+                'unused_molds': result.get('unused_molds', [])  # 使用されなかった金型データ
             })
 
         except Exception as e:
@@ -1649,7 +1650,33 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         log_file.close()
         print(f"在庫シミュレーションログを出力しました: {log_file_path}")
 
-        return result
+        # 使用されなかった金型データを変換（翌月引き継ぎ用）
+        unused_molds_data = []
+        for item_name, used_counts in detached_molds.items():
+            # 各金型（同一品番でも複数ある可能性）について
+            for used_count in used_counts:
+                # 品番に対応する全設備を取得
+                item_machines = []
+                for machine in machines:
+                    # この品番がこの設備で作れるかチェック
+                    key = f"{item_name}_{machine.id}"
+                    if key in item_data:
+                        item_machines.append(machine)
+
+                # 最初の設備を代表として記録（実際には全設備で共有）
+                if item_machines:
+                    unused_molds_data.append({
+                        'machine_id': item_machines[0].id,
+                        'machine_name': item_machines[0].name,
+                        'item_name': item_name,
+                        'used_count': used_count,
+                        'end_of_month': False  # 月末に設置されていない（途中で外された）
+                    })
+
+        return {
+            'plans': result,
+            'unused_molds': unused_molds_data
+        }
 
     def _optimize_overtime(self, machine_plans, machines, all_item_names, item_data,
                           prev_inventory, item_delivery, optimal_inventory,
