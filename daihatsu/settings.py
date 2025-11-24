@@ -1,13 +1,14 @@
+# -*- coding: utf-8 -*-
 from pathlib import Path
 import ipaddress
 import time
 import os
-import sys
 
-# .envファイルの読み込み
+
+# .envファイルの読み込み（UTF-8エンコーディングを明示）
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(encoding='utf-8')
 except ImportError:
     pass  # python-dotenvがインストールされていない場合はスキップ
 
@@ -147,15 +148,16 @@ WSGI_APPLICATION = 'daihatsu.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME'),
-        'USER': os.environ.get('DB_USER'),
-        'PASSWORD': os.environ.get('DB_PASSWORD'),
+        'NAME': os.environ.get('DB_NAME', 'dkc'),
+        'USER': os.environ.get('DB_USER', 'dkc'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'dkc'),
         'HOST': 'localhost',
         'PORT': '5432',
         'OPTIONS': {
             'client_encoding': 'UTF8',
             'options': '-c client_encoding=UTF8',
         },
+        'CONN_MAX_AGE': 0,  # 接続プールを無効化してエンコーディング問題を回避
     }
 }
 

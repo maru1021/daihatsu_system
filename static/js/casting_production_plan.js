@@ -1319,8 +1319,8 @@ function searchOtherMachinesForCount(dateIndex, shift, machineIndex, currentItem
                             // 既に他の設備が引き継いでいる場合は、引き継ぎ不可
                             // ただし、引き継ぎ先が現在のセル自身の場合は引き継ぎ可（再計算の場合）
                             if (!(inheritanceTarget.targetDateIndex === dateIndex &&
-                                  inheritanceTarget.targetShift === shift &&
-                                  inheritanceTarget.targetMachineIndex === machineIndex)) {
+                                inheritanceTarget.targetShift === shift &&
+                                inheritanceTarget.targetMachineIndex === machineIndex)) {
                                 // 別の設備が既に引き継いでいる
                                 continue; // 次の候補を探す
                             }
@@ -1804,7 +1804,7 @@ function showMoldCountEditModal(moldCountDisplay) {
     const newSaveBtn = saveBtn.cloneNode(true);
     saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
 
-    newSaveBtn.addEventListener('click', function() {
+    newSaveBtn.addEventListener('click', function () {
         const newValue = parseInt(document.getElementById('modal-mold-count-input').value);
         if (newValue >= 1 && newValue <= 99) {
             // 金型使用数を更新
@@ -2743,7 +2743,7 @@ function setupColumnHover() {
 
     let currentHoverDateIndex = -1;
 
-    tbody.addEventListener('mouseover', function(e) {
+    tbody.addEventListener('mouseover', function (e) {
         const cell = e.target.closest('td, th');
         if (!cell) return;
 
@@ -2769,7 +2769,7 @@ function setupColumnHover() {
         addDateHighlight(dateIndexNum);
     });
 
-    tbody.addEventListener('mouseout', function(e) {
+    tbody.addEventListener('mouseout', function (e) {
         // tbodyから完全に出た場合のみハイライトを削除
         if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
             if (currentHoverDateIndex >= 0) {
