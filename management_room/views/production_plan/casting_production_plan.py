@@ -36,7 +36,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             line = CastingLine.objects.get(name='ヘッド')
 
         # 品番を取得（一覧から重複なし）
-        item_names = list(CastingItem.objects.filter(line=line, active=True).values_list('name', flat=True).distinct().order_by('name'))
+        item_names = list(CastingItem.objects.filter(line=line, active=True).values_list('name', flat=True).distinct())
 
         # 鋳造機を取得
         machine_list = list(CastingMachine.objects.filter(line=line, active=True).order_by('name').values('name', 'id'))
@@ -56,18 +56,42 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             plan.date for plan in plans if plan.shift == 'day'
         )
 
+        # 定時データを取得（日付ごと）
+        regular_working_hours_dict = {}
+        for plan in plans:
+            if plan.date and plan.regular_working_hours:
+                regular_working_hours_dict[plan.date] = True
+
+        # 土日の出庫数データを取得（DailyCastingProductionPlanから）
+        # 出庫数が0より大きい日付を抽出
+        weekend_delivery_dates = set()
+        weekend_stock_plans = DailyCastingProductionPlan.objects.filter(
+            line=line,
+            date__gte=start_date,
+            date__lte=end_date,
+            shift='day'
+        ).select_related('production_item')
+
+        for plan in weekend_stock_plans:
+            if plan.date and plan.date.weekday() >= 5 and plan.holding_out_count and plan.holding_out_count > 0:
+                weekend_delivery_dates.add(plan.date)
+
         # 日付リストを生成
         dates = []
         for current_date in date_list:
             is_weekend = current_date.weekday() >= 5
             has_weekend_work = current_date in weekend_work_dates if is_weekend else False
+            is_regular_hours = regular_working_hours_dict.get(current_date, False)
+            has_weekend_delivery = current_date in weekend_delivery_dates if is_weekend else False
 
             dates.append({
                 'date': current_date,
                 'weekday': current_date.weekday(),
                 'is_weekend': is_weekend,
                 'occupancy_rate': default_occupancy_rate,
-                'has_weekend_work': has_weekend_work
+                'has_weekend_work': has_weekend_work,
+                'is_regular_hours': is_regular_hours,
+                'has_weekend_delivery': has_weekend_delivery
             })
 
         # 前月データを取得（在庫と生産計画を効率的に取得）
@@ -209,6 +233,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 'is_weekend': is_weekend,
                 'occupancy_rate': date_info['occupancy_rate'],
                 'has_weekend_work': date_info['has_weekend_work'],
+                'is_regular_hours': date_info.get('is_regular_hours', False),
+                'has_weekend_delivery': date_info.get('has_weekend_delivery', False),
                 'shifts': {
                     'day': {'items': {}, 'machines': {}},
                     'night': {'items': {}, 'machines': {}}
@@ -362,6 +388,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             plan_data = data.get('plan_data', [])
             weekends_to_delete = data.get('weekends_to_delete', [])
             usable_molds_data = data.get('usable_molds_data', [])
+            occupancy_rate_data = data.get('occupancy_rate_data', [])
+            regular_working_hours_data = data.get('regular_working_hours_data', [])
 
             # 対象期間を取得
             if request.GET.get('year') and request.GET.get('month'):
@@ -389,6 +417,22 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             while current_date <= end_date:
                 dates.append(current_date)
                 current_date += timedelta(days=1)
+
+            # 稼働率データを辞書化: {date_index: occupancy_rate}
+            occupancy_rate_dict = {}
+            for item in occupancy_rate_data:
+                date_index = item.get('date_index')
+                occupancy_rate = item.get('occupancy_rate')
+                if date_index is not None and occupancy_rate is not None:
+                    occupancy_rate_dict[date_index] = occupancy_rate
+
+            # 定時データを辞書化: {date_index: True}
+            regular_working_hours_dict = {}
+            for item in regular_working_hours_data:
+                date_index = item.get('date_index')
+                regular_working_hours = item.get('regular_working_hours')
+                if date_index is not None and regular_working_hours is not None:
+                    regular_working_hours_dict[date_index] = regular_working_hours
 
             # データをグループ化（残業時間、計画停止、生産計画を同じレコードに保存）
             grouped_data = {}
@@ -525,6 +569,24 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         production_item=production_item
                     ).delete()
 
+                    # 稼働率と定時データを取得
+                    occupancy_rate = occupancy_rate_dict.get(date_index)
+                    regular_working_hours = regular_working_hours_dict.get(date_index, False)
+
+                    # defaultsを構築
+                    defaults = {
+                        'stop_time': stop_time if stop_time is not None else 0,
+                        'overtime': overtime if overtime is not None else 0,
+                        'mold_change': mold_change if mold_change is not None else 0,
+                        'mold_count': mold_count if mold_count is not None else 0,
+                        'regular_working_hours': regular_working_hours,
+                        'last_updated_user': request.user.username if request.user.is_authenticated else 'system'
+                    }
+
+                    # 稼働率がある場合のみ設定
+                    if occupancy_rate is not None:
+                        defaults['occupancy_rate'] = occupancy_rate
+
                     # 選択された品番のレコードを作成または更新
                     DailyMachineCastingProductionPlan.objects.update_or_create(
                         line=line,
@@ -532,13 +594,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         date=date,
                         shift=shift,
                         production_item=production_item,
-                        defaults={
-                            'stop_time': stop_time if stop_time is not None else 0,
-                            'overtime': overtime if overtime is not None else 0,
-                            'mold_change': mold_change if mold_change is not None else 0,
-                            'mold_count': mold_count if mold_count is not None else 0,
-                            'last_updated_user': request.user.username if request.user.is_authenticated else 'system'
-                        }
+                        defaults=defaults
                     )
                     saved_count += 1
                 elif item_name == '' or item_name is None:

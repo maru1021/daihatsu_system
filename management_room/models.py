@@ -381,6 +381,8 @@ class DailyMachineCastingProductionPlan(models.Model):
     overtime = models.IntegerField(verbose_name="生産残業", null=True, blank=True, default=0)
     mold_count = models.IntegerField(verbose_name="金型使用数", null=True, blank=True, default=0)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+    occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
+    regular_working_hours = models.BooleanField(verbose_name="定時", default=False)
 
     class Meta:
         verbose_name = "日別鋳造計画品番"

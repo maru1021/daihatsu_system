@@ -38,6 +38,8 @@ let fileOffsets = new Map();
 let preserveZoom = false;
 let savedZoomState = null;
 let datasetVisibility = new Map();
+let cachedParsedData = []; // 統計グラフ更新用にキャッシュ
+let cachedFileDataToOriginalName = new Map(); // 統計グラフ更新用にキャッシュ
 let blinkTimer = null;
 let blinkState = true;
 let isInitialLoad = true;    // 初回読み込みフラグ
@@ -1004,6 +1006,9 @@ async function renderChartFromFiles() {
         renderChart(datasets);
         // 統計グラフを作成
         renderStatisticsCharts(parsedData, fileDataToOriginalName);
+        // 統計グラフ更新用にキャッシュ
+        cachedParsedData = parsedData;
+        cachedFileDataToOriginalName = fileDataToOriginalName;
         // 統計エリアを表示
         const statisticsCard = document.getElementById('statisticsCard');
         if (statisticsCard) {
@@ -1579,6 +1584,9 @@ function setupRangeEdgeDragging() {
     // マウスアップでドラッグ終了
     const handleMouseUp = async () => {
         if (isDraggingRangeEdge) {
+            // 解析範囲が変更されたかどうかを先に保存
+            const wasAnalysisRange = (draggingEdgeType === 'analysisStart' || draggingEdgeType === 'analysisEnd');
+
             isDraggingRangeEdge = false;
             draggingEdgeType = null;
             document.body.style.cursor = 'default';
@@ -1588,6 +1596,11 @@ function setupRangeEdgeDragging() {
 
             // 散布図を更新
             await createScatterPlot();
+
+            // 解析範囲が変更された場合は統計グラフも更新
+            if (wasAnalysisRange && cachedParsedData.length > 0) {
+                renderStatisticsCharts(cachedParsedData, cachedFileDataToOriginalName);
+            }
         }
     };
 
@@ -2899,6 +2912,9 @@ function calculateStatistics(parsedData, fileDataToOriginalName) {
         const originalFileName = fileDataToOriginalName.get(fileData.fileName) || fileData.fileName;
         if (excludedFiles.includes(originalFileName)) return;
 
+        // オフセット値を取得
+        const fileOffset = fileOffsets.get(originalFileName) || 0;
+
         fileData.datasets.forEach(dataset => {
             const columnName = dataset.label.split(' - ')[1] || '';
             // 指定された列のみを統計に含める
@@ -2906,16 +2922,28 @@ function calculateStatistics(parsedData, fileDataToOriginalName) {
             if (xAxisPattern && columnName === xAxisPattern) return;
             if (excludedColumns.includes(columnName)) return;
 
+            // 解析範囲が指定されている場合はその範囲のみを使用
+            let filteredData = dataset.data;
+            if (analysisStartValue !== null && analysisEndValue !== null) {
+                filteredData = dataset.data.filter((point, index) => {
+                    const adjustedIndex = index + fileOffset;
+                    return adjustedIndex >= analysisStartValue && adjustedIndex <= analysisEndValue;
+                });
+            }
+
+            // フィルタ後のデータが空の場合はスキップ
+            if (filteredData.length === 0) return;
+
             // 100個の移動平均を計算
             const movingAvg = applyMovingAverage(
-                dataset.data.map(point => ({ x: point.x, y: point.y })),
+                filteredData.map(point => ({ x: point.x, y: point.y })),
                 100
             );
 
             // 移動平均からの差分を計算
             const deviations = [];
             const absDeviations = [];
-            dataset.data.forEach((point, index) => {
+            filteredData.forEach((point, index) => {
                 if (index < movingAvg.length) {
                     const diff = point.y - movingAvg[index].y;
                     deviations.push(diff);
