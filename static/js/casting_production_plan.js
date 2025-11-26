@@ -392,6 +392,7 @@ function updateWorkingDayStatus(recalculate = true) {
 // ドラッグ＆ドロップ機能
 // ========================================
 let draggedElement = null;
+let draggedMoldData = null; // 再利用可能金型からドラッグされた場合のデータ
 
 function dragStart(event) {
     // select要素をクリックした場合のみキャンセル（それ以外はドラッグ許可）
@@ -434,11 +435,43 @@ function drop(event) {
 
     const targetContainer = event.target.closest('.select-container');
 
-    if (draggedElement && targetContainer && draggedElement !== targetContainer) {
+    // 再利用可能金型からのドロップの場合
+    if (draggedMoldData && targetContainer) {
+        const targetSelect = targetContainer.querySelector('.vehicle-select');
+
+        if (targetSelect) {
+            // 変更前の値を取得
+            const targetOldItem = targetSelect.getAttribute('data-vehicle') || '';
+
+            // 金型データから品番を設定
+            targetSelect.value = draggedMoldData.itemName;
+
+            // 色を更新
+            updateSelectColor(targetSelect);
+
+            // 金型カウントと引き継ぎ情報を更新
+            const targetDateIndex = parseInt(targetSelect.dataset.dateIndex);
+            const targetShift = targetSelect.dataset.shift;
+            const targetMachineIndex = parseInt(targetSelect.dataset.machineIndex);
+            const targetNewItem = targetSelect.value || '';
+
+            // セルの金型カウントと引き継ぎ情報を更新
+            updateMoldCountForMachineFromShift(targetDateIndex, targetShift, targetMachineIndex, targetOldItem, targetNewItem);
+
+            // ハイライトのみ更新（型替え時間は設定しない）
+            applyItemChangeHighlights();
+        }
+    }
+    // 生産計画セル間のドラッグの場合
+    else if (draggedElement && targetContainer && draggedElement !== targetContainer) {
         const draggedSelect = draggedElement.querySelector('.vehicle-select');
         const targetSelect = targetContainer.querySelector('.vehicle-select');
 
         if (draggedSelect && targetSelect) {
+            // 変更前の値を取得（data-vehicleから）
+            const draggedOldItem = draggedSelect.getAttribute('data-vehicle') || '';
+            const targetOldItem = targetSelect.getAttribute('data-vehicle') || '';
+
             // selectの値を入れ替え
             const tempValue = draggedSelect.value;
             draggedSelect.value = targetSelect.value;
@@ -448,9 +481,20 @@ function drop(event) {
             updateSelectColor(draggedSelect);
             updateSelectColor(targetSelect);
 
-            // 生産台数を再計算
-            calculateProduction(parseInt(draggedSelect.dataset.dateIndex), draggedSelect.dataset.shift);
-            calculateProduction(parseInt(targetSelect.dataset.dateIndex), targetSelect.dataset.shift);
+            // 金型カウントと引き継ぎ情報を更新
+            const draggedDateIndex = parseInt(draggedSelect.dataset.dateIndex);
+            const draggedShift = draggedSelect.dataset.shift;
+            const draggedMachineIndex = parseInt(draggedSelect.dataset.machineIndex);
+            const draggedNewItem = draggedSelect.value || '';
+
+            const targetDateIndex = parseInt(targetSelect.dataset.dateIndex);
+            const targetShift = targetSelect.dataset.shift;
+            const targetMachineIndex = parseInt(targetSelect.dataset.machineIndex);
+            const targetNewItem = targetSelect.value || '';
+
+            // 両方のセルの金型カウントと引き継ぎ情報を更新
+            updateMoldCountForMachineFromShift(draggedDateIndex, draggedShift, draggedMachineIndex, draggedOldItem, draggedNewItem);
+            updateMoldCountForMachineFromShift(targetDateIndex, targetShift, targetMachineIndex, targetOldItem, targetNewItem);
 
             // ハイライトのみ更新（型替え時間は設定しない）
             applyItemChangeHighlights();
@@ -459,6 +503,7 @@ function drop(event) {
 
     cleanupDragClasses();
     draggedElement = null;
+    draggedMoldData = null;
 
     return false;
 }
@@ -493,11 +538,15 @@ function initializeSelectColors() {
         updateSelectColor(select);
 
         select.addEventListener('change', function () {
-            updateSelectColor(this);
+            // 変更前の品番を取得（updateSelectColorの前に取得する必要がある）
+            const oldItem = this.getAttribute('data-vehicle') || '';
+            updateSelectColor(this);  // ここで data-vehicle が新しい値に更新される
+            const newItem = this.value || '';
+
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
             const machineIndex = parseInt(this.dataset.machineIndex);
-            updateMoldCountForMachineFromShift(dateIndex, shift, machineIndex);  // この直以降の金型使用数を更新（生産台数・在庫も計算される）
+            updateMoldCountForMachineFromShift(dateIndex, shift, machineIndex, oldItem, newItem);  // この直以降の金型使用数を更新（生産台数・在庫も計算される）
             debouncedApplyHighlights();  // ハイライトのみ更新（型替え時間は設定しない）
         });
     });
@@ -527,6 +576,9 @@ function updateMoldCount(dateIndex, shift, machineIndex) {
         moldCountDisplay.removeAttribute('data-reset-info');
         moldCountDisplay.setAttribute('data-inherited', 'false');
         moldCountDisplay.setAttribute('data-manual-block', 'false');
+
+        // 引き継ぎ情報をクリア（引き継ぎ元への参照も削除）
+        clearInheritanceInfo(moldCountDisplay);
         return;
     }
 
@@ -644,14 +696,11 @@ function setResetFlagForItemAndRecalculate(fromDateIndex, fromShift, itemName) {
 }
 
 // 指定した直から後の全ての直の金型使用数を更新
-function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineIndex) {
+function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineIndex, oldItem, newItem) {
     const dateCount = domConstantCache.dateCount;
     const totalMachines = domConstantCache.totalMachines;
 
-    // 変更前の品番を取得（差分計算用）
-    const changedSelect = selectElementCache[startShift]?.[startDateIndex]?.[machineIndex];
-    const oldItem = changedSelect?.getAttribute('data-vehicle') || '';
-    const newItem = changedSelect?.value || '';
+    // oldItemとnewItemは引数として受け取る（呼び出し元で取得済み）
 
     // 【最適化】変更された直の全設備を1回だけ計算
     // 左から右へ順番に計算することで、引き継ぎ情報が正しく伝播する
@@ -722,6 +771,12 @@ function recalculateAffectedItems(startDateIndex, startShift, oldItem, newItem) 
 
     // 在庫は全品番を再計算（品番間の依存関係があるため）
     recalculateAllInventory();
+
+    // 再利用可能金型を更新
+    updateReusableMolds();
+
+    // 引き継ぎの矢印も更新
+    drawInheritanceArrows();
 }
 
 // 指定した直から後の全ての設備・全ての直の金型使用数を再計算
@@ -2760,19 +2815,6 @@ function applyAutoProductionPlan(planData) {
             overtimeInput.value = plan.overtime;
         }
 
-        // 金型使用回数を更新
-        const moldCountDisplay = document.querySelector(
-            `.mold-count-display[data-shift="${plan.shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
-        );
-
-        if (moldCountDisplay) {
-            const moldCount = plan.mold_count || 0;
-            moldCountDisplay.textContent = moldCount > 0 ? moldCount : '';
-            // 手動ブロックを解除
-            moldCountDisplay.removeAttribute('data-manual-block');
-            moldCountDisplay.classList.remove('manual-block');
-        }
-
         // 型替え時間を更新
         const moldChangeInput = document.querySelector(
             `.mold-change-input[data-shift="${plan.shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
@@ -2783,6 +2825,16 @@ function applyAutoProductionPlan(planData) {
             moldChangeInput.value = changeoverTime;
         }
     });
+
+    // 全ての金型カウントと引き継ぎ情報を再計算
+    const dateCount = domConstantCache.dateCount;
+    const totalMachines = domConstantCache.totalMachines;
+    for (let d = 0; d < dateCount; d++) {
+        for (let m = 0; m < totalMachines; m++) {
+            updateMoldCount(d, 'day', m);
+            updateMoldCount(d, 'night', m);
+        }
+    }
 
     // 生産台数を再計算（全日付のインデックスで）
     const allDateIndices = Object.values(dateToIndexMap);
@@ -2796,6 +2848,12 @@ function applyAutoProductionPlan(planData) {
 
     // 品番変更をチェック（バックエンドで型替え時間を設定済みなので、ハイライトのみ適用）
     applyItemChangeHighlights();
+
+    // 再利用可能金型を更新
+    updateReusableMolds();
+
+    // 引き継ぎの矢印を表示
+    drawInheritanceArrows();
 }
 
 // ========================================
@@ -2886,6 +2944,48 @@ function drawInheritanceArrows() {
         try {
             const target = JSON.parse(inheritanceTargetStr);
 
+            // 【追加】連続生産かどうかをチェック
+            // 同一設備で連続生産している場合は矢印を表示しない
+            const sourceMachineIndex = parseInt(machineIndex);
+            const targetMachineIndex = target.targetMachineIndex;
+            const sourceDateIndex = parseInt(dateIndex);
+            const targetDateIndex = target.targetDateIndex;
+
+            // 同一設備かチェック
+            if (sourceMachineIndex === targetMachineIndex) {
+                // 次の生産直を取得（空セルをスキップ）
+                const nextShiftItemName = getNextShiftItemName(sourceDateIndex, shift, sourceMachineIndex);
+                const currentItem = select.value;
+
+                // 引き継ぎ先が次の生産直で、同じ品番の場合は連続生産とみなす
+                // （つまり、設備を外さずにそのまま使用している）
+                if (nextShiftItemName === currentItem) {
+                    // 次の生産直を探して、それが引き継ぎ先と一致するかチェック
+                    const dateCount = domConstantCache.dateCount;
+                    let nextDateIndex = sourceDateIndex;
+                    let nextShift = shift;
+
+                    // 次の生産直を探す（最大30直先まで）
+                    for (let offset = 1; offset <= 30; offset++) {
+                        const next = moveToNextShift(nextDateIndex, nextShift);
+                        nextDateIndex = next.dateIndex;
+                        nextShift = next.shift;
+
+                        if (nextDateIndex >= dateCount) break;
+
+                        const nextSelect = selectElementCache[nextShift]?.[nextDateIndex]?.[sourceMachineIndex];
+                        if (nextSelect && nextSelect.value === currentItem) {
+                            // この直が引き継ぎ先と一致する場合は連続生産
+                            if (nextDateIndex === targetDateIndex && nextShift === target.targetShift) {
+                                // 連続生産なので矢印を描画しない
+                                return;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
             // 引き継ぎ元のセル位置を取得
             const sourceCell = moldCountDisplay.closest('td');
             if (!sourceCell) {
@@ -2927,41 +3027,12 @@ function drawInheritanceArrows() {
 
             svg.appendChild(path);
             arrowCount++;
-
-            // 金型カウントをラベルとして表示
-            const moldCount = moldCountDisplay.textContent;
-            if (moldCount && moldCount.trim() !== '') {
-                // 背景を先に追加
-                const textBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                textBg.setAttribute('x', controlX - 12);
-                textBg.setAttribute('y', controlY - 18);
-                textBg.setAttribute('width', 24);
-                textBg.setAttribute('height', 18);
-                textBg.setAttribute('fill', 'white');
-                textBg.setAttribute('opacity', '0.9');
-                textBg.setAttribute('rx', '4');
-                textBg.setAttribute('stroke', '#4CAF50');
-                textBg.setAttribute('stroke-width', '1');
-
-                svg.appendChild(textBg);
-
-                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                text.setAttribute('x', controlX);
-                text.setAttribute('y', controlY - 5);
-                text.setAttribute('text-anchor', 'middle');
-                text.setAttribute('fill', '#2E7D32');
-                text.setAttribute('font-size', '13');
-                text.setAttribute('font-weight', 'bold');
-                text.textContent = moldCount;
-
-                svg.appendChild(text);
-            }
         } catch (e) {
             console.error('Error parsing inheritance target:', e);
         }
     });
 
-    console.log(`Drew ${arrowCount} inheritance arrows`);
+    console.log(`Drew ${arrowCount} inheritance arrows (reuse only)`);
 }
 
 // 次の生産直の品番を取得（空セルをスキップ、最大30直先まで）
@@ -3049,13 +3120,35 @@ function displayReusableMolds() {
         return a.count - b.count;
     });
 
-    sortedMolds.forEach(mold => {
+    sortedMolds.forEach((mold, index) => {
         const moldItem = document.createElement('div');
         moldItem.className = 'reusable-mold-item';
+        moldItem.draggable = true;
         moldItem.innerHTML = `
             <span class="item-name">${mold.itemName}</span>
             <span class="mold-count">${mold.count}</span>
         `;
+
+        // ドラッグ開始イベント
+        moldItem.addEventListener('dragstart', function(event) {
+            draggedMoldData = {
+                itemName: mold.itemName,
+                count: mold.count,
+                dateIndex: mold.dateIndex,
+                shift: mold.shift,
+                machineIndex: mold.machineIndex,
+                moldIndex: index  // 配列内のインデックス
+            };
+            moldItem.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/html', moldItem.innerHTML);
+        });
+
+        // ドラッグ終了イベント
+        moldItem.addEventListener('dragend', function() {
+            moldItem.classList.remove('dragging');
+        });
+
         listElement.appendChild(moldItem);
     });
 }
