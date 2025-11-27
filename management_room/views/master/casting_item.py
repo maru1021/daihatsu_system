@@ -10,14 +10,14 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
     page_title = '鋳造品番管理'
     crud_model = CastingItem
     table_model = CastingItem.objects.select_related('line').only(
-        'id', 'line__name', 'name', 'optimal_inventory', 'active', 'last_updated_user'
+        'id', 'line__name', 'name', 'optimal_inventory', 'molten_metal_usage', 'active', 'last_updated_user'
     )
     form_dir = 'master/casting_item'
     form_action_url = 'management_room:casting_item_master'
     edit_url = 'management_room:casting_item_edit'
     delete_url = 'management_room:casting_item_delete'
-    admin_table_header = ['ライン名', '品番', '適正在庫', 'アクティブ', '最終更新者', '操作']
-    user_table_header = ['ライン名', '品番', '適正在庫', 'アクティブ', '最終更新者']
+    admin_table_header = ['ライン名', '品番', '適正在庫', '溶湯使用量', 'アクティブ', '最終更新者', '操作']
+    user_table_header = ['ライン名', '品番', '適正在庫', '溶湯使用量','アクティブ', '最終更新者']
     search_fields = ['line__name', 'name']
 
     def get_context_data(self, **kwargs):
@@ -36,6 +36,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     'line_id': data.line.id if data.line else '',
                     'order': data.order,
                     'optimal_inventory': data.optimal_inventory,
+                    'molten_metal_usage': data.molten_metal_usage,
                     'active': data.active,
                     'last_updated_user': data.last_updated_user,
                 },
@@ -80,6 +81,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 name=data.get('name', '').strip(),
                 line=CastingLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None,
                 optimal_inventory=data.get('optimal_inventory', '').strip() if data.get('optimal_inventory', '').strip() else 0,
+                molten_metal_usage=data.get('molten_metal_usage', '').strip() if data.get('molten_metal_usage', '').strip() else 0,
                 order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
@@ -93,6 +95,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             model.name = data.get('name').strip()
             model.line = CastingLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None
             model.optimal_inventory = data.get('optimal_inventory', '').strip() if data.get('optimal_inventory', '').strip() else 0
+            model.molten_metal_usage = data.get('molten_metal_usage', '').strip() if data.get('molten_metal_usage', '').strip() else 0
             model.order = data.get('order') if data.get('order') else 0
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
@@ -115,6 +118,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                             row.line.name if row.line else '',
                             row.name,
                             row.optimal_inventory if row.optimal_inventory else '',
+                            row.molten_metal_usage if row.molten_metal_usage else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],
@@ -130,6 +134,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                             row.line.name if row.line else '',
                             row.name,
                             row.optimal_inventory if row.optimal_inventory else '',
+                            row.molten_metal_usage if row.molten_metal_usage else '',
                             '有効' if row.active else '無効',
                             row.last_updated_user if row.last_updated_user else ''
                         ],

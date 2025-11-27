@@ -220,10 +220,20 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 if key not in plans_dict or plan.id > plans_dict[key].id:
                     plans_dict[key] = plan
 
+        # 前月末の金型を辞書化（設備IDをキーとする）
+        prev_month_molds_by_machine = {}
+        for mold in prev_usable_molds:
+            # 1～5の金型のみ
+            if mold.used_count > 0 and mold.used_count < 6 and mold.end_of_month:
+                prev_month_molds_by_machine[mold.machine.id] = {
+                    'item_name': mold.item_name.name,
+                    'used_count': mold.used_count
+                }
+
         # 日付ベースのデータ構造を構築
         dates_data = []
 
-        for date_info in dates:
+        for date_index, date_info in enumerate(dates):
             current_date = date_info['date']
             is_weekend = date_info['is_weekend']
 
@@ -285,14 +295,28 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     ).order_by('casting_item__name').values_list('casting_item__name', flat=True))
 
                     plan = plans_dict.get((machine_id, current_date, shift))
+
+                    # 【修正】最初の日付のday直の場合、前月末の金型をselected_itemとして設定
+                    selected_item = ''
+                    mold_count = 0
+                    if date_index == 0 and shift == 'day' and machine_id in prev_month_molds_by_machine:
+                        # 前月末の金型を設定（引き継ぎなので+1する）
+                        prev_mold = prev_month_molds_by_machine[machine_id]
+                        selected_item = prev_mold['item_name']
+                        mold_count = prev_mold['used_count'] + 1
+                    elif plan and plan.production_item:
+                        # 既存の計画から取得
+                        selected_item = plan.production_item.name
+                        mold_count = plan.mold_count if plan.mold_count is not None else 0
+
                     date_data['shifts'][shift]['machines'][machine_name] = {
                         'machine_id': machine_id,
                         'items': machine_items,
                         'stop_time': plan.stop_time if plan and plan.stop_time is not None else (0 if not is_weekend else ''),
                         'overtime': plan.overtime if plan and plan.overtime is not None else (0 if not is_weekend else ''),
                         'mold_change': plan.mold_change if plan and plan.mold_change is not None else (0 if not is_weekend else ''),
-                        'mold_count': plan.mold_count if plan and plan.mold_count is not None else 0,
-                        'selected_item': plan.production_item.name if plan and plan.production_item else ''
+                        'mold_count': mold_count,
+                        'selected_item': selected_item
                     }
 
             dates_data.append(date_data)
@@ -384,7 +408,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
         try:
             # JSONデータを取得
             data = json.loads(request.body)
-            print(data)
             plan_data = data.get('plan_data', [])
             weekends_to_delete = data.get('weekends_to_delete', [])
             usable_molds_data = data.get('usable_molds_data', [])
@@ -923,9 +946,11 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
             # 前月の使用可能金型数を取得
             prev_usable_molds = {}
             prev_month_first_date = date(prev_month_last_date.year, prev_month_last_date.month, 1)
+
             molds = UsableMold.objects.filter(
                 line=line,
-                month=prev_month_first_date
+                month=prev_month_first_date,
+                end_of_month=True  # 月末の金型状態のみ取得
             ).select_related('machine', 'item_name')
 
             for mold in molds:
@@ -984,12 +1009,15 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                            optimal_inventory, item_data, stop_time_data, prev_usable_molds,
                            prohibited_patterns, line, occupancy_rate):
         """
-        自動生産計画を生成する（在庫最適化 + 残業最小化）
+        自動生産計画を生成する（在庫最適化 + 金型交換最小化）
 
+        【新アルゴリズム】
         目標:
-        1. 在庫を0以下にしない
-        2. 適正在庫周辺を保つ
-        3. 残業時間を最小化
+        1. 在庫を0以下にしない（絶対条件）
+        2. 矢印を最小化（6直連続生産を優先）
+        3. 全品番の残個数を均等化（月末予測在庫の偏りを最小化）
+        4. 適正在庫周辺を保つ
+        5. 残業時間を最小化
         """
         import os
         from datetime import datetime
@@ -997,7 +1025,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         # 定数
         BASE_TIME = {'day': 490, 'night': 485}  # 基本稼働時間（分）
         OVERTIME_MAX = {'day': 120, 'night': 60}  # 残業上限（分）
-        SAFETY_STOCK = 50  # 安全在庫（この値を下回らないようにする）
+        SAFETY_STOCK = 300  # 安全在庫（この値を下回らないようにする）
         MOLD_CHANGE_THRESHOLD = 6  # 金型交換閾値
         CHANGEOVER_TIME = line.changeover_time or 90  # 型替え時間（分）
 
@@ -1024,11 +1052,6 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
             # 土日（weekday: 5=土曜, 6=日曜）は夜勤なし
             if date.weekday() < 5:
                 all_shifts.append((date, 'night'))
-
-        # デバッグ: 稼働日とシフトを確認
-        print(f"DEBUG: Total shifts = {len(all_shifts)}, working_days = {len(working_days)}")
-        if len(all_shifts) >= 4:
-            print(f"DEBUG: First 2 days: {all_shifts[:4]}")
 
         # 計画停止データを辞書化: {(date, shift, machine_id): stop_time}
         stop_time_dict = {}
@@ -1061,8 +1084,10 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         # 金型使用管理（前月からの引き継ぎ）
         # 前月最終直に各設備についていた金型と使用回数を設定
         for key, mold in prev_usable_molds.items():
-            if mold['end_of_month'] and mold['used_count'] < MOLD_CHANGE_THRESHOLD:
-                # 月末金型で6未満なら引き継ぎ
+            # end_of_month=Trueのデータのみ取得しているので、used_count < 6 の条件のみチェック
+            # 0は無効な値なので除外（1～5のみ引き継ぐ）
+            if 0 < mold['used_count'] < MOLD_CHANGE_THRESHOLD:
+                # 月末金型で1～5なら引き継ぎ
                 machine_id = mold['machine_id']
                 item_name = mold['item_name']
 
@@ -1071,123 +1096,433 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 使用回数を引き継ぎ
                 machine_shift_count[machine_id] = mold['used_count']
 
-                # 6未満で引き継いだ場合は、detached_moldsにも記録（リスト形式）
-                # （最初の直で別品番を選んだ時用）
-                if item_name not in detached_molds:
-                    detached_molds[item_name] = []
-                detached_molds[item_name].append(mold['used_count'])
+                # 注意: detached_moldsには記録しない
+                # 設備に取り付けられた状態で開始するため、途中で外した金型ではない
 
-        # シフトごとに処理
-        for shift_idx, (date, shift) in enumerate(all_shifts):
-            # ログ: シフトのヘッダー
-            log_file.write("\n" + "=" * 80 + "\n")
-            log_file.write(f"【{date} {shift}直】\n")
-            log_file.write("=" * 80 + "\n\n")
+        # ========================================
+        # ヘルパー関数定義
+        # ========================================
 
-            # この直での各品番の出庫数を取得
-            delivery_this_shift = {}
-            for item_name, deliveries in item_delivery.items():
-                for d in deliveries:
-                    if d['date'] == date and d['shift'] == shift:
-                        delivery_this_shift[item_name] = d['count']
+        def set_mold_count_for_item_change(machine_id, current_item, new_item, shift_count, detached_molds, detached_current_mold):
+            """
+            品番変更時の型数を設定する共通関数
+
+            Args:
+                machine_id: 設備ID
+                current_item: 現在の品番
+                new_item: 新しい品番
+                shift_count: 現在の型数
+                detached_molds: 使いかけ金型の辞書
+                detached_current_mold: 現在の金型を記録済みかのフラグ
+
+            Returns:
+                (new_mold_count, updated_detached_current_mold): 新しい型数と更新されたフラグ
+            """
+            # 現在の品番の使いかけ金型を記録（1～5の場合、かつまだ記録していない場合）
+            if not detached_current_mold and current_item and 0 < shift_count < MOLD_CHANGE_THRESHOLD:
+                if current_item not in detached_molds:
+                    detached_molds[current_item] = []
+                detached_molds[current_item].append(shift_count)
+                detached_current_mold = True
+
+            # 新しい品番の使いかけ金型があれば引き継ぐ
+            if new_item in detached_molds and len(detached_molds[new_item]) > 0:
+                inherited_count = detached_molds[new_item].pop(0)
+                new_mold_count = inherited_count + 1
+                if len(detached_molds[new_item]) == 0:
+                    del detached_molds[new_item]
+            else:
+                new_mold_count = 1
+
+            return (new_mold_count, detached_current_mold)
+
+        def set_mold_count_for_continue(machine_id, item_name, shift_count, detached_molds):
+            """
+            同じ品番を継続する場合の型数を設定する共通関数
+
+            Args:
+                machine_id: 設備ID
+                item_name: 品番
+                shift_count: 現在の型数
+                detached_molds: 使いかけ金型の辞書
+
+            Returns:
+                new_mold_count: 新しい型数
+            """
+            # 型数=0（6直完了後）の場合、使いかけ金型を引き継ぐ
+            if shift_count == 0 and item_name in detached_molds and len(detached_molds[item_name]) > 0:
+                inherited_count = detached_molds[item_name].pop(0)
+                new_mold_count = inherited_count + 1
+                if len(detached_molds[item_name]) == 0:
+                    del detached_molds[item_name]
+            else:
+                # 通常は前の直+1
+                new_mold_count = shift_count + 1
+
+            return new_mold_count
+
+        def calculate_estimated_production(item_name, machine_id, shift, stop_time=0, overtime=0):
+            """指定した品番・設備での推定生産数を計算"""
+            key = f"{item_name}_{machine_id}"
+            data = item_data.get(key)
+
+            if not data or data['tact'] == 0:
+                return 0
+
+            working_time = BASE_TIME[shift] - stop_time + overtime
+            if working_time < 0:
+                working_time = 0
+
+            # 生産数は不良品も含めた数量（不良率を掛けない）
+            production = math.floor(
+                (working_time / data['tact']) * occupancy_rate
+            )
+            return production
+
+        def simulate_future_inventory_for_item(item_name, from_shift_idx, temp_machine_plans):
+            """特定の品番の将来在庫をシミュレーション（マイナスになる直があるかチェック）"""
+            # 現在の在庫から開始
+            simulated_inv = inventory.get(item_name, 0)
+
+            # from_shift_idxから月末までシミュレーション
+            for idx in range(from_shift_idx, len(all_shifts)):
+                sim_date, sim_shift = all_shifts[idx]
+
+                # この直での出庫数
+                delivery = 0
+                for d in item_delivery.get(item_name, []):
+                    if d['date'] == sim_date and d['shift'] == sim_shift:
+                        delivery = d['count']
                         break
 
-            # ログ: 出荷処理
-            log_file.write("--- 出荷処理 ---\n")
-            for item_name in sorted(all_item_names):
-                delivery = delivery_this_shift.get(item_name, 0)
-                if delivery > 0:
-                    before_stock = inventory.get(item_name, 0)
-                    after_stock = before_stock - delivery
-                    log_file.write(f"  {item_name}: {before_stock} → {after_stock} (出荷: {delivery}台)\n")
-            log_file.write("\n")
+                # 出庫
+                simulated_inv -= delivery
 
-            # 在庫不足リスクを計算（優先度付け）
-            at_risk_items = []
-            for item_name in all_item_names:
-                current_stock = inventory.get(item_name, 0)
-                delivery = delivery_this_shift.get(item_name, 0)
-                future_stock = current_stock - delivery
+                # 生産数を計算（不良品も含む数量）して、在庫に加算する際は不良率を考慮（良品のみ）
+                for machine in machines:
+                    # この設備のこの直の計画を取得
+                    plan_list = [p for p in temp_machine_plans[machine.id]
+                                if p['date'] == sim_date and p['shift'] == sim_shift]
 
-                # 在庫が0未満または安全在庫を下回る場合は優先
-                # 緊急度: 0未満 > 安全在庫未満
-                if future_stock < 0:
-                    # 在庫マイナスは最優先（不足量を大きく見積もる）
-                    shortage = abs(future_stock) + 1000  # 優先度を高くするため+1000
-                    at_risk_items.append((item_name, shortage, current_stock))
-                elif future_stock < SAFETY_STOCK:
-                    # 安全在庫を下回る場合
-                    shortage = SAFETY_STOCK - future_stock + delivery
-                    at_risk_items.append((item_name, shortage, current_stock))
-
-            # 不足量でソート（緊急度が高い順）
-            at_risk_items.sort(key=lambda x: x[1], reverse=True)
-
-            # デバッグ: 在庫不足品番をログ出力
-            if at_risk_items and (date, shift) == all_shifts[0]:  # 最初の直のみ
-                print(f"\n=== {date} {shift} 在庫不足リスク ===")
-                for item_name, shortage, stock in at_risk_items[:5]:
-                    print(f"  {item_name}: 在庫={stock}, 不足={shortage}")
-
-            # 適正在庫から離れている品番を抽出（不足率で評価）
-            optimal_priority_items = []
-            for item_name in all_item_names:
-                current_stock = inventory.get(item_name, 0)
-                target_stock = optimal_inventory.get(item_name, 0)
-                delivery = delivery_this_shift.get(item_name, 0)
-
-                # 出荷後の在庫を予測
-                future_stock = current_stock - delivery
-
-                # 適正在庫より少ない場合のみ生産対象とする
-                if future_stock < target_stock:
-                    # 不足率を計算（%）
-                    if target_stock > 0:
-                        shortage_ratio = (target_stock - future_stock) / target_stock
-                    else:
-                        shortage_ratio = 0
-
-                    # (品番, 不足率, 現在在庫) のタプル
-                    optimal_priority_items.append((item_name, shortage_ratio, current_stock))
-
-            # 不足率が高い順にソート
-            optimal_priority_items.sort(key=lambda x: x[1], reverse=True)
-
-            # この直で既に割り当てられた品番の数を追跡（同じ品番は2設備まで）
-            assigned_items_count = {}  # {item_name: count}
-            MAX_MACHINES_PER_ITEM = 2  # 同じ品番を同時に生産できる設備数の上限（絶対条件）
-
-            # 品番ペア制約をチェックする関数
-            def can_assign_item(item_name, assigned_items_count, prohibited_patterns):
-                """指定した品番を割り当てられるかチェック"""
-                # 同一品番の上限チェック
-                if assigned_items_count.get(item_name, 0) >= MAX_MACHINES_PER_ITEM:
-                    return False
-
-                # 品番ペア制約チェック
-                for other_item, other_count in assigned_items_count.items():
-                    if other_item == item_name or other_count == 0:
-                        continue
-
-                    # この品番ペアの上限を取得
-                    pair_key = f"{item_name}_{other_item}"
-                    pair_limit = prohibited_patterns.get(pair_key)
-
-                    if pair_limit is not None:
-                        # このペアで既に何設備使っているか
-                        current_pair_count = min(
-                            assigned_items_count.get(item_name, 0),
-                            other_count
+                    if plan_list and plan_list[0]['item_name'] == item_name:
+                        plan = plan_list[0]
+                        stop_time = plan.get('stop_time', 0)
+                        overtime = plan.get('overtime', OVERTIME_MAX[sim_shift])
+                        production = calculate_estimated_production(
+                            item_name, machine.id, sim_shift, stop_time, overtime
                         )
-                        # 新規追加すると上限を超えるか
-                        if current_pair_count + 1 > pair_limit:
-                            return False
+                        # 在庫に加算する際は不良率を考慮（良品のみ）
+                        key = f"{item_name}_{machine.id}"
+                        yield_rate = item_data.get(key, {}).get('yield_rate', 1.0)
+                        simulated_inv += math.floor(production * yield_rate)
 
-                return True
+                # マイナスになる直があればFalseを返す
+                if simulated_inv < 0:
+                    return False, simulated_inv, idx
 
-            # 各鋳造機に品番を割り当て
+            return True, simulated_inv, -1
+
+        def calculate_end_of_month_inventory_all_items(temp_machine_plans):
+            """全品番の月末予測在庫を計算"""
+            eom_inventory = {}
+
+            for item_name in all_item_names:
+                simulated_inv = inventory.get(item_name, 0)
+
+                # 月初から月末までシミュレーション
+                for idx in range(len(all_shifts)):
+                    sim_date, sim_shift = all_shifts[idx]
+
+                    # この直での出庫数
+                    delivery = 0
+                    for d in item_delivery.get(item_name, []):
+                        if d['date'] == sim_date and d['shift'] == sim_shift:
+                            delivery = d['count']
+                            break
+
+                    # 出庫
+                    simulated_inv -= delivery
+
+                    # 生産数を計算（不良品も含む数量）して、在庫に加算する際は不良率を考慮（良品のみ）
+                    for machine in machines:
+                        plan_list = [p for p in temp_machine_plans[machine.id]
+                                    if p['date'] == sim_date and p['shift'] == sim_shift]
+
+                        if plan_list and plan_list[0]['item_name'] == item_name:
+                            plan = plan_list[0]
+                            stop_time = plan.get('stop_time', 0)
+                            overtime = plan.get('overtime', OVERTIME_MAX[sim_shift])
+                            production = calculate_estimated_production(
+                                item_name, machine.id, sim_shift, stop_time, overtime
+                            )
+                            # 在庫に加算する際は不良率を考慮（良品のみ）
+                            key = f"{item_name}_{machine.id}"
+                            yield_rate = item_data.get(key, {}).get('yield_rate', 1.0)
+                            simulated_inv += math.floor(production * yield_rate)
+
+                eom_inventory[item_name] = simulated_inv
+
+            return eom_inventory
+
+        def can_assign_item(item_name, assigned_items_count, prohibited_patterns):
+            """指定した品番を割り当てられるかチェック"""
+            MAX_MACHINES_PER_ITEM = 2
+
+            # 同一品番の上限チェック
+            if assigned_items_count.get(item_name, 0) >= MAX_MACHINES_PER_ITEM:
+                return False
+
+            # 品番ペア制約チェック
+            # この品番を追加した場合のカウント
+            new_item_count = assigned_items_count.get(item_name, 0) + 1
+
+            for other_item, other_count in assigned_items_count.items():
+                if other_item == item_name or other_count == 0:
+                    continue
+
+                pair_key = f"{item_name}_{other_item}"
+                pair_limit = prohibited_patterns.get(pair_key)
+
+                if pair_limit is not None:
+                    # この品番を追加した場合のペア数（2つの品番のうち小さい方）
+                    pair_count = min(new_item_count, other_count)
+                    if pair_count > pair_limit:
+                        return False
+
+            return True
+
+        def find_most_urgent_item(machine_items, current_shift_idx, assigned_items_count, prohibited_patterns):
+            """
+            最も緊急度の高い品番（最初に在庫が切れる品番）を見つける
+
+            Returns:
+                最も緊急度の高い品番名、またはNone
+            """
+            urgent_items = []
+
+            for item_name in machine_items:
+                if not can_assign_item(item_name, assigned_items_count, prohibited_patterns):
+                    continue
+
+                # この品番を生産しない場合の将来在庫をシミュレーション
+                temp_plans = {m.id: list(machine_plans[m.id]) for m in machines}
+                is_safe, end_inv, fail_idx = simulate_future_inventory_for_item(
+                    item_name, current_shift_idx, temp_plans
+                )
+
+                if not is_safe:
+                    # 将来在庫がマイナスになる = 緊急
+                    # fail_idxが小さいほど早く在庫切れ = より緊急
+                    current_stock = inventory.get(item_name, 0)
+                    urgent_items.append((item_name, fail_idx, current_stock))
+
+            if urgent_items:
+                # 最も早く在庫切れする品番を選択（fail_idxが小さい順、同じなら現在在庫が少ない順）
+                urgent_items.sort(key=lambda x: (x[1], x[2]))
+                return urgent_items[0][0]
+
+            return None
+
+        # ========================================
+        # 【新アルゴリズム】型替えイベント駆動アプローチ
+        # ========================================
+
+        # 各設備の次の型替えタイミング（直インデックス）を管理
+        # 前月から継続する場合: 残り直数を計算
+        # 未設定の場合: 0（最初の直から開始）
+        next_changeover_timing = {}
+
+        for machine in machines:
+            current_item = machine_current_item.get(machine.id)
+            shift_count = machine_shift_count.get(machine.id, 0)
+
+            if current_item and 0 < shift_count < MOLD_CHANGE_THRESHOLD:
+                # 前月から継続: 残り直数を計算（例: shift_count=4 なら、あと2直で型替え）
+                remaining_shifts = MOLD_CHANGE_THRESHOLD - shift_count
+                next_changeover_timing[machine.id] = remaining_shifts
+            else:
+                # 未設定または型替えタイミング: 最初の直から開始
+                next_changeover_timing[machine.id] = 0
+
+        # 処理済みの直インデックス（在庫シミュレーション用）
+        processed_shift_idx = 0
+
+        # ログ: 初期状態
+        log_file.write("\n" + "=" * 80 + "\n")
+        log_file.write("【初期状態】\n")
+        log_file.write("=" * 80 + "\n\n")
+        log_file.write("--- 各設備の初期状態と次の型替えタイミング ---\n")
+        for machine in machines:
+            current_item = machine_current_item.get(machine.id)
+            shift_count = machine_shift_count.get(machine.id, 0)
+            timing = next_changeover_timing.get(machine.id, 0)
+            if current_item:
+                log_file.write(f"  設備#{machine.name}: {current_item} (型数={shift_count}), 次の型替え: {timing}直後\n")
+            else:
+                log_file.write(f"  設備#{machine.name}: (未設定), 次の型替え: {timing}直後\n")
+        log_file.write("\n")
+
+        # 前月から継続する設備の計画を立てる
+        log_file.write("--- 前月から継続する設備の計画 ---\n")
+        for machine in machines:
+            current_item = machine_current_item.get(machine.id)
+            shift_count = machine_shift_count.get(machine.id, 0)
+            timing = next_changeover_timing.get(machine.id, 0)
+
+            if current_item and 0 < shift_count < MOLD_CHANGE_THRESHOLD and timing > 0:
+                # 前月から継続: 最初の直から型替えタイミングまでの計画を立てる
+                log_file.write(f"  設備#{machine.name}: {current_item} を型数={shift_count+1}から{shift_count+timing}まで生産\n")
+
+                for i in range(timing):
+                    shift_idx = i
+                    if shift_idx >= len(all_shifts):
+                        break
+
+                    plan_date, plan_shift = all_shifts[shift_idx]
+
+                    # 計画停止時間を取得
+                    stop_time = stop_time_dict.get((plan_date, plan_shift, machine.id), 0)
+                    overtime = OVERTIME_MAX[plan_shift]
+
+                    # 型替え時間は不要（継続生産）
+                    changeover_time = 0
+
+                    current_mold_count = shift_count + i + 1
+
+                    # 最後の直（6直目）の場合、型替え時間を設定
+                    if current_mold_count >= MOLD_CHANGE_THRESHOLD:
+                        changeover_time = CHANGEOVER_TIME
+
+                    machine_plans[machine.id].append({
+                        'date': plan_date,
+                        'shift': plan_shift,
+                        'item_name': current_item,
+                        'overtime': overtime,
+                        'stop_time': stop_time,
+                        'changeover_time': changeover_time,
+                        'mold_count': current_mold_count
+                    })
+
+                # 状態を更新
+                machine_shift_count[machine.id] = shift_count + timing
+
+                # 6直完了後は型数=0に設定
+                if machine_shift_count[machine.id] >= MOLD_CHANGE_THRESHOLD:
+                    machine_shift_count[machine.id] = 0
+                    # 使いかけ金型を記録しない（6直完了したため）
+
+        if not any(current_item and 0 < shift_count < MOLD_CHANGE_THRESHOLD and timing > 0
+                   for machine in machines
+                   for current_item, shift_count, timing in [(machine_current_item.get(machine.id),
+                                                               machine_shift_count.get(machine.id, 0),
+                                                               next_changeover_timing.get(machine.id, 0))]):
+            log_file.write("  (前月から継続する設備なし)\n")
+        log_file.write("\n")
+
+        # 型替えイベント駆動メインループ
+        iteration_count = 0
+        MAX_ITERATIONS = len(all_shifts) * len(machines) * 2  # 無限ループ防止
+
+        while processed_shift_idx < len(all_shifts) and iteration_count < MAX_ITERATIONS:
+            iteration_count += 1
+
+            # 最も早い型替えタイミングを見つける
+            next_machine_id = None
+            next_timing = float('inf')
+
             for machine in machines:
-                # この鋳造機で生産可能な品番リストを取得
+                timing = next_changeover_timing.get(machine.id, float('inf'))
+                if timing < next_timing:
+                    next_timing = timing
+                    next_machine_id = machine.id
+
+            # 全設備の型替えタイミングが計画期間外なら終了
+            if next_timing >= len(all_shifts):
+                break
+
+            # 型替えタイミングまでの出荷・生産処理を実行
+            for shift_idx in range(processed_shift_idx, next_timing):
+                date, shift = all_shifts[shift_idx]
+
+                # ログ: シフトのヘッダー
+                log_file.write("\n" + "=" * 80 + "\n")
+                log_file.write(f"【{date} {shift}直】（在庫・出荷処理のみ）\n")
+                log_file.write("=" * 80 + "\n\n")
+
+                # 出荷処理
+                log_file.write("--- 出荷処理 ---\n")
+                for item_name in sorted(all_item_names):
+                    delivery = 0
+                    for d in item_delivery.get(item_name, []):
+                        if d['date'] == date and d['shift'] == shift:
+                            delivery = d['count']
+                            break
+
+                    if delivery > 0:
+                        before_stock = inventory.get(item_name, 0)
+                        after_stock = before_stock - delivery
+                        inventory[item_name] = after_stock
+                        log_file.write(f"  {item_name}: {before_stock} → {after_stock} (出荷: {delivery}台)\n")
+                log_file.write("\n")
+
+                # 生産処理（既に決定済みの計画を実行）
+                production_this_shift = {}
+                for machine in machines:
+                    plan_list = [p for p in machine_plans[machine.id]
+                               if p['date'] == date and p['shift'] == shift]
+
+                    if plan_list:
+                        plan = plan_list[0]
+                        item_name = plan['item_name']
+
+                        key = f"{item_name}_{machine.id}"
+                        data = item_data.get(key)
+
+                        if data and data['tact'] > 0:
+                            # 生産数を計算
+                            changeover_time = plan.get('changeover_time', 0)
+                            working_time = BASE_TIME[shift] - plan.get('stop_time', 0) - changeover_time + plan.get('overtime', 0)
+                            if working_time < 0:
+                                working_time = 0
+
+                            production = math.floor((working_time / data['tact']) * occupancy_rate)
+                            production_this_shift[item_name] = production_this_shift.get(item_name, 0) + production
+
+                # 在庫を更新
+                log_file.write("--- 生産処理 ---\n")
+                for item_name in all_item_names:
+                    production = production_this_shift.get(item_name, 0)
+                    if production > 0:
+                        # 良品率を考慮
+                        yield_rate = 1.0
+                        for key, data in item_data.items():
+                            if data['name'] == item_name:
+                                yield_rate = data['yield_rate']
+                                break
+
+                        good_production = math.floor(production * yield_rate)
+                        before_stock = inventory.get(item_name, 0)
+                        after_stock = before_stock + good_production
+                        inventory[item_name] = after_stock
+                        log_file.write(f"  {item_name}: {before_stock} → {after_stock} (生産: {good_production}台)\n")
+                log_file.write("\n")
+
+            processed_shift_idx = next_timing
+
+            # 型替えタイミングに到達: 品番を決定して6直分の計画を立てる
+            if next_timing < len(all_shifts):
+                machine = next((m for m in machines if m.id == next_machine_id), None)
+                if not machine:
+                    break
+
+                date, shift = all_shifts[next_timing]
+
+                # ログ: 型替えイベント
+                log_file.write("\n" + "=" * 80 + "\n")
+                log_file.write(f"【{date} {shift}直】（設備#{machine.name} の型替えタイミング）\n")
+                log_file.write("=" * 80 + "\n\n")
+
+                # この設備で生産可能な品番リストを取得
                 machine_items = []
                 for key, data in item_data.items():
                     if data['machine_id'] == machine.id:
@@ -1196,283 +1531,132 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                             machine_items.append(item_name)
 
                 if not machine_items:
+                    # 生産可能な品番がない場合は次の設備へ
+                    next_changeover_timing[machine.id] = len(all_shifts)
                     continue
 
-                # 現在の品番と連続直数を確認
-                current_item = machine_current_item.get(machine.id)
-                shift_count = machine_shift_count.get(machine.id, 0)
+                # 現在このシフトで既に割り当てられた品番を確認
+                assigned_items_count = {}
+                for m in machines:
+                    if m.id == machine.id:
+                        continue  # 自分自身は除外
+                    plan_list = [p for p in machine_plans[m.id]
+                               if p['date'] == date and p['shift'] == shift]
+                    if plan_list:
+                        item = plan_list[0]['item_name']
+                        assigned_items_count[item] = assigned_items_count.get(item, 0) + 1
 
-                selected_item = None
+                # 最も緊急度の高い品番を選択
+                urgent_item = find_most_urgent_item(
+                    machine_items, next_timing, assigned_items_count, prohibited_patterns
+                )
 
-                # 優先度1: 在庫マイナスまたは安全在庫割れ（緊急）- 即座に切り替え
-                for item_name, shortage, stock in at_risk_items:
-                    if item_name in machine_items:
-                        future_stock = stock - delivery_this_shift.get(item_name, 0)
-                        # 在庫が0未満または安全在庫を下回る場合
-                        if future_stock < 0 or future_stock < SAFETY_STOCK:
-                            if can_assign_item(item_name, assigned_items_count, prohibited_patterns):
-                                selected_item = item_name
-
-                                # 品番が変わる場合のみ、型替え処理
-                                if current_item != item_name:
-                                    # 現在の金型が6未満なら記録（リストに追加）
-                                    if current_item and shift_count < MOLD_CHANGE_THRESHOLD:
-                                        if current_item not in detached_molds:
-                                            detached_molds[current_item] = []
-                                        detached_molds[current_item].append(shift_count)
-                                        print(f"  -> 緊急切替: {current_item} ({shift_count}直目で外す)")
-
-                                    # 緊急生産する品番の使いかけ金型があれば引き継ぐ（リストから取り出し）
-                                    if item_name in detached_molds and len(detached_molds[item_name]) > 0:
-                                        inherited_count = detached_molds[item_name].pop(0)  # 最も古いものを使用
-                                        machine_shift_count[machine.id] = inherited_count + 1
-                                        # リストが空になったら削除
-                                        if len(detached_molds[item_name]) == 0:
-                                            del detached_molds[item_name]
-                                        print(f"  -> 緊急(金型再取付): {item_name} ({inherited_count}直目から{inherited_count + 1}直目へ)")
-                                    else:
-                                        machine_shift_count[machine.id] = 1
-                                        if future_stock < 0:
-                                            print(f"  -> 緊急(新規): {item_name} 在庫マイナス予測 (現在={stock}, 出荷後={future_stock})")
-                                        else:
-                                            print(f"  -> 緊急(新規): {item_name} 安全在庫割れ (現在={stock}, 出荷後={future_stock})")
-                                else:
-                                    # 同じ品番が連続する場合は前の直+1
-                                    machine_shift_count[machine.id] = shift_count + 1
-                                    print(f"  -> 緊急(継続): {item_name} ({shift_count + 1}直目)")
-                                break
-
-                # 優先度2: 6直未満で現在品番を継続（基本戦略: 6直連続）
-                if not selected_item and current_item and shift_count < MOLD_CHANGE_THRESHOLD:
-                    if current_item in machine_items:
-                        if can_assign_item(current_item, assigned_items_count, prohibited_patterns):
-                            # デバッグ: 土日の遷移を確認
-                            if date.weekday() >= 5 or (shift_idx > 0 and all_shifts[shift_idx-1][0].weekday() >= 5):
-                                print(f"DEBUG 優先度2: {date} {shift} machine={machine.name}, current_item={current_item}, shift_count={shift_count}, next={shift_count + 1}")
-                            # 2段階在庫制限チェック
-                            current_stock = inventory.get(current_item, 0)
-                            target_stock = optimal_inventory.get(current_item, 0)
-
-                            # 全品番が適正在庫に達しているか確認
-                            all_items_at_target = True
-                            min_shortage_ratio = 0
-                            for item_name in all_item_names:
-                                item_stock = inventory.get(item_name, 0)
-                                item_target = optimal_inventory.get(item_name, 0)
-                                if item_stock < item_target:
-                                    all_items_at_target = False
-                                    # 不足率を計算
-                                    if item_target > 0:
-                                        shortage_ratio = (item_target - item_stock) / item_target
-                                        if shortage_ratio > min_shortage_ratio:
-                                            min_shortage_ratio = shortage_ratio
-
-                            should_continue = False
-
-                            if all_items_at_target:
-                                # フェーズ2: 全品番が適正在庫に達している → 適正在庫+200まで許容
-                                if current_stock < target_stock + 200:
-                                    should_continue = True
-                                    # print(f"  -> 継続: {current_item} ({shift_count + 1}直目, フェーズ2)")
-                            else:
-                                # フェーズ1: まだ適正在庫未達の品番がある
-                                # 現在品番が適正在庫を大きく超え、かつ他品番が大きく不足している場合のみ切り替え
-                                # 条件1: 現在品番が適正在庫+100以上
-                                # 条件2: 他の品番が50%以上不足
-                                if current_stock > target_stock + 100 and min_shortage_ratio > 0.5:
-                                    # 現在品番が十分あり、他品番が大きく不足している場合は切り替え
-                                    if current_item not in detached_molds:
-                                        detached_molds[current_item] = []
-                                    detached_molds[current_item].append(shift_count)
-                                    print(f"  -> 継続中止: {current_item} (6未満で外す: {shift_count}直目, フェーズ1) 現在品番十分 & 他品番大不足 (在庫={current_stock}, 適正={target_stock}, 最大不足率={min_shortage_ratio:.2%})")
-                                else:
-                                    # 基本的に6直連続を維持
-                                    should_continue = True
-                                    # print(f"  -> 継続: {current_item} ({shift_count + 1}直目, フェーズ1)")
-
-                            if should_continue:
-                                selected_item = current_item
-                                machine_shift_count[machine.id] = shift_count + 1
-
-                # 優先度3: 適正在庫に近づける（不足率が高い順、ただし既に割り当て済みの品番は調整）
-                if not selected_item:
-                    # この直で既に割り当てられている品番の生産増加量を計算
-                    estimated_production_this_shift = {}
-                    for m in machines:
-                        if machine_plans[m.id] and machine_plans[m.id][-1]['date'] == date and machine_plans[m.id][-1]['shift'] == shift:
-                            # 既にこの直で計画済みの設備
-                            assigned_item = machine_plans[m.id][-1]['item_name']
-                            if assigned_item:
-                                # 簡易的な生産数推定（1設備あたり約200台と仮定）
-                                estimated_production_this_shift[assigned_item] = estimated_production_this_shift.get(assigned_item, 0) + 200
-
-                    # 不足率を再計算（既に割り当て済みの品番は生産増加を考慮）
-                    adjusted_priority_items = []
-                    for item_name, shortage_ratio, current_stock in optimal_priority_items:
-                        # この直での生産増加分を考慮
-                        estimated_increase = estimated_production_this_shift.get(item_name, 0)
-                        adjusted_stock = current_stock + estimated_increase
-                        target_stock = optimal_inventory.get(item_name, 0)
-
-                        # 調整後の不足率を計算
-                        if target_stock > 0:
-                            adjusted_shortage_ratio = (target_stock - adjusted_stock) / target_stock
-                        else:
-                            adjusted_shortage_ratio = 0
-
-                        # 不足している場合のみリストに追加
-                        if adjusted_shortage_ratio > 0:
-                            adjusted_priority_items.append((item_name, adjusted_shortage_ratio, current_stock))
-
-                    # 調整後の不足率でソート
-                    adjusted_priority_items.sort(key=lambda x: x[1], reverse=True)
-
-                    # 最も不足している品番を選択
-                    for item_name, adj_shortage_ratio, current_stock in adjusted_priority_items:
-                        if item_name in machine_items:
-                            if can_assign_item(item_name, assigned_items_count, prohibited_patterns):
-                                selected_item = item_name
-
-                                # 品番が変わる場合のみ、使いかけの金型引き継ぎをチェック
-                                if current_item != item_name:
-                                    # 以前に外した金型があれば、その使用回数を引き継ぐ（リストから取り出し）
-                                    if item_name in detached_molds and len(detached_molds[item_name]) > 0:
-                                        inherited_count = detached_molds[item_name].pop(0)  # 最も古いものを使用
-                                        machine_shift_count[machine.id] = inherited_count + 1
-                                        # リストが空になったら削除
-                                        if len(detached_molds[item_name]) == 0:
-                                            del detached_molds[item_name]
-                                        print(f"  -> 金型再取付: {item_name} ({inherited_count}直目から{inherited_count + 1}直目へ, 調整後不足率={adj_shortage_ratio:.2%})")
-                                    else:
-                                        machine_shift_count[machine.id] = 1
-                                        print(f"  -> 新規開始: {item_name} (調整後不足率={adj_shortage_ratio:.2%}, 在庫={current_stock})")
-                                else:
-                                    # 同じ品番が連続する場合は前の直+1
-                                    machine_shift_count[machine.id] = shift_count + 1
-                                    print(f"  -> 継続: {item_name} ({shift_count + 1}直目, 調整後不足率={adj_shortage_ratio:.2%})")
-                                break
-
-                # 優先度4: 現在品番を継続（6直以上でもフォールバック）
-                if not selected_item and current_item and current_item in machine_items:
-                    if can_assign_item(current_item, assigned_items_count, prohibited_patterns):
-                        selected_item = current_item
-                        machine_shift_count[machine.id] = shift_count + 1
-                        print(f"  -> フォールバック継続: {current_item} ({shift_count + 1}直目)")
-
-                # 優先度5: 全品番から最も生産されていない品番を選択（ローテーション保証）
-                if not selected_item:
-                    # 全品番の累積生産回数を取得（この直までの累積）
-                    item_production_count = {}
-                    for m in machines:
-                        for p in machine_plans[m.id]:
-                            pname = p['item_name']
-                            item_production_count[pname] = item_production_count.get(pname, 0) + 1
-
-                    # この設備で作れる品番のうち、最も生産回数が少ない品番を選択
-                    min_count = float('inf')
-                    candidate_item = None
+                if not urgent_item:
+                    # フォールバック: 最初に作れる品番を選択
                     for item_name in machine_items:
                         if can_assign_item(item_name, assigned_items_count, prohibited_patterns):
-                            count = item_production_count.get(item_name, 0)
-                            if count < min_count:
-                                min_count = count
-                                candidate_item = item_name
-
-                    if candidate_item:
-                        selected_item = candidate_item
-
-                        # 品番が変わる場合のみ、使いかけの金型引き継ぎをチェック
-                        if current_item != candidate_item:
-                            if candidate_item in detached_molds and len(detached_molds[candidate_item]) > 0:
-                                inherited_count = detached_molds[candidate_item].pop(0)  # 最も古いものを使用
-                                machine_shift_count[machine.id] = inherited_count + 1
-                                # リストが空になったら削除
-                                if len(detached_molds[candidate_item]) == 0:
-                                    del detached_molds[candidate_item]
-                                print(f"  -> ローテーション(金型再取付): {candidate_item} ({inherited_count}直目から{inherited_count + 1}直目へ)")
-                            else:
-                                machine_shift_count[machine.id] = 1
-                                print(f"  -> ローテーション(新規): {candidate_item}")
-                        else:
-                            # 同じ品番が連続する場合は前の直+1
-                            machine_shift_count[machine.id] = shift_count + 1
-                            print(f"  -> ローテーション(継続): {candidate_item} ({shift_count + 1}直目)")
-
-                # 優先度6: デフォルト（最初の品番、2設備チェックと品番ペアチェック）
-                if not selected_item and machine_items:
-                    for item_name in machine_items:
-                        if can_assign_item(item_name, assigned_items_count, prohibited_patterns):
-                            selected_item = item_name
-
-                            # 品番が変わる場合のみ、使いかけの金型引き継ぎをチェック
-                            if current_item != item_name:
-                                if item_name in detached_molds and len(detached_molds[item_name]) > 0:
-                                    inherited_count = detached_molds[item_name].pop(0)  # 最も古いものを使用
-                                    machine_shift_count[machine.id] = inherited_count + 1
-                                    # リストが空になったら削除
-                                    if len(detached_molds[item_name]) == 0:
-                                        del detached_molds[item_name]
-                                    print(f"  -> デフォルト(金型再取付): {item_name} ({inherited_count}直目から{inherited_count + 1}直目へ)")
-                                else:
-                                    machine_shift_count[machine.id] = 1
-                                    print(f"  -> デフォルト(新規): {item_name}")
-                            else:
-                                # 同じ品番が連続する場合は前の直+1
-                                machine_shift_count[machine.id] = shift_count + 1
-                                print(f"  -> デフォルト(継続): {item_name} ({shift_count + 1}直目)")
+                            urgent_item = item_name
                             break
 
-                # 品番を更新
-                if selected_item:
+                if not urgent_item and machine_items:
+                    # それでもない場合は、制約を無視して最初の品番
+                    urgent_item = machine_items[0]
 
-                    # 型替え時間を判定
-                    changeover_time = 0
+                if urgent_item:
+                    # 現在の品番と連続直数を確認
+                    current_item = machine_current_item.get(machine.id)
+                    shift_count = machine_shift_count.get(machine.id, 0)
 
-                    # 6直目の型替え判定（品番変更による型替えは後で処理）
-                    if current_item and current_item == selected_item and shift_count >= MOLD_CHANGE_THRESHOLD:
-                        # 6直目では必ず金型交換（劣化による交換）
-                        print(f"DEBUG: 6直目型替え {date} {shift}, machine={machine.name}, current={selected_item}, shift_count={shift_count}")
+                    # 型数を設定
+                    if current_item != urgent_item:
+                        # 品番が変わる場合
+                        detached_current_mold = False
+                        mold_count, _ = set_mold_count_for_item_change(
+                            machine.id, current_item, urgent_item, shift_count, detached_molds, detached_current_mold
+                        )
+                    else:
+                        # 同じ品番を継続（6完了後の再開始）
+                        mold_count = 1
 
-                        # 6直目で外した金型はメンテされるため記録しない
-                        print(f"  -> 6直目: {selected_item} の金型を外して同じ品番の新金型に交換（劣化・メンテ）")
+                    log_file.write(f"--- 設備#{machine.name} に {urgent_item} を割り当て（型数={mold_count}） ---\n\n")
 
-                        # 同じ品番でも金型は新品なので1からスタート
-                        machine_shift_count[machine.id] = 1
+                    # 6直分の計画を立てる（ただし、計画期間内のみ）
+                    max_shifts = min(MOLD_CHANGE_THRESHOLD, len(all_shifts) - next_timing)
 
-                        changeover_time = CHANGEOVER_TIME
+                    for i in range(max_shifts):
+                        shift_idx = next_timing + i
+                        if shift_idx >= len(all_shifts):
+                            break
 
-                    # 使用回数を取得（machine_shift_countは既に各優先度で更新済み）
-                    current_mold_count = machine_shift_count.get(machine.id, 1)
+                        plan_date, plan_shift = all_shifts[shift_idx]
 
-                    # 7以上の値を1-6の範囲に補正（振り分けアルゴリズムは変更せず、表示のみ修正）
-                    if current_mold_count > MOLD_CHANGE_THRESHOLD:
-                        original_count = current_mold_count
-                        current_mold_count = ((current_mold_count - 1) % MOLD_CHANGE_THRESHOLD) + 1
-                        print(f"  -> 型数補正: {original_count}→{current_mold_count}")
+                        # 計画停止時間を取得
+                        stop_time = stop_time_dict.get((plan_date, plan_shift, machine.id), 0)
+                        overtime = OVERTIME_MAX[plan_shift]
 
-                    machine_current_item[machine.id] = selected_item
-                    # カウントを更新
-                    assigned_items_count[selected_item] = assigned_items_count.get(selected_item, 0) + 1
+                        # 型替え時間を判定
+                        changeover_time = 0
+                        if i == 0 and current_item and current_item != urgent_item:
+                            # 品番変更による型替え
+                            changeover_time = CHANGEOVER_TIME
 
-                    # 計画停止時間を取得
-                    stop_time = stop_time_dict.get((date, shift, machine.id), 0)
+                        current_mold_count = mold_count + i
 
-                    # 残業時間は後でまとめて最適化するため、仮で上限を設定
-                    overtime = OVERTIME_MAX[shift]
+                        # 6直目の場合、型替え時間を設定
+                        if current_mold_count >= MOLD_CHANGE_THRESHOLD:
+                            changeover_time = CHANGEOVER_TIME
 
-                    machine_plans[machine.id].append({
-                        'date': date,
-                        'shift': shift,
-                        'item_name': selected_item,
-                        'overtime': overtime,
-                        'stop_time': stop_time,
-                        'changeover_time': changeover_time,
-                        'mold_count': current_mold_count  # 使用回数を追加
-                    })
+                        machine_plans[machine.id].append({
+                            'date': plan_date,
+                            'shift': plan_shift,
+                            'item_name': urgent_item,
+                            'overtime': overtime,
+                            'stop_time': stop_time,
+                            'changeover_time': changeover_time,
+                            'mold_count': current_mold_count
+                        })
 
-            # この直の生産数を計算して在庫を更新
+                    # 状態を更新
+                    machine_current_item[machine.id] = urgent_item
+                    machine_shift_count[machine.id] = mold_count + max_shifts - 1
+
+                    # 6直完了後は型数=0に設定
+                    if machine_shift_count[machine.id] >= MOLD_CHANGE_THRESHOLD:
+                        machine_shift_count[machine.id] = 0
+
+                    # 次の型替えタイミングを更新
+                    next_changeover_timing[machine.id] = next_timing + max_shifts
+                else:
+                    # 品番を決定できなかった場合
+                    next_changeover_timing[machine.id] = len(all_shifts)
+
+        # 残りの直の在庫・出荷処理
+        for shift_idx in range(processed_shift_idx, len(all_shifts)):
+            date, shift = all_shifts[shift_idx]
+
+            # ログ: シフトのヘッダー
+            log_file.write("\n" + "=" * 80 + "\n")
+            log_file.write(f"【{date} {shift}直】（残りの在庫・出荷処理）\n")
+            log_file.write("=" * 80 + "\n\n")
+
+            # 出荷処理
+            log_file.write("--- 出荷処理 ---\n")
+            for item_name in sorted(all_item_names):
+                delivery = 0
+                for d in item_delivery.get(item_name, []):
+                    if d['date'] == date and d['shift'] == shift:
+                        delivery = d['count']
+                        break
+
+                if delivery > 0:
+                    before_stock = inventory.get(item_name, 0)
+                    after_stock = before_stock - delivery
+                    inventory[item_name] = after_stock
+                    log_file.write(f"  {item_name}: {before_stock} → {after_stock} (出荷: {delivery}台)\n")
+            log_file.write("\n")
+
+            # 生産処理
             production_this_shift = {}
-            production_detail = []  # ログ用：各設備の生産詳細
             for machine in machines:
                 plan_list = [p for p in machine_plans[machine.id]
                            if p['date'] == date and p['shift'] == shift]
@@ -1480,53 +1664,50 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 if plan_list:
                     plan = plan_list[0]
                     item_name = plan['item_name']
-                    mold_count = plan.get('mold_count', 0)
 
-                    # 品番と鋳造機のペアでデータを取得
                     key = f"{item_name}_{machine.id}"
                     data = item_data.get(key)
 
-                    if not data or data['tact'] == 0:
-                        continue
+                    if data and data['tact'] > 0:
+                        changeover_time = plan.get('changeover_time', 0)
+                        working_time = BASE_TIME[shift] - plan.get('stop_time', 0) - changeover_time + plan.get('overtime', 0)
+                        if working_time < 0:
+                            working_time = 0
 
-                    # 生産台数を計算（型替え時間を考慮）
-                    changeover_time = plan.get('changeover_time', 0)
-                    working_time = BASE_TIME[shift] - plan['stop_time'] - changeover_time + plan['overtime']
-
-                    # 稼働時間がマイナスにならないようにする
-                    if working_time < 0:
-                        working_time = 0
-
-                    production = math.floor(
-                        (working_time / data['tact']) * occupancy_rate * data['yield_rate']
-                    )
-
-                    if item_name in production_this_shift:
-                        production_this_shift[item_name] += production
-                    else:
-                        production_this_shift[item_name] = production
-
-                    # ログ用に生産詳細を記録
-                    production_detail.append((item_name, machine.name, mold_count, production))
-
-            # ログ: 生産処理
-            log_file.write("--- 生産処理 ---\n")
-            for item_name, machine_name, mold_count, production in production_detail:
-                before_stock = inventory.get(item_name, 0) - delivery_this_shift.get(item_name, 0)
-                after_stock = before_stock + production
-                log_file.write(f"  {item_name} (##{machine_name}, 型数={mold_count}): {before_stock} → {after_stock} (生産: {production}台)\n")
-            log_file.write("\n")
+                        production = math.floor((working_time / data['tact']) * occupancy_rate)
+                        production_this_shift[item_name] = production_this_shift.get(item_name, 0) + production
 
             # 在庫を更新
+            log_file.write("--- 生産処理 ---\n")
             for item_name in all_item_names:
                 production = production_this_shift.get(item_name, 0)
-                delivery = delivery_this_shift.get(item_name, 0)
-                inventory[item_name] = inventory[item_name] + production - delivery
+                if production > 0:
+                    yield_rate = 1.0
+                    for key, data in item_data.items():
+                        if data['name'] == item_name:
+                            yield_rate = data['yield_rate']
+                            break
+
+                    good_production = math.floor(production * yield_rate)
+                    before_stock = inventory.get(item_name, 0)
+                    after_stock = before_stock + good_production
+                    inventory[item_name] = after_stock
+                    log_file.write(f"  {item_name}: {before_stock} → {after_stock} (生産: {good_production}台)\n")
+            log_file.write("\n")
 
             # ログ: 直後の在庫
             log_file.write("--- 直後の在庫 ---\n")
             for item_name in sorted(all_item_names):
                 log_file.write(f"  {item_name}: {inventory.get(item_name, 0)} 台\n")
+            log_file.write("\n")
+
+            # ログ: 使いかけ金型の状態
+            log_file.write("--- 使いかけ金型の状態 ---\n")
+            if detached_molds:
+                for item_name, mold_counts in detached_molds.items():
+                    log_file.write(f"  {item_name}: {mold_counts}\n")
+            else:
+                log_file.write("  (なし)\n")
             log_file.write("\n")
 
         # ====================================================
@@ -1555,19 +1736,12 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                             night_changeover = night_plans[0].get('changeover_time', 0)
                             night_mold_count = night_plans[0].get('mold_count', 0)
 
-                            print(f"DEBUG: 夜勤チェック {date} night -> {next_date} day, machine={machine.name}, night_item={night_item}, day_item={day_item}, night_changeover={night_changeover}, night_mold_count={night_mold_count}")
-
                             # 品番が異なる場合は夜勤で型替え
                             if night_item != day_item:
-                                print(f"  -> 型替え検出（品番変更）")
-
                                 # 夜勤で既に型替え時間が設定されている場合（6直目）は追加不要
                                 if night_changeover == 0:
                                     # 型替え時間を設定（夜勤で型替えが発生）
                                     night_plans[0]['changeover_time'] = CHANGEOVER_TIME
-                                    print(f"  -> 夜勤に型替え時間設定")
-                                else:
-                                    print(f"  -> 夜勤で既に型替え済み")
 
                                 # 夜勤で型替えするため、残業禁止
                                 night_plans[0]['overtime'] = 0
@@ -1575,15 +1749,8 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                                 # 次の日勤の型替え時間はクリア（夜勤で型替え済み）
                                 if day_plans[0].get('changeover_time', 0) > 0:
                                     day_plans[0]['changeover_time'] = 0
-                                    print(f"  -> 次の日勤の型替え時間をクリア")
 
-                                # mold_countはそのまま（既に正しい値が設定されている）
-                                print(f"  -> 次の日勤のmold_count={day_plans[0].get('mold_count', 0)} (変更なし)")
-                            elif night_item == day_item:
-                                print(f"  -> 品番継続（型替えなし）")
 
-            # 日勤→夜勤の品番変更チェック
-            print("=== 日勤→夜勤 品番変更チェック開始 ===")
             for i, (date, shift) in enumerate(all_shifts):
                 if shift != 'day':
                     continue  # 日勤のみ処理
@@ -1610,26 +1777,13 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         day_item = day_plans[0]['item_name']
                         night_item = night_plans[0]['item_name']
                         day_changeover = day_plans[0].get('changeover_time', 0)
-                        day_mold_count = day_plans[0].get('mold_count', 0)
-
-                        print(f"DEBUG: 日勤チェック {date} day -> night, machine={machine.name}, day_item={day_item}, night_item={night_item}, day_changeover={day_changeover}, day_mold_count={day_mold_count}")
 
                         # 品番が異なる場合は日勤で型替え
-                        if day_item != night_item:
-                            print(f"  -> 型替え検出（品番変更）")
-
+                        if (day_item != night_item) and (day_changeover == 0):
                             # 日勤で既に型替え時間が設定されている場合（6直目）は追加不要
                             if day_changeover == 0:
                                 # 型替え時間を設定（日勤で型替えが発生）
                                 day_plans[0]['changeover_time'] = CHANGEOVER_TIME
-                                print(f"  -> 日勤に型替え時間設定")
-                            else:
-                                print(f"  -> 日勤で既に型替え済み")
-
-                            # mold_countはそのまま（既に正しい値が設定されている）
-                            print(f"  -> 次の夜勤のmold_count={night_plans[0].get('mold_count', 0)} (変更なし)")
-                        elif day_item == night_item:
-                            print(f"  -> 品番継続（型替えなし）")
 
         # ====================================================
         # 第2段階: 残業時間の最適化（過剰在庫を防ぐ）
@@ -1649,7 +1803,6 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                             if p['date'].isoformat() == '2025-10-06' and p['shift'] == 'day']
             if oct6_day_plans:
                 plan = oct6_day_plans[0]
-                print(f"DEBUG machine_plans: 10/6 day {machine.name} {plan['item_name']} mold_count={plan.get('mold_count', 'MISSING')}")
 
         for machine in machines:
             for plan in machine_plans[machine.id]:
@@ -1666,45 +1819,11 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     'changeover_time': changeover_time  # 型替え時間を追加
                 })
 
-        # デバッグ: 最初の5件と金曜夜勤を確認
-        if result:
-            import json
-            print("=== Auto Plan Result (first 5) ===")
-            print(json.dumps(result[:5], indent=2, ensure_ascii=False))
-
-            # 金曜夜勤のデータを確認
-            friday_nights = [r for r in result if r['date'] == '2025-10-03' and r['shift'] == 'night']
-            if friday_nights:
-                print("=== Friday Night (2025-10-03) ===")
-                print(json.dumps(friday_nights, indent=2, ensure_ascii=False))
-
-            # 月曜日勤のデータを確認（型替え時間があるはず）
-            monday_days = [r for r in result if r['date'] == '2025-10-06' and r['shift'] == 'day']
-            if monday_days:
-                print("=== Monday Day (2025-10-06) ===")
-                print(json.dumps(monday_days, indent=2, ensure_ascii=False))
-
-            # 10/10夜勤と10/13日勤を確認
-            oct10_nights = [r for r in result if r['date'] == '2025-10-10' and r['shift'] == 'night']
-            if oct10_nights:
-                print("=== 10/10 Night ===")
-                for r in oct10_nights:
-                    if r['machine_name'] in ['#3', '#4']:
-                        print(json.dumps(r, indent=2, ensure_ascii=False))
-
-            oct13_days = [r for r in result if r['date'] == '2025-10-13' and r['shift'] == 'day']
-            if oct13_days:
-                print("=== 10/13 Day ===")
-                for r in oct13_days:
-                    if r['machine_name'] in ['#3', '#4']:
-                        print(json.dumps(r, indent=2, ensure_ascii=False))
-
         # ログファイルを閉じる
         log_file.write("\n" + "=" * 80 + "\n")
         log_file.write("計画完了\n")
         log_file.write("=" * 80 + "\n")
         log_file.close()
-        print(f"在庫シミュレーションログを出力しました: {log_file_path}")
 
         # 使用されなかった金型データを変換（翌月引き継ぎ用）
         unused_molds_data = []
@@ -1781,6 +1900,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         continue
 
                     # 生産台数を計算（現在の残業時間で、型替え時間を考慮）
+                    # 不良品も含む数量
                     changeover_time = plan.get('changeover_time', 0)
                     working_time = BASE_TIME[shift] - plan['stop_time'] - changeover_time + plan['overtime']
 
@@ -1788,7 +1908,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         working_time = 0
 
                     production = math.floor(
-                        (working_time / data['tact']) * occupancy_rate * data['yield_rate']
+                        (working_time / data['tact']) * occupancy_rate
                     )
 
                     if item_name in production_this_shift:
@@ -1796,14 +1916,23 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     else:
                         production_this_shift[item_name] = production
 
-            # 在庫を更新
+            # 在庫を更新（良品のみを在庫に加算）
             for item_name in all_item_names:
                 production = production_this_shift.get(item_name, 0)
                 delivery_key = (date, shift, item_name)
                 delivery = delivery_dict.get(delivery_key, 0)
 
+                # 良品のみを在庫に加算（不良率を考慮）
+                yield_rate = 1.0
+                for key, data in item_data.items():
+                    if data['name'] == item_name:
+                        yield_rate = data['yield_rate']
+                        break
+
+                good_production = math.floor(production * yield_rate)
+
                 current_stock = inventory[item_name]
-                future_stock = current_stock + production - delivery
+                future_stock = current_stock + good_production - delivery
                 target_stock = optimal_inventory.get(item_name, 0)
 
                 # 過剰在庫の場合: この品番を作っている設備の残業を削減

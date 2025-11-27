@@ -159,6 +159,7 @@ class CastingItem(MasterMethodMixin, models.Model):
     optimal_inventory = models.IntegerField(verbose_name="適正在庫数", null=True, blank=True, default=0)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+    molten_metal_usage = models.FloatField(verbose_name="溶湯使用量", null=True, blank=True, default=0)
 
     class Meta:
         verbose_name = "鋳造品番"
