@@ -208,7 +208,7 @@
                 <option value="{{ item }}"{% if item == machine_data.selected_item %} selected{% endif %}>{{ item }}</option>
                 {% endfor %}
             </select>
-            <span class="mold-count-display{% if machine_data.mold_count == -1 %} manual-block{% endif %}" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-reset="false" data-inherited="false" data-manual-block="{% if machine_data.mold_count == -1 %}true{% else %}false{% endif %}"{% if forloop.counter0 == 0 and machine_data.mold_count > 0 and machine_data.selected_item %} data-prev-month-mold="true" data-prev-month-count="{{ machine_data.mold_count }}" data-prev-month-item="{{ machine_data.selected_item }}"{% endif %}>{% if machine_data.mold_count == -1 %}1{% else %}{{ machine_data.mold_count|default:'' }}{% endif %}</span>
+            <span class="mold-count-display{% if machine_data.mold_count == -1 %} manual-block{% endif %}" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-reset="false" data-inherited="false" data-manual-block="{% if machine_data.mold_count == -1 %}true{% else %}false{% endif %}"{% if machine_data.is_prev_month_mold %} data-prev-month-mold="true" data-prev-month-count="{{ machine_data.prev_month_mold_count }}" data-prev-month-item="{{ machine_data.prev_month_item_name }}"{% endif %}>{% if machine_data.mold_count == -1 %}1{% elif machine_data.mold_count %}{{ machine_data.mold_count }}{% endif %}</span>
         </div>
         {% endif %}
     </td>
@@ -235,7 +235,7 @@
                 <option value="{{ item }}"{% if item == machine_data.selected_item %} selected{% endif %}>{{ item }}</option>
                 {% endfor %}
             </select>
-            <span class="mold-count-display{% if machine_data.mold_count == -1 %} manual-block{% endif %}" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-reset="false" data-inherited="false" data-manual-block="{% if machine_data.mold_count == -1 %}true{% else %}false{% endif %}">{% if machine_data.mold_count == -1 %}1{% else %}{{ machine_data.mold_count|default:'' }}{% endif %}</span>
+            <span class="mold-count-display{% if machine_data.mold_count == -1 %} manual-block{% endif %}" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-reset="false" data-inherited="false" data-manual-block="{% if machine_data.mold_count == -1 %}true{% else %}false{% endif %}">{% if machine_data.mold_count == -1 %}1{% elif machine_data.mold_count %}{{ machine_data.mold_count }}{% endif %}</span>
         </div>
         {% endif %}
     </td>
