@@ -354,7 +354,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             if item_map:
                 item_data[item_name] = {
                     'tact': item_map.tact if item_map.tact else 0,
-                    'yield_rate': item_map.yield_rate if item_map.yield_rate else 0
+                    'yield_rate': item_map.yield_rate if item_map.yield_rate else 0,
+                    'molten_metal_usage': item_map.casting_item.molten_metal_usage if item_map.casting_item.molten_metal_usage else 0
                 }
         lines_list = list(CastingLine.objects.filter(active=True).order_by('name').values('id', 'name'))
 
@@ -398,7 +399,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             prev_usable_molds_data.append({
                 'machine_name': mold.machine.name,
                 'item_name': mold.item_name.name,
-                'used_count': mold.used_count,
+                'used_count': mold.used_count,  # データベースの値（内部処理用）
+                'display_count': mold.used_count + 1,  # 表示用の値（フロントエンド表示用）
                 'end_of_month': mold.end_of_month
             })
 

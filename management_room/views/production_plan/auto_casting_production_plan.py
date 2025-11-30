@@ -1,3 +1,21 @@
+"""
+鋳造生産計画の自動生成ビュー
+
+【金型管理の重要ルール】
+1. 型数の範囲: 1→2→3→4→5→6のサイクル（型数0は一時的な内部状態）
+2. 6直完了後: 金型メンテナンス後、新しい金型を型数=1で開始
+3. 途中で品番変更: 使いかけの金型（型数1～5）はdetached_moldsに記録し、次に同じ品番を生産する時に引き継ぐ
+4. 金型カウントの保存・引継ぎ:
+   - 保存: この直で使用後の型数（shift_count + 1）を保存
+   - 引継: 保存された型数をそのまま使用（既に+1済みのため）
+5. end_of_month=Falseの金型: 前月の途中で取り外された金型は、次月でused_count+1から開始
+
+【型替えイベント駆動アプローチ】
+- 各設備の次の型替えタイミングを管理し、最も早いタイミングで品番を決定
+- 型数に応じた生産直数を計算（型数2から開始なら5直分生産して型数6で完了）
+- 前月から継続する設備は、残り直数を計算して型替えタイミングを設定
+"""
+
 from management_room.models import DailyMachineCastingProductionPlan, DailyCastingProductionPlan, CastingItem, CastingItemMachineMap, MachiningItemCastingItemMap, DailyMachiningProductionPlan, UsableMold, CastingItemProhibitedPattern
 from manufacturing.models import CastingLine, CastingMachine
 from management_room.auth_mixin import ManagementRoomPermissionMixin
@@ -11,7 +29,12 @@ from utils.days_in_month_dates import days_in_month_dates
 from collections import defaultdict
 
 class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
-    """自動生産計画生成"""
+    """
+    鋳造生産計画の自動生成
+
+    型替えイベント駆動アプローチを使用し、在庫切れを防ぎながら
+    型替え回数を最小化する生産計画を生成する。
+    """
 
     def post(self, request, *args, **kwargs):
         try:
@@ -172,22 +195,43 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
             # 前月の使用可能金型数を取得
             prev_usable_molds = {}
+            prev_detached_molds = {}  # 前月の途中で外した使いかけ金型
             prev_month_first_date = date(prev_month_last_date.year, prev_month_last_date.month, 1)
 
             molds = UsableMold.objects.filter(
                 line=line,
-                month=prev_month_first_date,
-                end_of_month=True  # 月末の金型状態のみ取得
+                month=prev_month_first_date
             ).select_related('machine', 'item_name')
 
+            # デバッグログ: 前月の使用可能金型を読み込み
+            print(f"\n=== 前月の使用可能金型を読み込み（{prev_month_first_date}） ===")
+
             for mold in molds:
-                key = f"{mold.machine.id}_{mold.item_name.name}"
-                prev_usable_molds[key] = {
-                    'machine_id': mold.machine.id,
-                    'item_name': mold.item_name.name,
-                    'used_count': mold.used_count,
-                    'end_of_month': mold.end_of_month
-                }
+                if mold.end_of_month:
+                    # 月末金型（設備に取り付けられている状態）
+                    key = f"{mold.machine.id}_{mold.item_name.name}"
+                    prev_usable_molds[key] = {
+                        'machine_id': mold.machine.id,
+                        'item_name': mold.item_name.name,
+                        'used_count': mold.used_count,
+                        'end_of_month': mold.end_of_month
+                    }
+                    print(f"  月末金型: 設備#{mold.machine.name} {mold.item_name.name} 型数={mold.used_count}")
+                else:
+                    # 月の途中で外した使いかけの金型（detached_moldsに追加）
+                    # used_count が 1～5 の範囲（6直完了は除外）
+                    if 0 < mold.used_count < 6:
+                        item_name = mold.item_name.name
+                        if item_name not in prev_detached_molds:
+                            prev_detached_molds[item_name] = []
+
+                        # 【重要】DBに保存されているused_countは取り外し時の値
+                        # 次回使用時は+1した値から開始する（フロントエンドでは取り外し時のカウントをそのまま保存）
+                        next_count = mold.used_count + 1
+                        prev_detached_molds[item_name].append(next_count)
+                        print(f"  途中取外: {item_name} DB型数={mold.used_count} → 次回使用時={next_count}")
+
+            print(f"\n前月取外金型の初期状態: {dict(prev_detached_molds)}\n")
 
             # 品番ペアごとの同時生産上限を取得
             prohibited_patterns = {}
@@ -213,6 +257,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 item_data=item_data,
                 stop_time_data=stop_time_data,
                 prev_usable_molds=prev_usable_molds,
+                prev_detached_molds=prev_detached_molds,
                 prohibited_patterns=prohibited_patterns,
                 line=line,
                 occupancy_rate=line.occupancy_rate or 1.0
@@ -234,7 +279,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
     def _generate_auto_plan(self, working_days, machines, item_delivery, prev_inventory,
                            optimal_inventory, item_data, stop_time_data, prev_usable_molds,
-                           prohibited_patterns, line, occupancy_rate):
+                           prev_detached_molds, prohibited_patterns, line, occupancy_rate):
         """
         自動生産計画を生成する（在庫最適化 + 金型交換最小化）
 
@@ -345,7 +390,8 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         # 金型は全設備で共有されるため、設備IDは含めない
         # 同一品番でも複数の使いかけ金型が存在する可能性があるためリスト形式
         # 6直目で外した金型は記録しない（メンテ済みで次は1から）
-        detached_molds = {}
+        # 前月の使いかけ金型を引き継ぐ
+        detached_molds = prev_detached_molds.copy()
 
         # 金型使用管理（前月からの引き継ぎ）
         # 前月最終直に各設備についていた金型と使用回数を設定
@@ -371,30 +417,39 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
         def set_mold_count_for_item_change(machine_id, current_item, new_item, shift_count, detached_molds, detached_current_mold):
             """
-            品番変更時の型数を設定する共通関数
+            品番変更時の型数を設定する
+
+            【動作】
+            1. 現在の品番の使いかけ金型を記録（型数1～5の場合）
+            2. 新しい品番の使いかけ金型があれば引き継ぐ、なければ型数1で開始
+
+            【金型カウントの保存・引継ぎルール】
+            - 保存: この直で使用後の型数（shift_count + 1）を保存
+            - 引継: 保存された型数をそのまま使用（既に+1済みのため）
 
             Args:
                 machine_id: 設備ID
                 current_item: 現在の品番
                 new_item: 新しい品番
                 shift_count: 現在の型数
-                detached_molds: 使いかけ金型の辞書
+                detached_molds: 使いかけ金型の辞書 {item_name: [count1, count2, ...]}
                 detached_current_mold: 現在の金型を記録済みかのフラグ
 
             Returns:
                 (new_mold_count, updated_detached_current_mold): 新しい型数と更新されたフラグ
             """
-            # 現在の品番の使いかけ金型を記録（1～5の場合、かつまだ記録していない場合）
+            # 1. 現在の品番の使いかけ金型を記録（1～5の場合、かつまだ記録していない場合）
             if not detached_current_mold and current_item and 0 < shift_count < MOLD_CHANGE_THRESHOLD:
                 if current_item not in detached_molds:
                     detached_molds[current_item] = []
-                detached_molds[current_item].append(shift_count)
+                detached_molds[current_item].append(shift_count + 1)
                 detached_current_mold = True
 
-            # 新しい品番の使いかけ金型があれば引き継ぐ
+            # 2. 新しい品番の使いかけ金型があれば引き継ぐ
             if new_item in detached_molds and len(detached_molds[new_item]) > 0:
                 inherited_count = detached_molds[new_item].pop(0)
-                new_mold_count = inherited_count + 1
+                new_mold_count = inherited_count
+                # リストが空になったら辞書から削除
                 if len(detached_molds[new_item]) == 0:
                     del detached_molds[new_item]
             else:
@@ -404,25 +459,30 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
         def set_mold_count_for_continue(machine_id, item_name, shift_count, detached_molds):
             """
-            同じ品番を継続する場合の型数を設定する共通関数
+            同じ品番を継続する場合の型数を設定する
+
+            【動作】
+            - 型数0（6直完了後）: 使いかけ金型があれば引き継ぐ、なければ型数1で開始
+            - 型数1～5: 前の直+1で継続
 
             Args:
                 machine_id: 設備ID
                 item_name: 品番
                 shift_count: 現在の型数
-                detached_molds: 使いかけ金型の辞書
+                detached_molds: 使いかけ金型の辞書 {item_name: [count1, count2, ...]}
 
             Returns:
                 new_mold_count: 新しい型数
             """
-            # 型数=0（6直完了後）の場合、使いかけ金型を引き継ぐ
+            # 型数0（6直完了後）の場合、使いかけ金型を引き継ぐ
             if shift_count == 0 and item_name in detached_molds and len(detached_molds[item_name]) > 0:
                 inherited_count = detached_molds[item_name].pop(0)
-                new_mold_count = inherited_count + 1
+                new_mold_count = inherited_count
+                # リストが空になったら辞書から削除
                 if len(detached_molds[item_name]) == 0:
                     del detached_molds[item_name]
             else:
-                # 通常は前の直+1
+                # 通常は前の直+1で継続
                 new_mold_count = shift_count + 1
 
             return new_mold_count
@@ -751,7 +811,10 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 6直完了後は型数=0に設定
                 if machine_shift_count[machine.id] >= MOLD_CHANGE_THRESHOLD:
                     machine_shift_count[machine.id] = 0
-                    # 使いかけ金型を記録しない（6直完了したため）
+
+                # 【重要】次の型替えタイミングを更新
+                # 前月から継続した設備は、既に計画を立てた分だけタイミングを進める
+                next_changeover_timing[machine.id] = timing
 
         if not any(current_item and 0 < shift_count < MOLD_CHANGE_THRESHOLD and timing > 0
                    for machine in machines
@@ -904,14 +967,22 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
                     # 型数を設定
                     if current_item != urgent_item:
-                        # 品番が変わる場合
+                        # 品番変更の場合
+                        log_file.write(f"  品番変更: {current_item} → {urgent_item}\n")
+                        log_file.write(f"  現在の型数: {shift_count}\n")
+                        log_file.write(f"  detached_moldsの状態: {dict(detached_molds)}\n")
+
                         detached_current_mold = False
                         mold_count, _ = set_mold_count_for_item_change(
                             machine.id, current_item, urgent_item, shift_count, detached_molds, detached_current_mold
                         )
+
+                        log_file.write(f"  割り当て後の型数: {mold_count}\n")
                     else:
-                        # 同じ品番を継続（6完了後の再開始）
-                        mold_count = 1
+                        # 同じ品番を継続する場合（6完了後の再開始）
+                        mold_count = set_mold_count_for_continue(
+                            machine.id, urgent_item, shift_count, detached_molds
+                        )
 
                     log_file.write(f"--- 設備#{machine.name} に {urgent_item} を割り当て（型数={mold_count}） ---\n\n")
 
@@ -924,8 +995,12 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                             # 最後の計画に型替え時間を追加
                             prev_plans[-1]['changeover_time'] = CHANGEOVER_TIME
 
-                    # 6直分の計画を立てる（ただし、計画期間内のみ）
-                    max_shifts = min(MOLD_CHANGE_THRESHOLD, len(all_shifts) - next_timing)
+                    # 【重要】型数に応じた生産直数を計算
+                    # 型数1の場合: 6直分生産（型数1→2→3→4→5→6）
+                    # 型数2の場合: 5直分生産（型数2→3→4→5→6）
+                    # 型数Nの場合: (6 - N + 1)直分生産
+                    remaining_shifts_to_six = MOLD_CHANGE_THRESHOLD - mold_count + 1
+                    max_shifts = min(remaining_shifts_to_six, len(all_shifts) - next_timing)
 
                     for i in range(max_shifts):
                         shift_idx = next_timing + i
@@ -955,7 +1030,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                             'mold_count': current_mold_count
                         })
 
-                    # 状態を更新
+                    # 設備の状態を更新
                     machine_current_item[machine.id] = urgent_item
                     machine_shift_count[machine.id] = mold_count + max_shifts - 1
 
@@ -965,6 +1040,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
                     # 次の型替えタイミングを更新
                     next_changeover_timing[machine.id] = next_timing + max_shifts
+                    log_file.write(f"  次の型替えタイミング: 直{next_timing} + {max_shifts}直 = 直{next_timing + max_shifts}\n")
                 else:
                     # 品番を決定できなかった場合
                     next_changeover_timing[machine.id] = len(all_shifts)

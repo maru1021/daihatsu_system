@@ -291,6 +291,16 @@ tbody th.shift-label {
     left: 24px;
 }
 
+/* 溶湯、ポット数、中子のシフトラベルは横書き */
+tr[data-section="molten_metal"] th.shift-label,
+tr[data-section="pot_count"] th.shift-label,
+tr[data-section="core"] th.shift-label {
+    writing-mode: horizontal-tb;
+    text-orientation: mixed;
+    padding: 8px;
+    text-align: center;
+}
+
 /* 設備番号 */
 tbody th.facility-number {
     min-width: 32px;

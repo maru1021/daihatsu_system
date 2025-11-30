@@ -6,6 +6,23 @@
 // - 定時時間: 鋳造 490/485分 vs 加工 455/450分
 // - 設備選択: 鋳造は設備ごとに品番を選択、加工は生産数を直接入力
 // - 在庫計算: 鋳造は設備ベースで自動計算、加工は手動入力と自動計算の混合
+//
+// ========================================
+// パフォーマンス最適化の要点
+// ========================================
+// 1. キャッシュ戦略:
+//    - DOM要素をキャッシュして繰り返しquerySelectorを回避
+//    - 計算結果をキャッシュして重複計算を削減
+// 2. 非同期処理:
+//    - 重い計算（溶湯、ポット数、中子）をrequestIdleCallbackで遅延実行
+//    - 初期表示を高速化（在庫計算 → 月末在庫カード → 行合計/溶湯は非同期）
+// 3. チラつき防止:
+//    - サーバーサイドでインラインスタイルを設定
+//    - HTMLヘッダーにCSSルールを追加（!important）
+//    - JavaScript初期化で最終確認
+// 4. ループ最適化:
+//    - forEach()よりもforループを使用（関数呼び出しのオーバーヘッド削減）
+//    - 不要なDOM操作を削減（現在の状態をチェックしてから変更）
 
 // ========================================
 // 定数
@@ -25,8 +42,9 @@ const MOLD_CHANGE_THRESHOLD = 6;  // 金型交換が必要な使用回数
 let isInitializing = true;
 
 // 再利用可能金型の管理
-// [{ itemName: 品番, count: 使用回数, dateIndex: 日付, shift: 直, machineIndex: 設備番号 }, ...]
+// [{ id: 一意ID, itemName: 品番, count: 使用回数, dateIndex: 日付, shift: 直, machineIndex: 設備番号 }, ...]
 let reusableMolds = [];
+let reusableMoldIdCounter = 0;  // 一意IDのカウンター
 
 // ========================================
 // グローバルキャッシュ（パフォーマンス最適化用）
@@ -389,7 +407,6 @@ function updateWorkingDayStatus(recalculate = true) {
 // ドラッグ＆ドロップ機能
 // ========================================
 let draggedElement = null;
-let draggedMoldData = null; // 再利用可能金型からドラッグされた場合のデータ
 
 function dragStart(event) {
     // select要素をクリックした場合のみキャンセル（それ以外はドラッグ許可）
@@ -432,94 +449,29 @@ function drop(event) {
 
     const targetContainer = event.target.closest('.select-container');
 
-    // 再利用可能金型からのドロップの場合
-    if (draggedMoldData && targetContainer) {
-
-        const targetSelect = targetContainer.querySelector('.vehicle-select');
-
-        if (targetSelect) {
-            // 変更前の値を取得
-            const targetOldItem = targetSelect.getAttribute('data-vehicle') || '';
-
-            // 【重要】変更前の金型情報を保存
-            const targetDateIndex = parseInt(targetSelect.dataset.dateIndex);
-            const targetShift = targetSelect.dataset.shift;
-            const targetMachineIndex = parseInt(targetSelect.dataset.machineIndex);
-            const moldDisplay = moldCountDisplayCache[targetShift]?.[targetDateIndex]?.[targetMachineIndex];
-            const oldMoldInfo = {
-                isPrevMonthMold: moldDisplay?.getAttribute('data-prev-month-mold') === 'true',
-                prevMonthCount: parseInt(moldDisplay?.getAttribute('data-prev-month-count')) || 0,
-                currentCount: parseInt(moldDisplay?.textContent) || 0
-            };
-
-            // console.log(`[ドロップ] ターゲット: dateIndex=${targetDateIndex}, shift=${targetShift}, machine=${targetMachineIndex}, oldItem=${targetOldItem}`);
-
-            // 金型データから品番を設定
-            targetSelect.value = draggedMoldData.itemName;
-
-            // 色を更新
-            updateSelectColor(targetSelect);
-
-            const targetNewItem = targetSelect.value || '';
-
-            // 【重要】前月金型リストからドロップした場合、data-prev-month-mold属性を設定
-            // console.log(`[ドロップ] 前月金型チェック: dateIndex=${draggedMoldData.dateIndex}, shift=${draggedMoldData.shift}, moldDisplay=${!!moldDisplay}`);
-            if (draggedMoldData.dateIndex === -1 && draggedMoldData.shift === 'prev_month' && moldDisplay) {
-                moldDisplay.setAttribute('data-prev-month-mold', 'true');
-                moldDisplay.setAttribute('data-prev-month-count', draggedMoldData.count.toString());
-                moldDisplay.setAttribute('data-prev-month-item', draggedMoldData.itemName);
-                // console.log(`[ドロップ] 前月金型属性設定: item=${draggedMoldData.itemName}, count=${draggedMoldData.count}`);
-
-                // 前月金型を使用済みとしてマーク
-                if (typeof prevMonthMoldsOriginal !== 'undefined' && prevMonthMoldsOriginal) {
-                    const machineElements = document.querySelectorAll('[data-section="production_plan"][data-shift="day"] .facility-number');
-                    const machineName = machineElements[targetMachineIndex] ? machineElements[targetMachineIndex].textContent.trim() : '';
-
-                    for (let i = 0; i < prevMonthMoldsOriginal.length; i++) {
-                        const mold = prevMonthMoldsOriginal[i];
-                        if (mold.item_name === draggedMoldData.itemName && mold.used_count === draggedMoldData.count && !prevMonthMoldsStatus[i].used) {
-                            prevMonthMoldsStatus[i].used = true;
-                            prevMonthMoldsStatus[i].usedBy = {
-                                machineIndex: targetMachineIndex,
-                                itemName: draggedMoldData.itemName,
-                                dateIndex: targetDateIndex,
-                                shift: targetShift
-                            };
-                            // console.log(`[ドロップ] 前月金型を使用済みにマーク: index=${i}`);
-                            break;
-                        }
-                    }
-                }
-
-                // 再利用可能金型リストから削除
-                const moldIndex = draggedMoldData.moldIndex;
-                if (moldIndex !== undefined && moldIndex >= 0 && moldIndex < reusableMolds.length) {
-                    reusableMolds.splice(moldIndex, 1);
-                    displayReusableMolds();
-                    // console.log(`[ドロップ] 再利用可能金型リストから削除: index=${moldIndex}`);
-                }
-            }
-
-            // セルの金型カウントと引き継ぎ情報を更新（oldMoldInfoを渡す）
-            updateMoldCountForMachineFromShift(targetDateIndex, targetShift, targetMachineIndex, targetOldItem, targetNewItem, oldMoldInfo);
-
-            // ハイライトのみ更新（型替え時間は設定しない）
-            applyItemChangeHighlights();
-        }
-    }
     // 生産計画セル間のドラッグの場合
-    else if (draggedElement && targetContainer && draggedElement !== targetContainer) {
+    if (draggedElement && targetContainer && draggedElement !== targetContainer) {
         const draggedSelect = draggedElement.querySelector('.vehicle-select');
         const targetSelect = targetContainer.querySelector('.vehicle-select');
 
         if (draggedSelect && targetSelect) {
+            // 【重要】同じ直内への移動のみ許可
+            const draggedDateIndex = parseInt(draggedSelect.dataset.dateIndex);
+            const draggedShift = draggedSelect.dataset.shift;
+            const targetDateIndex = parseInt(targetSelect.dataset.dateIndex);
+            const targetShift = targetSelect.dataset.shift;
+
+            if (draggedDateIndex !== targetDateIndex || draggedShift !== targetShift) {
+                cleanupDragClasses();
+                draggedElement = null;
+                return false;
+            }
+
             // 変更前の値を取得（data-vehicleから）
             const draggedOldItem = draggedSelect.getAttribute('data-vehicle') || '';
             const targetOldItem = targetSelect.getAttribute('data-vehicle') || '';
 
             // 【重要】変更前の金型情報を保存
-            const draggedDateIndex = parseInt(draggedSelect.dataset.dateIndex);
-            const draggedShift = draggedSelect.dataset.shift;
             const draggedMachineIndex = parseInt(draggedSelect.dataset.machineIndex);
             const draggedMoldDisplay = moldCountDisplayCache[draggedShift]?.[draggedDateIndex]?.[draggedMachineIndex];
             const draggedOldMoldInfo = {
@@ -528,8 +480,6 @@ function drop(event) {
                 currentCount: parseInt(draggedMoldDisplay?.textContent) || 0
             };
 
-            const targetDateIndex = parseInt(targetSelect.dataset.dateIndex);
-            const targetShift = targetSelect.dataset.shift;
             const targetMachineIndex = parseInt(targetSelect.dataset.machineIndex);
             const targetMoldDisplay = moldCountDisplayCache[targetShift]?.[targetDateIndex]?.[targetMachineIndex];
             const targetOldMoldInfo = {
@@ -543,6 +493,44 @@ function drop(event) {
             draggedSelect.value = targetSelect.value;
             targetSelect.value = tempValue;
 
+            // 【重要】前月金型の属性も入れ替える
+            if (draggedOldMoldInfo.isPrevMonthMold || targetOldMoldInfo.isPrevMonthMold) {
+                // ドラッグ元の前月金型情報を保存
+                const draggedPrevMonthMold = draggedOldMoldInfo.isPrevMonthMold ? {
+                    count: draggedMoldDisplay.getAttribute('data-prev-month-count'),
+                    item: draggedMoldDisplay.getAttribute('data-prev-month-item')
+                } : null;
+
+                // ターゲットの前月金型情報を保存
+                const targetPrevMonthMold = targetOldMoldInfo.isPrevMonthMold ? {
+                    count: targetMoldDisplay.getAttribute('data-prev-month-count'),
+                    item: targetMoldDisplay.getAttribute('data-prev-month-item')
+                } : null;
+
+                // 属性を入れ替え
+                if (targetPrevMonthMold) {
+                    draggedMoldDisplay.setAttribute('data-prev-month-mold', 'true');
+                    draggedMoldDisplay.setAttribute('data-prev-month-count', targetPrevMonthMold.count);
+                    draggedMoldDisplay.setAttribute('data-prev-month-item', targetPrevMonthMold.item);
+                    draggedMoldDisplay.textContent = targetOldMoldInfo.currentCount.toString();
+                } else {
+                    draggedMoldDisplay.removeAttribute('data-prev-month-mold');
+                    draggedMoldDisplay.removeAttribute('data-prev-month-count');
+                    draggedMoldDisplay.removeAttribute('data-prev-month-item');
+                }
+
+                if (draggedPrevMonthMold) {
+                    targetMoldDisplay.setAttribute('data-prev-month-mold', 'true');
+                    targetMoldDisplay.setAttribute('data-prev-month-count', draggedPrevMonthMold.count);
+                    targetMoldDisplay.setAttribute('data-prev-month-item', draggedPrevMonthMold.item);
+                    targetMoldDisplay.textContent = draggedOldMoldInfo.currentCount.toString();
+                } else {
+                    targetMoldDisplay.removeAttribute('data-prev-month-mold');
+                    targetMoldDisplay.removeAttribute('data-prev-month-count');
+                    targetMoldDisplay.removeAttribute('data-prev-month-item');
+                }
+            }
+
             // 色を更新
             updateSelectColor(draggedSelect);
             updateSelectColor(targetSelect);
@@ -550,9 +538,12 @@ function drop(event) {
             const draggedNewItem = draggedSelect.value || '';
             const targetNewItem = targetSelect.value || '';
 
-            // 両方のセルの金型カウントと引き継ぎ情報を更新（oldMoldInfoを渡す）
-            updateMoldCountForMachineFromShift(draggedDateIndex, draggedShift, draggedMachineIndex, draggedOldItem, draggedNewItem, draggedOldMoldInfo);
-            updateMoldCountForMachineFromShift(targetDateIndex, targetShift, targetMachineIndex, targetOldItem, targetNewItem, targetOldMoldInfo);
+            // 【重要】前月金型同士の入れ替えの場合、再計算不要（既に属性と値を入れ替え済み）
+            // それ以外の場合のみ、金型カウントと引き継ぎ情報を更新
+            if (!(draggedOldMoldInfo.isPrevMonthMold && targetOldMoldInfo.isPrevMonthMold)) {
+                updateMoldCountForMachineFromShift(draggedDateIndex, draggedShift, draggedMachineIndex, draggedOldItem, draggedNewItem, draggedOldMoldInfo);
+                updateMoldCountForMachineFromShift(targetDateIndex, targetShift, targetMachineIndex, targetOldItem, targetNewItem, targetOldMoldInfo);
+            }
 
             // ハイライトのみ更新（型替え時間は設定しない）
             applyItemChangeHighlights();
@@ -561,7 +552,6 @@ function drop(event) {
 
     cleanupDragClasses();
     draggedElement = null;
-    draggedMoldData = null;
 
     return false;
 }
@@ -629,7 +619,6 @@ function initializeSelectColors() {
                 currentCount: parseInt(moldDisplay?.textContent) || 0
             };
 
-            // console.log(`[イベントハンドラ] oldMoldInfo保存: isPrevMonthMold=${oldMoldInfo.isPrevMonthMold}, prevMonthCount=${oldMoldInfo.prevMonthCount}, currentCount=${oldMoldInfo.currentCount}`);
 
             updateSelectColor(this);  // ここで data-vehicle が新しい値に更新される
             const newItem = this.value || '';
@@ -649,7 +638,6 @@ function updateMoldCount(dateIndex, shift, machineIndex) {
     if (!select) return;
 
     const currentItem = select.value;
-    // console.log(`[updateMoldCount] 呼び出し: dateIndex=${dateIndex}, shift=${shift}, machine=${machineIndex}, item=${currentItem}`);
 
     // 【高速化案2】mold-count-displayもキャッシュから取得
     const moldCountDisplay = moldCountDisplayCache[shift]?.[dateIndex]?.[machineIndex];
@@ -661,6 +649,7 @@ function updateMoldCount(dateIndex, shift, machineIndex) {
     if (isPrevMonthMold && currentItem) {
         const prevMonthItemName = moldCountDisplay.getAttribute('data-prev-month-item');
         const currentDisplayedCount = parseInt(moldCountDisplay.textContent) || 0;
+
 
         // 品番が一致し、既に表示されているカウントがある場合のみ、その値を保持
         if (currentItem === prevMonthItemName && currentDisplayedCount > 0 && currentDisplayedCount <= MOLD_CHANGE_THRESHOLD) {
@@ -752,7 +741,6 @@ function updateMoldCount(dateIndex, shift, machineIndex) {
                         moldCountDisplay.setAttribute('data-prev-month-mold', 'true');
                         moldCountDisplay.setAttribute('data-prev-month-count', mold.used_count.toString());
                         moldCountDisplay.setAttribute('data-prev-month-item', mold.item_name);
-                        // console.log(`[updateMoldCount] 前月金型属性設定: dateIndex=${dateIndex}, shift=${shift}, machine=${machineIndex}, item=${currentItem}, count=${mold.used_count}`);
                         break;
                     }
                 }
@@ -982,6 +970,9 @@ function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineI
     const dateCount = domConstantCache.dateCount;
     const totalMachines = domConstantCache.totalMachines;
 
+    // 金型カウント表示要素を取得
+    const moldCountDisplay = moldCountDisplayCache[startShift]?.[startDateIndex]?.[machineIndex];
+
     // oldItemとnewItemは引数として受け取る（呼び出し元で取得済み）
 
     // 【重要】品番変更時に、使いかけの金型（型数1～5）を再利用可能金型リストに追加
@@ -991,20 +982,16 @@ function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineI
         const oldMoldCount = isPrevMonthMold ? oldMoldInfo.prevMonthCount : oldMoldInfo.currentCount;
         const isFromPrevMonth = isPrevMonthMold;
 
-        // console.log(`[品番変更] dateIndex=${startDateIndex}, shift=${startShift}, machine=${machineIndex}, oldItem=${oldItem}, newItem=${newItem}`);
-        // console.log(`[品番変更] isPrevMonthMold=${isPrevMonthMold}, oldMoldCount=${oldMoldCount}`);
 
         if (isPrevMonthMold) {
-            // console.log(`[品番変更] 前月金型検出: count=${oldMoldCount}`);
         } else {
-            // console.log(`[品番変更] 月内金型: count=${oldMoldCount}`);
         }
 
         // 型数が1～5の場合、再利用可能金型リストに追加
-        // console.log(`[品番変更] oldMoldCount=${oldMoldCount}, 範囲チェック: ${oldMoldCount > 0 && oldMoldCount < MOLD_CHANGE_THRESHOLD}`);
-        if (oldMoldCount > 0 && oldMoldCount < MOLD_CHANGE_THRESHOLD) {
+        // ただし、強制型替え（data-manual-block="true"）の場合は追加しない（NG品などで交換が必要なため）
+        const isManualBlock = moldCountDisplay.getAttribute('data-manual-block') === 'true';
+        if (oldMoldCount > 0 && oldMoldCount < MOLD_CHANGE_THRESHOLD && !isManualBlock) {
             if (isFromPrevMonth) {
-                // console.log(`[品番変更] 前月金型を再利用可能リストに追加試行`);
                 // 前月金型を未使用に戻す
                 if (typeof prevMonthMoldsOriginal !== 'undefined' && prevMonthMoldsOriginal) {
                     const machineElements = document.querySelectorAll('[data-section="production_plan"][data-shift="day"] .facility-number');
@@ -1017,24 +1004,24 @@ function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineI
                         const machineMatches = mold.end_of_month ? (mold.machine_name === machineName) : true;
 
                         if (machineMatches && mold.item_name === oldItem && prevMonthMoldsStatus[i].used) {
-                            // console.log(`[品番変更] 前月金型発見: ${mold.item_name}, count=${mold.used_count}, end_of_month=${mold.end_of_month}, machine_name=${mold.machine_name}`);
                             // 未使用に戻す
                             prevMonthMoldsStatus[i].used = false;
                             prevMonthMoldsStatus[i].usedBy = null;
 
-                            // 【重要】再利用可能金型リストに追加（使用されていた値 oldMoldCount を使う）
+                            // 【重要】再利用可能金型リストに追加（元の値 mold.used_count を使う）
                             const existingMoldIndex = reusableMolds.findIndex(m =>
                                 m.dateIndex === -1 &&
                                 m.shift === 'prev_month' &&
                                 m.itemName === oldItem &&
-                                m.count === oldMoldCount
+                                m.count === mold.used_count
                             );
 
                             if (existingMoldIndex === -1) {
-                                // console.log(`[品番変更] 再利用可能金型リストに追加: ${mold.item_name} count=${oldMoldCount}`);
                                 reusableMolds.push({
+                                    id: reusableMoldIdCounter++,  // 一意ID
                                     itemName: mold.item_name,
-                                    count: oldMoldCount,
+                                    count: mold.used_count,  // 【修正】oldMoldCountではなくmold.used_countを使用
+                                    displayCount: mold.display_count || (mold.used_count + 1),  // 表示用のカウント
                                     dateIndex: -1,
                                     shift: 'prev_month',
                                     machineIndex: machineIndex
@@ -1043,14 +1030,12 @@ function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineI
                                 // 再利用可能金型リストの表示を更新
                                 displayReusableMolds();
                             } else {
-                                // console.log(`[品番変更] 既にリストに存在: index=${existingMoldIndex}`);
                             }
                             break;
                         }
                     }
                 }
             } else {
-                // console.log(`[品番変更] 月内金型を再利用可能リストに追加試行`);
                 // 月内の金型の場合
                 // 既に同じ金型がリストに存在するかチェック
                 const existingMoldIndex = reusableMolds.findIndex(m =>
@@ -1061,9 +1046,9 @@ function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineI
                 );
 
                 if (existingMoldIndex === -1) {
-                    // console.log(`[品番変更] 再利用可能金型リストに追加: ${oldItem} count=${oldMoldCount}`);
                     // 新規追加
                     reusableMolds.push({
+                        id: reusableMoldIdCounter++,  // 一意ID
                         itemName: oldItem,
                         count: oldMoldCount,
                         dateIndex: startDateIndex,
@@ -1074,11 +1059,9 @@ function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineI
                     // 再利用可能金型リストの表示を更新
                     displayReusableMolds();
                 } else {
-                    // console.log(`[品番変更] 既にリストに存在: index=${existingMoldIndex}`);
                 }
             }
         } else {
-            // console.log(`[品番変更] 型数が範囲外のためスキップ`);
         }
     }
 
@@ -2349,19 +2332,36 @@ function recalculateAllInventory() {
 
     // 全日付数を取得（ヘッダー行の列数）
     const dateCount = domConstantCache.dateCount;
-    // itemDataとpreviousMonthInventoryの品番を統合
-    const allItemNames = new Set([...Object.keys(itemData), ...Object.keys(previousMonthInventory)]);
+
+    // itemDataとpreviousMonthInventoryの品番を統合（高速化：配列で管理）
+    const itemDataKeys = Object.keys(itemData);
+    const prevKeys = Object.keys(previousMonthInventory);
+    const allItemNamesArray = [...new Set([...itemDataKeys, ...prevKeys])];
 
     // 日勤→夜勤の順で計算（前の直の在庫に依存するため）
     for (let i = 0; i < dateCount; i++) {
-        allItemNames.forEach(itemName => {
+        for (let j = 0; j < allItemNamesArray.length; j++) {
+            const itemName = allItemNamesArray[j];
             calculateInventory(i, 'day', itemName);
             calculateInventory(i, 'night', itemName);
-        });
+        }
     }
 
-    // 在庫計算後に月末在庫カードをリアルタイムで更新
-    updateInventoryComparisonCard();
+    // 在庫計算後に月末在庫カードをリアルタイムで更新（品番リストを渡して重複計算を削減）
+    updateInventoryComparisonCard(allItemNamesArray, dateCount);
+
+    // 行合計と溶湯計算を非同期で更新（パフォーマンス改善）
+    if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => {
+            calculateRowTotals();
+            calculateMoltenMetalPotAndCore();
+        }, { timeout: 100 });
+    } else {
+        setTimeout(() => {
+            calculateRowTotals();
+            calculateMoltenMetalPotAndCore();
+        }, 50);
+    }
 }
 
 // ========================================
@@ -2761,6 +2761,7 @@ function setupEventListeners() {
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
             debouncedCalculateProduction(dateIndex, shift);
+            debouncedCalculateRowTotals();
         });
     });
 
@@ -2770,6 +2771,7 @@ function setupEventListeners() {
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
             debouncedCalculateProduction(dateIndex, shift);
+            debouncedCalculateRowTotals();
         });
     });
 
@@ -2779,17 +2781,24 @@ function setupEventListeners() {
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
             debouncedCalculateProduction(dateIndex, shift);
+            debouncedCalculateRowTotals();
         });
     });
 
     // 生産数入力の変更を監視（デバウンス適用）
     document.querySelectorAll('.production-input').forEach(input => {
-        input.addEventListener('input', debouncedRecalculateInventory);
+        input.addEventListener('input', function() {
+            debouncedRecalculateInventory();
+            debouncedCalculateRowTotals();
+        });
     });
 
     // 出庫数入力の変更を監視（デバウンス適用）
     document.querySelectorAll('.delivery-input').forEach(input => {
-        input.addEventListener('input', debouncedRecalculateInventory);
+        input.addEventListener('input', function() {
+            debouncedRecalculateInventory();
+            debouncedCalculateRowTotals();
+        });
     });
 
     // 在庫数入力の手動変更を監視（フラグ設定のみ）
@@ -2797,6 +2806,7 @@ function setupEventListeners() {
         input.addEventListener('input', function () {
             // 手動修正フラグを設定（自動計算での上書きを防ぐ）
             this.dataset.manualEdit = 'true';
+            debouncedCalculateRowTotals();
         });
     });
 
@@ -2811,11 +2821,24 @@ function setupEventListeners() {
 }
 
 // ========================================
+// キャッシュ一括構築
+// ========================================
+function buildAllCaches() {
+    // 同期キャッシュ（即座に必要）
+    inventoryElementCache = buildInventoryElementCache();
+    inventoryCardCache = buildInventoryCardCache();
+    overtimeInputCache = buildOvertimeInputCache();
+
+    // 非同期キャッシュ（遅延可能）
+    setTimeout(() => {
+        moltenMetalElementCache = buildMoltenMetalElementCache();
+    }, 100);
+}
+
+// ========================================
 // 初期計算実行
 // ========================================
 function performInitialCalculations() {
-    // 在庫計算用のキャッシュを事前構築（高速化）
-    inventoryElementCache = buildInventoryElementCache();
 
     const dateCount = domConstantCache.dateCount;
     const totalMachines = domConstantCache.totalMachines;
@@ -2863,7 +2886,6 @@ function performInitialCalculations() {
                                     dateIndex: firstWorkingDateIndex,
                                     shift: 'day'
                                 };
-                                // console.log(`[初期化] 前月金型を使用済みとしてマーク: machine=${machineName}, item=${itemName}, count=${mold.used_count}, end_of_month=${mold.end_of_month}`);
                                 break;
                             }
                         }
@@ -2894,6 +2916,7 @@ function performInitialCalculations() {
             }
 
             // ステップ3: 在庫を再計算（月末在庫カードも自動更新される）
+            // 行合計と溶湯計算はrecalculateAllInventory内で非同期実行される
             requestAnimationFrame(() => {
                 recalculateAllInventory();
             });
@@ -3262,6 +3285,11 @@ function autoProductionPlan() {
     autoBtn.disabled = true;
     autoBtn.textContent = '計算中...';
 
+    // ローディング表示を開始
+    if (typeof showLoading === 'function') {
+        showLoading('自動生産計画を生成中...');
+    }
+
     // 対象年月を取得
     const targetMonthInput = document.getElementById('target-month');
     const selectedMonth = targetMonthInput.value;
@@ -3270,6 +3298,9 @@ function autoProductionPlan() {
         alert('対象月を選択してください');
         autoBtn.disabled = false;
         autoBtn.textContent = '自動';
+        if (typeof hideLoading === 'function') {
+            hideLoading();
+        }
         return;
     }
 
@@ -3339,6 +3370,9 @@ function autoProductionPlan() {
         alert('CSRFトークンが取得できませんでした。ページをリロードしてください。');
         autoBtn.disabled = false;
         autoBtn.textContent = '自動';
+        if (typeof hideLoading === 'function') {
+            hideLoading();
+        }
         return;
     }
 
@@ -3376,6 +3410,10 @@ function autoProductionPlan() {
         .finally(() => {
             autoBtn.disabled = false;
             autoBtn.textContent = '自動';
+            // ローディング表示を終了
+            if (typeof hideLoading === 'function') {
+                hideLoading();
+            }
         });
 }
 
@@ -3501,6 +3539,10 @@ function applyAutoProductionPlan(planData) {
 // 再利用可能金型の管理
 // ========================================
 function updateReusableMolds() {
+    // 【重要】既存の前月金型（dateIndex=-1）を一時保存
+    // 品番変更時に追加された前月金型（end_of_month=trueを含む）を保持するため
+    const existingPrevMonthMolds = reusableMolds.filter(m => m.dateIndex === -1 && m.shift === 'prev_month');
+
     reusableMolds = [];
 
     // 【重要】前月の途中型替え金型（end_of_month=false）を追加
@@ -3531,18 +3573,50 @@ function updateReusableMolds() {
 
                     if (!exists) {
                         reusableMolds.push({
+                            id: reusableMoldIdCounter++,  // 一意ID
                             itemName: mold.item_name,
                             count: mold.used_count,
+                            displayCount: mold.display_count || (mold.used_count + 1),  // 表示用のカウント
                             dateIndex: -1,  // 前月データを示す特殊値
                             shift: 'prev_month',
                             machineIndex: moldMachineIndex
                         });
-                    } else {
                     }
                 }
             }
         });
     }
+
+    // 【新規】品番変更で追加された前月金型（end_of_month=true含む）を復元
+    // prevMonthMoldsStatus.usedがfalseになっている金型のみを復元
+    existingPrevMonthMolds.forEach(existingMold => {
+        // 既に追加されているかチェック
+        const alreadyAdded = reusableMolds.some(m =>
+            m.dateIndex === -1 &&
+            m.shift === 'prev_month' &&
+            m.itemName === existingMold.itemName &&
+            m.count === existingMold.count
+        );
+
+        if (!alreadyAdded) {
+            // prevMonthMoldsOriginalから対応する金型を探す
+            let shouldRestore = false;
+            for (let i = 0; i < prevMonthMoldsOriginal.length; i++) {
+                const mold = prevMonthMoldsOriginal[i];
+                if (mold.item_name === existingMold.itemName &&
+                    mold.used_count === existingMold.count &&
+                    !prevMonthMoldsStatus[i].used &&
+                    !prevMonthMoldsStatus[i].exhausted) {
+                    shouldRestore = true;
+                    break;
+                }
+            }
+
+            if (shouldRestore) {
+                reusableMolds.push(existingMold);
+            }
+        }
+    });
 
     // 【リファクタリング】3重ループを1つのforEachに変更
     // キャッシュを直接走査することで、シンプルで効率的なコードに
@@ -3571,6 +3645,7 @@ function updateReusableMolds() {
             if (nextShiftItemName !== null && nextShiftItemName !== currentItem) {
                 // 月内での途中型替えのみを配列に追加
                 reusableMolds.push({
+                    id: reusableMoldIdCounter++,  // 一意ID
                     itemName: currentItem,
                     count: moldCount,
                     dateIndex: parseInt(dateIndex),
@@ -3808,10 +3883,9 @@ function displayReusableMolds() {
         return a.shift === 'day' ? -1 : 1;
     });
 
-    sortedMolds.forEach((mold, index) => {
+    sortedMolds.forEach((mold) => {
         const moldItem = document.createElement('div');
         moldItem.className = 'reusable-mold-item';
-        moldItem.draggable = true;
 
         // 日付情報を取得
         const dates = domConstantCache.dates || [];
@@ -3848,26 +3922,6 @@ function displayReusableMolds() {
             moldItem.style.backgroundColor = backgroundColor;
         }
 
-        // ドラッグ開始イベント
-        moldItem.addEventListener('dragstart', function (event) {
-            draggedMoldData = {
-                itemName: mold.itemName,
-                count: mold.count,
-                dateIndex: mold.dateIndex,
-                shift: mold.shift,
-                machineIndex: mold.machineIndex,
-                moldIndex: index  // 配列内のインデックス
-            };
-            moldItem.classList.add('dragging');
-            event.dataTransfer.effectAllowed = 'move';
-            event.dataTransfer.setData('text/html', moldItem.innerHTML);
-        });
-
-        // ドラッグ終了イベント
-        moldItem.addEventListener('dragend', function () {
-            moldItem.classList.remove('dragging');
-        });
-
         listElement.appendChild(moldItem);
     });
 }
@@ -3880,6 +3934,11 @@ function initialize() {
     const lineSelect = document.getElementById('line-select');
     const saveBtn = document.getElementById('save-btn');
     const autoBtn = document.getElementById('auto-btn');
+    const scheduleTable = document.getElementById('schedule-table');
+
+    // ========================================
+    // ステップ1: 基本UIの初期化
+    // ========================================
 
     // select2を初期化
     if (typeof $ !== 'undefined' && typeof $.fn.select2 !== 'undefined') {
@@ -3891,24 +3950,46 @@ function initialize() {
         });
     }
 
-    // 初期表示時の処理（即座に実行が必要なもののみ）
-    buildDOMCache();                    // DOMキャッシュを構築
+    // ========================================
+    // ステップ2: DOMキャッシュとデータキャッシュの構築
+    // ========================================
+    buildDOMCache();                    // DOM要素をキャッシュ（最優先）
+    buildAllCaches();                   // 計算用キャッシュを一括構築
+
+    // ========================================
+    // ステップ3: 即座に表示が必要な初期化処理
+    // ========================================
     initializeSelectColors();           // セレクトボックスの色を初期化
-    setupEventListeners();              // イベントリスナーを設定
+    updateOvertimeInputVisibility();    // 残業inputの表示/非表示を初期化（チラつき防止）
     initializeWeekendWorkingStatus();   // 休出・定時状態を初期化
+
+    // ========================================
+    // ステップ4: イベントリスナーとインタラクション
+    // ========================================
+    setupEventListeners();              // イベントリスナーを設定
     setupColumnHover();                 // 列のホバー処理を設定
 
-    // キャッシュを事前構築
-    inventoryCardCache = buildInventoryCardCache();
+    // ========================================
+    // ステップ5: 初期計算（非同期で段階的に実行）
+    // ========================================
+    performInitialCalculations();
 
-    performInitialCalculations();       // 初期計算を実行（非同期）
-
-    // 重い処理を遅延実行（ページ応答性を向上）
+    // ========================================
+    // ステップ6: 重い処理を遅延実行（ページ応答性を向上）
+    // ========================================
     setTimeout(() => {
         updateWorkingDayStatus(false);   // 稼働日状態を初期化（再計算なし）
-        updateOvertimeInputVisibility(); // 残業inputの表示/非表示を初期化
-        applyItemChangeHighlights();     // 型替えハイライトと残業制御を適用（重い）
+        applyItemChangeHighlights();     // 型替えハイライトと残業制御を適用
         drawInheritanceArrows();         // 金型引き継ぎの矢印を表示
+
+        // ========================================
+        // ステップ7: ページ初期化完了
+        // ========================================
+        // すべての初期化が完了したら、テーブルを表示
+        if (scheduleTable) {
+            scheduleTable.classList.remove('table-initializing');
+            scheduleTable.classList.add('table-ready');
+        }
     }, 0);
 
     // ウィンドウリサイズ時・スクロール時に矢印を再描画
@@ -3985,7 +4066,7 @@ function buildInventoryCardCache() {
     return cache;
 }
 
-function updateInventoryComparisonCard() {
+function updateInventoryComparisonCard(allItemNamesArray = null, dateCount = null) {
     // キャッシュが未作成の場合は作成
     if (!inventoryCardCache) {
         inventoryCardCache = buildInventoryCardCache();
@@ -3994,29 +4075,37 @@ function updateInventoryComparisonCard() {
         inventoryElementCache = buildInventoryElementCache();
     }
 
-    // 全日付数を取得
-    const dateCount = domConstantCache.dateCount;
+    // パラメータが渡されていない場合は自分で計算
+    if (!dateCount) {
+        dateCount = domConstantCache.dateCount;
+    }
+    if (!allItemNamesArray) {
+        const itemDataKeys = Object.keys(itemData);
+        const prevKeys = Object.keys(previousMonthInventory);
+        allItemNamesArray = [...new Set([...itemDataKeys, ...prevKeys])];
+    }
 
-    // itemDataとpreviousMonthInventoryの品番を統合
-    const allItemNames = new Set([...Object.keys(itemData), ...Object.keys(previousMonthInventory)]);
+    // 最終日付のインデックス（高速化：ループの外で計算）
+    const lastDateIndex = dateCount - 1;
 
-    allItemNames.forEach(itemName => {
-        // 最後の日付の夜勤在庫を取得（月末在庫）
+    for (let i = 0; i < allItemNamesArray.length; i++) {
+        const itemName = allItemNamesArray[i];
         let endOfMonthInventory = 0;
 
         // 最後の日付から逆順に検索して、最初に見つかった在庫値を使用
-        for (let dateIndex = dateCount - 1; dateIndex >= 0; dateIndex--) {
-            // まず夜勤をチェック
+        // 高速化：最も一般的なケース（最終日の夜勤）を最初にチェック
+        for (let dateIndex = lastDateIndex; dateIndex >= 0; dateIndex--) {
             const nightKey = `night-${itemName}-${dateIndex}`;
             const nightInventoryInput = inventoryElementCache.inventory[nightKey];
+
             if (nightInventoryInput && nightInventoryInput.style.display !== 'none') {
                 endOfMonthInventory = parseInt(nightInventoryInput.value) || 0;
                 break;
             }
 
-            // 夜勤がなければ日勤をチェック
             const dayKey = `day-${itemName}-${dateIndex}`;
             const dayInventoryInput = inventoryElementCache.inventory[dayKey];
+
             if (dayInventoryInput && dayInventoryInput.style.display !== 'none') {
                 endOfMonthInventory = parseInt(dayInventoryInput.value) || 0;
                 break;
@@ -4025,33 +4114,43 @@ function updateInventoryComparisonCard() {
 
         // キャッシュから対応するカード要素を取得
         const cardData = inventoryCardCache[itemName];
-        if (cardData && cardData.inventorySpan) {
-            // マイナスの場合は"-"付きで表示
-            if (endOfMonthInventory < 0) {
-                cardData.inventorySpan.textContent = '-' + Math.abs(endOfMonthInventory);
-            } else {
-                cardData.inventorySpan.textContent = endOfMonthInventory;
-            }
+        if (!cardData || !cardData.inventorySpan) continue;
 
-            // 差分を計算
-            const difference = endOfMonthInventory - cardData.optimalInventory;
+        // マイナスの場合は"-"付きで表示
+        cardData.inventorySpan.textContent = endOfMonthInventory < 0
+            ? '-' + Math.abs(endOfMonthInventory)
+            : endOfMonthInventory;
 
-            // カードの背景色を変更
-            cardData.card.classList.remove('shortage', 'excess');
-            if (difference < 0) {
+        // 差分を計算
+        const difference = endOfMonthInventory - cardData.optimalInventory;
+
+        // カードの背景色を変更（高速化：必要な場合のみDOM操作）
+        const currentHasShortage = cardData.card.classList.contains('shortage');
+        const currentHasExcess = cardData.card.classList.contains('excess');
+
+        if (difference < 0) {
+            if (!currentHasShortage) {
+                cardData.card.classList.remove('excess');
                 cardData.card.classList.add('shortage');
-            } else if (difference > 0) {
+            }
+        } else if (difference > 0) {
+            if (!currentHasExcess) {
+                cardData.card.classList.remove('shortage');
                 cardData.card.classList.add('excess');
             }
-
-            // 差分を更新（マイナスの場合は明示的に"-"を表示）
-            if (cardData.diffSpan) {
-                const sign = difference > 0 ? '+' : (difference < 0 ? '-' : '');
-                const absDifference = Math.abs(difference);
-                cardData.diffSpan.textContent = '(' + sign + absDifference + ')';
+        } else {
+            if (currentHasShortage || currentHasExcess) {
+                cardData.card.classList.remove('shortage', 'excess');
             }
         }
-    });
+
+        // 差分を更新
+        if (cardData.diffSpan) {
+            const sign = difference > 0 ? '+' : (difference < 0 ? '-' : '');
+            const absDifference = Math.abs(difference);
+            cardData.diffSpan.textContent = '(' + sign + absDifference + ')';
+        }
+    }
 }
 
 // ========================================
@@ -4145,64 +4244,335 @@ function removeDateHighlight(dateIndex) {
 }
 
 // ========================================
+// 行合計の計算と更新
+// ========================================
+
+// ヘルパー関数: 入力値の合計を計算
+function sumInputValues(inputs) {
+    let total = 0;
+    inputs.forEach(input => {
+        total += parseFloat(input.value) || 0;
+    });
+    return total;
+}
+
+// ヘルパー関数: シフト別の合計を計算（品番ベース）
+function calculateShiftTotalByItem(className, inputClass, dataKey) {
+    document.querySelectorAll(`.${className}`).forEach(totalCell => {
+        const shift = totalCell.dataset.shift;
+        const itemName = totalCell.dataset[dataKey];
+        const inputs = document.querySelectorAll(
+            `.${inputClass}[data-shift="${shift}"][data-${dataKey}="${itemName}"]`
+        );
+        totalCell.textContent = sumInputValues(inputs);
+    });
+}
+
+// ヘルパー関数: シフト別の合計を計算（設備ベース）
+function calculateShiftTotalByMachine(className, inputClass) {
+    document.querySelectorAll(`.${className}`).forEach(totalCell => {
+        const shift = totalCell.dataset.shift;
+        const machineIndex = totalCell.dataset.machineIndex;
+        const inputs = document.querySelectorAll(
+            `.${inputClass}[data-shift="${shift}"][data-machine-index="${machineIndex}"]`
+        );
+        totalCell.textContent = sumInputValues(inputs);
+    });
+}
+
+// ヘルパー関数: 日勤+夜勤の合計を計算（品番ベース）
+function calculateCombinedTotalByItem(className, inputClass, dataKey) {
+    document.querySelectorAll(`.${className}`).forEach(totalCell => {
+        const itemName = totalCell.dataset[dataKey];
+        const dayInputs = document.querySelectorAll(
+            `.${inputClass}[data-shift="day"][data-${dataKey}="${itemName}"]`
+        );
+        const nightInputs = document.querySelectorAll(
+            `.${inputClass}[data-shift="night"][data-${dataKey}="${itemName}"]`
+        );
+        const total = sumInputValues(dayInputs) + sumInputValues(nightInputs);
+        totalCell.textContent = total;
+    });
+}
+
+// ヘルパー関数: 日勤+夜勤の合計を計算（設備ベース）
+function calculateCombinedTotalByMachine(className, inputClass) {
+    document.querySelectorAll(`.${className}`).forEach(totalCell => {
+        const machineIndex = totalCell.dataset.machineIndex;
+        const dayInputs = document.querySelectorAll(
+            `.${inputClass}[data-shift="day"][data-machine-index="${machineIndex}"]`
+        );
+        const nightInputs = document.querySelectorAll(
+            `.${inputClass}[data-shift="night"][data-machine-index="${machineIndex}"]`
+        );
+        const total = sumInputValues(dayInputs) + sumInputValues(nightInputs);
+        totalCell.textContent = total;
+    });
+}
+
+function calculateRowTotals() {
+    // 出庫数の合計（日勤・夜勤別）
+    calculateShiftTotalByItem('delivery-total', 'delivery-input', 'item');
+
+    // 出庫数の合計（日勤+夜勤）
+    calculateCombinedTotalByItem('delivery-combined-total', 'delivery-input', 'item');
+
+    // 生産台数の合計（日勤・夜勤別）
+    calculateShiftTotalByItem('production-total', 'production-input', 'item');
+
+    // 生産台数の合計（日勤+夜勤）
+    calculateCombinedTotalByItem('production-combined-total', 'production-input', 'item');
+
+    // 在庫の増減（生産台数合計 - 出庫数合計）
+    // inventoryElementCacheを使用して高速化
+    document.querySelectorAll('.inventory-difference-total').forEach(totalCell => {
+        const itemName = totalCell.dataset.item;
+        let productionTotal = 0;
+        let deliveryTotal = 0;
+
+        // キャッシュから直接値を取得
+        if (inventoryElementCache) {
+            const dateCount = domConstantCache.dateCount;
+            for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+                // 日勤
+                const productionDayKey = `day-${itemName}-${dateIndex}`;
+                const deliveryDayKey = `day-${itemName}-${dateIndex}`;
+                const productionDayInput = inventoryElementCache.production[productionDayKey];
+                const deliveryDayInput = inventoryElementCache.delivery[deliveryDayKey];
+
+                if (productionDayInput) productionTotal += parseFloat(productionDayInput.value) || 0;
+                if (deliveryDayInput) deliveryTotal += parseFloat(deliveryDayInput.value) || 0;
+
+                // 夜勤
+                const productionNightKey = `night-${itemName}-${dateIndex}`;
+                const deliveryNightKey = `night-${itemName}-${dateIndex}`;
+                const productionNightInput = inventoryElementCache.production[productionNightKey];
+                const deliveryNightInput = inventoryElementCache.delivery[deliveryNightKey];
+
+                if (productionNightInput) productionTotal += parseFloat(productionNightInput.value) || 0;
+                if (deliveryNightInput) deliveryTotal += parseFloat(deliveryNightInput.value) || 0;
+            }
+        }
+
+        const difference = productionTotal - deliveryTotal;
+        totalCell.textContent = difference >= 0 ? `+${difference}` : difference;
+    });
+
+    // 金型交換の合計（日勤・夜勤別）
+    calculateShiftTotalByMachine('mold-change-total', 'mold-change-input');
+
+    // 金型交換の合計（日勤+夜勤）
+    calculateCombinedTotalByMachine('mold-change-combined-total', 'mold-change-input');
+
+    // 残業計画の合計（日勤・夜勤別）
+    calculateShiftTotalByMachine('overtime-total', 'overtime-input');
+
+    // 残業計画の合計（日勤+夜勤）
+    calculateCombinedTotalByMachine('overtime-combined-total', 'overtime-input');
+
+    // 計画停止の合計（日勤・夜勤別）
+    calculateShiftTotalByMachine('stop-time-total', 'stop-time-input');
+
+    // 計画停止の合計（日勤+夜勤）
+    calculateCombinedTotalByMachine('stop-time-combined-total', 'stop-time-input');
+}
+
+// ========================================
+// 溶湯、ポット数、中子の計算
+// ========================================
+// 高速化のため要素をキャッシュ
+let moltenMetalElementCache = null;
+
+function buildMoltenMetalElementCache() {
+    const cache = {
+        moltenMetal: {},
+        potCount: {},
+        core: {}
+    };
+
+    // 溶湯セルをキャッシュ
+    document.querySelectorAll('tr[data-section="molten_metal"] td[data-date-index]').forEach(cell => {
+        const shift = cell.closest('tr').dataset.shift;
+        const dateIndex = cell.dataset.dateIndex;
+        const key = `${shift}-${dateIndex}`;
+        cache.moltenMetal[key] = cell;
+    });
+
+    // ポット数セルをキャッシュ
+    document.querySelectorAll('tr[data-section="pot_count"] td[data-date-index]').forEach(cell => {
+        const shift = cell.closest('tr').dataset.shift;
+        const dateIndex = cell.dataset.dateIndex;
+        const key = `${shift}-${dateIndex}`;
+        cache.potCount[key] = cell;
+    });
+
+    // 中子セルをキャッシュ
+    document.querySelectorAll('tr[data-section="core"] td[data-date-index]').forEach(cell => {
+        const itemName = cell.closest('tr').dataset.item;
+        const dateIndex = cell.dataset.dateIndex;
+        const key = `${itemName}-${dateIndex}`;
+        cache.core[key] = cell;
+    });
+
+    return cache;
+}
+
+function calculateMoltenMetalPotAndCore() {
+    // キャッシュが未作成の場合は作成
+    if (!moltenMetalElementCache) {
+        moltenMetalElementCache = buildMoltenMetalElementCache();
+    }
+
+    const dateCount = domConstantCache.dateCount;
+    const itemNames = Object.keys(itemData);
+
+    // molten_metal_usageを事前にキャッシュ（繰り返しアクセスを削減）
+    const moltenMetalUsageCache = {};
+    itemNames.forEach(itemName => {
+        moltenMetalUsageCache[itemName] = itemData[itemName].molten_metal_usage || 0;
+    });
+
+    // 各直の計算（dayとnightを配列で管理）
+    const shifts = ['day', 'night'];
+
+    // 各日付・各直の計算
+    for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+        for (let s = 0; s < 2; s++) {
+            const shift = shifts[s];
+            let moltenMetalTotal = 0;
+
+            // 品番ごとの計算を1ループで実施
+            for (let i = 0; i < itemNames.length; i++) {
+                const itemName = itemNames[i];
+                const productionKey = `${shift}-${itemName}-${dateIndex}`;
+                const productionInput = inventoryElementCache?.production[productionKey];
+
+                if (productionInput) {
+                    const productionValue = parseFloat(productionInput.value) || 0;
+
+                    if (productionValue > 0) {
+                        // 溶湯: 生産数 × 溶湯使用量
+                        moltenMetalTotal += productionValue * moltenMetalUsageCache[itemName];
+
+                        // 中子: 生産数（直接DOM更新）
+                        const coreKey = `${itemName}-${dateIndex}`;
+                        const coreCell = moltenMetalElementCache.core[coreKey];
+                        if (coreCell) {
+                            coreCell.textContent = productionValue;
+                        }
+                    } else {
+                        // 生産数が0の場合は中子をクリア
+                        const coreKey = `${itemName}-${dateIndex}`;
+                        const coreCell = moltenMetalElementCache.core[coreKey];
+                        if (coreCell) {
+                            coreCell.textContent = '';
+                        }
+                    }
+                }
+            }
+
+            // 溶湯を表示（キャッシュから取得）
+            const moltenMetalKey = `${shift}-${dateIndex}`;
+            const moltenMetalCell = moltenMetalElementCache.moltenMetal[moltenMetalKey];
+            if (moltenMetalCell) {
+                moltenMetalCell.textContent = moltenMetalTotal > 0 ? Math.round(moltenMetalTotal) : '';
+            }
+
+            // ポット数を表示: 溶湯 / 1200 を小数点第1位で切り上げ（キャッシュから取得）
+            const potCountCell = moltenMetalElementCache.potCount[moltenMetalKey];
+            if (potCountCell) {
+                if (moltenMetalTotal > 0) {
+                    const potCount = Math.ceil(moltenMetalTotal / 1200 * 10) / 10;
+                    potCountCell.textContent = potCount.toFixed(1);
+                } else {
+                    potCountCell.textContent = '';
+                }
+            }
+        }
+    }
+}
+
+// デバウンス版の合計計算
+const debouncedCalculateRowTotals = debounce(calculateRowTotals, 100);
+
+// ========================================
 // 残業inputの表示/非表示制御
 // ========================================
+// 残業inputのキャッシュ
+let overtimeInputCache = null;
+
+function buildOvertimeInputCache() {
+    const cache = {};
+    document.querySelectorAll('.overtime-input').forEach(input => {
+        const shift = input.dataset.shift;
+        const dateIndex = input.dataset.dateIndex;
+        const key = `${shift}-${dateIndex}`;
+        if (!cache[key]) {
+            cache[key] = [];
+        }
+        cache[key].push(input);
+    });
+    return cache;
+}
+
 function updateOvertimeInputVisibility() {
+    // キャッシュが未作成の場合は作成
+    if (!overtimeInputCache) {
+        overtimeInputCache = buildOvertimeInputCache();
+    }
+
     const checkCells = domConstantCache.checkCells;
 
-    checkCells.forEach((checkCell, dateIndex) => {
+    for (let dateIndex = 0; dateIndex < checkCells.length; dateIndex++) {
+        const checkCell = checkCells[dateIndex];
         const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
         const checkText = checkCell.textContent.trim();
         const isHolidayWork = checkText === '休出';
         const isRegularTime = checkText === '定時';
 
-        // 残業inputを取得
-        const dayOvertimeInputs = document.querySelectorAll(
-            `.overtime-input[data-shift="day"][data-date-index="${dateIndex}"]`
-        );
-        const nightOvertimeInputs = document.querySelectorAll(
-            `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"]`
-        );
+        // 残業inputをキャッシュから取得
+        const dayOvertimeInputs = overtimeInputCache[`day-${dateIndex}`] || [];
+        const nightOvertimeInputs = overtimeInputCache[`night-${dateIndex}`] || [];
 
         if (isWeekend && !isHolidayWork) {
             // 土日（休出なし）の場合：日勤・夜勤両方とも非表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
+            for (let i = 0; i < dayOvertimeInputs.length; i++) {
+                dayOvertimeInputs[i].style.display = 'none';
+                dayOvertimeInputs[i].value = 0;
+            }
+            for (let i = 0; i < nightOvertimeInputs.length; i++) {
+                nightOvertimeInputs[i].style.display = 'none';
+                nightOvertimeInputs[i].value = 0;
+            }
         } else if (isHolidayWork) {
             // 休出の場合：日勤・夜勤両方とも非表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
+            for (let i = 0; i < dayOvertimeInputs.length; i++) {
+                dayOvertimeInputs[i].style.display = 'none';
+                dayOvertimeInputs[i].value = 0;
+            }
+            for (let i = 0; i < nightOvertimeInputs.length; i++) {
+                nightOvertimeInputs[i].style.display = 'none';
+                nightOvertimeInputs[i].value = 0;
+            }
         } else if (isRegularTime) {
             // 定時の場合：日勤のみ非表示、夜勤は表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
+            for (let i = 0; i < dayOvertimeInputs.length; i++) {
+                dayOvertimeInputs[i].style.display = 'none';
+                dayOvertimeInputs[i].value = 0;
+            }
+            for (let i = 0; i < nightOvertimeInputs.length; i++) {
+                nightOvertimeInputs[i].style.display = '';
+            }
         } else {
             // それ以外は両方表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
+            for (let i = 0; i < dayOvertimeInputs.length; i++) {
+                dayOvertimeInputs[i].style.display = '';
+            }
+            for (let i = 0; i < nightOvertimeInputs.length; i++) {
+                nightOvertimeInputs[i].style.display = '';
+            }
         }
-    });
+    }
 }
 
 // DOMContentLoadedイベントで初期化
