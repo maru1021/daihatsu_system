@@ -885,6 +885,25 @@ span.vehicle-ve7 {
     background: linear-gradient(135deg, #059669 0%, #047857 100%);
 }
 
+.excel-export-btn {
+    padding: 8px 10px;
+    background: linear-gradient(135deg, #67e8f9 0%, #22d3ee 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: all 0.3s;
+    letter-spacing: 0.5px;
+}
+
+.excel-export-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(34, 211, 238, 0.4);
+    background: linear-gradient(135deg, #22d3ee 0%, #06b6d4 100%);
+}
+
 /* 月別合計セル */
 .monthly-total {
     background-color: #fff9c4 !important;

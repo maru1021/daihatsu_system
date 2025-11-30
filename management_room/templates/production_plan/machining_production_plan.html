@@ -54,6 +54,7 @@
 
             <div class="right-controls">
                 <button type="button" id="save-btn" class="save-btn">保存</button>
+                <button type="button" id="excel-export-btn" class="excel-export-btn" onclick="exportToExcel()">Excel出力</button>
                 <button type="button" class="casting-plan-btn" onclick="window.location.href='{% url 'management_room:casting_production_plan' %}'">鋳造生産計画</button>
                 <button type="button" id="main-btn" class="main-btn" onclick="window.location.href='/'">メインページ</button>
             </div>
@@ -292,5 +293,22 @@
 <script src="{% static 'js/vendor/select2/select2.min.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
 <script src="{% static 'js/machining_production_plan.js' %}"></script>
+
+<script>
+// Excel出力関数
+function exportToExcel() {
+    const targetMonthInput = document.getElementById('target-month');
+    if (!targetMonthInput || !targetMonthInput.value) {
+        alert('対象月を選択してください');
+        return;
+    }
+
+    const [year, month] = targetMonthInput.value.split('-');
+    const url = `/management_room/production-plan/excel-export/?year=${year}&month=${month}`;
+
+    // ファイルダウンロード
+    window.location.href = url;
+}
+</script>
 </body>
 </html>
