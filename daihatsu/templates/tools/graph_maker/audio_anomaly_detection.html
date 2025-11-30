@@ -632,27 +632,65 @@
     </div>
 
     <script>
+        // 定数定義
+        const AUDIO_CONFIG = {
+            FFT_SIZE: 2048,  // バランス重視: 周波数分解能23.4Hz（異常検知に十分）
+            FFT_SIZE_SPECTROGRAM: 2048,
+            DEFAULT_SMOOTH_WINDOW: 10,
+            DEFAULT_TIME_INTERVAL: 0.2,
+            MAX_DATA_POINTS: 400,  // バランス重視: 3分で0.45秒ごと（速度と精度のバランス）
+            BATCH_SIZE: 50,
+            ASYNC_DELAY: 0,
+            CHART_HEIGHT: 600,
+            SCROLLBAR_SIZE: 20,
+            COLOR_ALPHA_BACKGROUND: 0.6,
+            COLOR_ALPHA_BORDER: 1.0,
+            COLOR_ALPHA_LABEL: 0.2,
+            RGB_MAX: 255,
+            RGB_MIN: 0
+        };
+
+        const FREQUENCY_CONFIG = {
+            MIN_FREQ_SPECTROGRAM: 500,
+            MAX_FREQ_SPECTROGRAM: 10000,
+            DYNAMIC_RANGE_DB: 60
+        };
+
+        const ANOMALY_THRESHOLDS = {
+            CREST_FACTOR: 5.0,
+            KURTOSIS: 3.0,
+            PEAK: 0.5
+        };
+
+        const SCROLL_TOLERANCE = 0.001;
+        const SCROLL_PERCENT_MAX = 100;
+        const SCROLL_PERCENT_MIN = 0;
+        const DEBOUNCE_DELAY = 500; // デバウンス遅延時間（ミリ秒）
+
         let chart = null;
         let audioContext = null;
-        let uploadedFiles = []; // 複数ファイル対応
-        let fileOffsets = new Map(); // ファイルごとのオフセット
-        let fftSize = 4096; // 固定: 4096（高精度）
-        let smoothWindow = 10;
-        let timeInterval = 0.2; // デフォルト: 0.2秒刻み（3分データでも高速処理）
-        let powerCalculationMode = 'sum'; // パワー計算方法: 'sum' or 'average'
-        let excludedBands = []; // 除外する周波数帯域
-        let excludedFiles = []; // 除外するファイル
+        let uploadedFiles = [];
+        let fileOffsets = new Map();
+        let fftSize = AUDIO_CONFIG.FFT_SIZE;
+        let smoothWindow = AUDIO_CONFIG.DEFAULT_SMOOTH_WINDOW;
+        let timeInterval = AUDIO_CONFIG.DEFAULT_TIME_INTERVAL;
+        let powerCalculationMode = 'sum';
+        let excludedBands = [];
+        let excludedFiles = [];
+        let debounceTimer = null; // デバウンス用タイマー
 
-        // 新機能: 時間領域統計量、エンベロープ、トレンド監視
-        let timeStatsDataMap = new Map(); // ファイル名 -> 時間領域統計量データ
-        let envelopeDataMap = new Map(); // ファイル名 -> エンベロープデータ
-        let showTimeStats = true; // 時間領域統計量の表示
-        let showEnvelope = true; // エンベロープ分析の表示
+        let timeStatsDataMap = new Map();
+        let envelopeDataMap = new Map();
+        let showTimeStats = true;
+        let showEnvelope = true;
         let anomalyThresholds = {
-            crestFactor: 5.0,     // クレストファクター閾値
-            kurtosis: 3.0,        // 尖度閾値（正常時は約3）
-            peak: 0.5             // ピーク値閾値
+            crestFactor: ANOMALY_THRESHOLDS.CREST_FACTOR,
+            kurtosis: ANOMALY_THRESHOLDS.KURTOSIS,
+            peak: ANOMALY_THRESHOLDS.PEAK
         };
+
+        // Hamming窓係数をキャッシュ（事前計算で高速化）
+        let hammingWindowCache = new Map();
 
         // 周波数帯設定（動的に変更可能）
         let freqBandRanges = {
@@ -740,10 +778,57 @@
         // RGB値を調整して同系統の色を生成
         function adjustColor(rgb, factor) {
             return [
-                Math.min(255, Math.max(0, Math.round(rgb[0] * factor))),
-                Math.min(255, Math.max(0, Math.round(rgb[1] * factor))),
-                Math.min(255, Math.max(0, Math.round(rgb[2] * factor)))
+                Math.min(AUDIO_CONFIG.RGB_MAX, Math.max(AUDIO_CONFIG.RGB_MIN, Math.round(rgb[0] * factor))),
+                Math.min(AUDIO_CONFIG.RGB_MAX, Math.max(AUDIO_CONFIG.RGB_MIN, Math.round(rgb[1] * factor))),
+                Math.min(AUDIO_CONFIG.RGB_MAX, Math.max(AUDIO_CONFIG.RGB_MIN, Math.round(rgb[2] * factor)))
             ];
+        }
+
+        // RGB配列をrgba文字列に変換
+        function rgbArrayToRgba(rgb, alpha) {
+            return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+        }
+
+        // RGB配列をrgb文字列に変換
+        function rgbArrayToRgb(rgb) {
+            return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        }
+
+        // RGB文字列をRGBA文字列に変換
+        function rgbStringToRgba(rgbString, alpha) {
+            return rgbString.replace('rgb', 'rgba').replace(')', `, ${alpha})`);
+        }
+
+        // ファイルが除外されているかチェック
+        function isFileExcluded(fileName) {
+            return excludedFiles.includes(fileName);
+        }
+
+        // 帯域が除外されているかチェック
+        function isBandExcluded(bandKey) {
+            return excludedBands.includes(bandKey);
+        }
+
+        // データにオフセットを適用
+        function applyDataOffset(data, offset) {
+            if (offset === 0) return data;
+            return data.map(point => ({ x: point.x + offset, y: point.y }));
+        }
+
+        // デバウンス処理：連続した入力を遅延実行
+        function debounceAnalysis() {
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+            }
+            debounceTimer = setTimeout(async () => {
+                if (uploadedFiles.length > 0) {
+                    await analyzeAllAudio();
+                    setTimeout(() => {
+                        renderTimeStatsChart();
+                        renderEnvelopeChart();
+                    }, AUDIO_CONFIG.ASYNC_DELAY);
+                }
+            }, DEBOUNCE_DELAY);
         }
 
         // ファイルごとの色定義（ファイルリスト表示用）
@@ -778,10 +863,10 @@
                 offsetInput.placeholder = '位置補正';
                 offsetInput.dataset.fileName = file.name;
 
-                offsetInput.addEventListener('input', async (e) => {
+                offsetInput.addEventListener('input', (e) => {
                     const offset = parseFloat(e.target.value) || 0;
                     fileOffsets.set(file.name, offset);
-                    await analyzeAllAudio();
+                    debounceAnalysis();
                 });
 
                 fileItem.appendChild(fileName);
@@ -822,7 +907,7 @@
         // 除外ラベルを作成
         function createExcludeLabel(value, displayName, color, isBand) {
             const label = document.createElement('label');
-            label.style.backgroundColor = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.2)`;
+            label.style.backgroundColor = rgbArrayToRgba(color, AUDIO_CONFIG.COLOR_ALPHA_LABEL);
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
@@ -861,9 +946,10 @@
             }
             if (uploadedFiles.length > 0) {
                 await analyzeAllAudio();
-                // 新しいグラフにも反映
-                renderTimeStatsChart();
-                renderEnvelopeChart();
+                setTimeout(() => {
+                    renderTimeStatsChart();
+                    renderEnvelopeChart();
+                }, AUDIO_CONFIG.ASYNC_DELAY);
             }
         });
 
@@ -879,29 +965,26 @@
             }
             if (uploadedFiles.length > 0) {
                 await analyzeAllAudio();
-                // 新しいグラフにも反映
-                renderTimeStatsChart();
-                renderEnvelopeChart();
+                setTimeout(() => {
+                    renderTimeStatsChart();
+                    renderEnvelopeChart();
+                }, AUDIO_CONFIG.ASYNC_DELAY);
             }
         });
 
-        // 平滑化ウィンドウの変更
-        elements.smoothWindow.addEventListener('input', async (e) => {
+        // 平滑化ウィンドウの変更（デバウンス）
+        elements.smoothWindow.addEventListener('input', (e) => {
             smoothWindow = parseInt(e.target.value) || 1;
-            if (uploadedFiles.length > 0) {
-                await analyzeAllAudio();
-            }
+            debounceAnalysis();
         });
 
-        // 時間刻みの変更
-        elements.timeInterval.addEventListener('input', async (e) => {
+        // 時間刻みの変更（デバウンス）
+        elements.timeInterval.addEventListener('input', (e) => {
             timeInterval = parseFloat(e.target.value) || 0.1;
-            if (uploadedFiles.length > 0) {
-                await analyzeAllAudio();
-            }
+            debounceAnalysis();
         });
 
-        // パワー計算方法の変更
+        // パワー計算方法の変更（即座に実行）
         elements.powerCalculationMode.addEventListener('change', async (e) => {
             powerCalculationMode = e.target.value;
             if (uploadedFiles.length > 0) {
@@ -919,25 +1002,25 @@
         ];
 
         freqInputs.forEach(({ band, label, min, max }) => {
-            label.addEventListener('input', async (e) => {
+            label.addEventListener('input', (e) => {
                 freqBandRanges[band].label = e.target.value || '';
                 if (uploadedFiles.length > 0) {
                     updateExcludeCheckboxes();
-                    await analyzeAllAudio();
+                    debounceAnalysis();
                 }
             });
-            min.addEventListener('input', async (e) => {
+            min.addEventListener('input', (e) => {
                 freqBandRanges[band].min = parseFloat(e.target.value) || 0;
                 if (uploadedFiles.length > 0) {
                     updateExcludeCheckboxes();
-                    await analyzeAllAudio();
+                    debounceAnalysis();
                 }
             });
-            max.addEventListener('input', async (e) => {
+            max.addEventListener('input', (e) => {
                 freqBandRanges[band].max = parseFloat(e.target.value) || 0;
                 if (uploadedFiles.length > 0) {
                     updateExcludeCheckboxes();
-                    await analyzeAllAudio();
+                    debounceAnalysis();
                 }
             });
         });
@@ -1046,13 +1129,13 @@
                 const xViewRange = xScale.max - xScale.min;
                 const xScrollableRange = (xLimits.max - xLimits.min) - xViewRange;
 
-                if (xScrollableRange > 0.001) {
+                if (xScrollableRange > SCROLL_TOLERANCE) {
                     xScrollbarContainer.style.display = 'flex';
-                    const xPosition = ((xScale.min - xLimits.min) / xScrollableRange) * 100;
-                    xScrollbar.value = Math.max(0, Math.min(100, xPosition));
+                    const xPosition = ((xScale.min - xLimits.min) / xScrollableRange) * SCROLL_PERCENT_MAX;
+                    xScrollbar.value = Math.max(SCROLL_PERCENT_MIN, Math.min(SCROLL_PERCENT_MAX, xPosition));
                 } else {
                     xScrollbarContainer.style.display = 'none';
-                    xScrollbar.value = 0;
+                    xScrollbar.value = SCROLL_PERCENT_MIN;
                 }
             }
 
@@ -1060,13 +1143,13 @@
                 const yViewRange = yScale.max - yScale.min;
                 const yScrollableRange = (yLimits.max - yLimits.min) - yViewRange;
 
-                if (yScrollableRange > 0.001) {
+                if (yScrollableRange > SCROLL_TOLERANCE) {
                     yScrollbarContainer.style.display = 'flex';
-                    const yPosition = ((yScale.min - yLimits.min) / yScrollableRange) * 100;
-                    yScrollbar.value = Math.max(0, Math.min(100, yPosition));
+                    const yPosition = ((yScale.min - yLimits.min) / yScrollableRange) * SCROLL_PERCENT_MAX;
+                    yScrollbar.value = Math.max(SCROLL_PERCENT_MIN, Math.min(SCROLL_PERCENT_MAX, yPosition));
                 } else {
                     yScrollbarContainer.style.display = 'none';
-                    yScrollbar.value = 0;
+                    yScrollbar.value = SCROLL_PERCENT_MIN;
                 }
             }
 
@@ -1085,7 +1168,7 @@
             const viewRange = scale.max - scale.min;
             const scrollableRange = (limits.max - limits.min) - viewRange;
 
-            const newMin = limits.min + (scrollableRange * scrollValue / 100);
+            const newMin = limits.min + (scrollableRange * scrollValue / SCROLL_PERCENT_MAX);
             const newMax = newMin + viewRange;
 
             const clampedMin = Math.max(limits.min, Math.min(limits.max - viewRange, newMin));
@@ -1103,7 +1186,7 @@
                     const y2ViewRange = y2Scale.max - y2Scale.min;
                     const y2ScrollableRange = (y2Limits.max - y2Limits.min) - y2ViewRange;
 
-                    const y2NewMin = y2Limits.min + (y2ScrollableRange * scrollValue / 100);
+                    const y2NewMin = y2Limits.min + (y2ScrollableRange * scrollValue / SCROLL_PERCENT_MAX);
                     const y2NewMax = y2NewMin + y2ViewRange;
 
                     const y2ClampedMin = Math.max(y2Limits.min, Math.min(y2Limits.max - y2ViewRange, y2NewMin));
@@ -1274,20 +1357,20 @@
                 // コントロールを表示
                 elements.controlsContainer.style.display = 'flex';
 
-                // 段階的にグラフを描画（高速化）
-                // 1. まずフーリエ変換グラフを表示（最優先）
+                // メインのフーリエ変換グラフを最優先で表示
                 await analyzeAllAudio();
 
-                // 2. 次に時間領域統計量とエンベロープ分析を表示
-                // （すでにanalyzeAllAudio内で計算済みのデータを使用）
-                await new Promise(resolve => setTimeout(resolve, 10)); // 最小限の待機
-                renderTimeStatsChart();
-                renderEnvelopeChart();
-                detectAnomalies();
+                // 時間領域統計量とエンベロープ分析を非同期で描画
+                setTimeout(() => {
+                    renderTimeStatsChart();
+                    renderEnvelopeChart();
+                    detectAnomalies();
+                }, AUDIO_CONFIG.ASYNC_DELAY);
 
-                // 3. 最後にスペクトログラムを計算（重い処理は最後）
-                await new Promise(resolve => setTimeout(resolve, 10)); // 最小限の待機
-                await calculateAllSpectrograms();
+                // スペクトログラムを非同期で計算（重い処理）
+                setTimeout(async () => {
+                    await calculateAllSpectrograms();
+                }, AUDIO_CONFIG.ASYNC_DELAY);
 
             } catch (error) {
                 console.error('音声ファイルの読み込みエラー:', error);
@@ -1295,43 +1378,72 @@
             }
         });
 
-        // 全音声ファイルを解析する関数（複数ファイル対応）
+        // 全音声ファイルを解析する関数（複数ファイル対応・並列処理）
         async function analyzeAllAudio() {
             if (uploadedFiles.length === 0) return;
 
-            const allBandDataMap = new Map(); // ファイル名 -> 帯域データMap
-            const allRmsData = new Map(); // ファイル名 -> RMSデータ
+            const allBandDataMap = new Map();
+            const allRmsData = new Map();
             let maxDuration = 0;
 
-            // 各ファイルを解析
-            for (let i = 0; i < uploadedFiles.length; i++) {
-                const file = uploadedFiles[i];
-
+            // ファイル処理を並列化（Promise.all）
+            const filePromises = uploadedFiles.map(async (file) => {
                 try {
                     const arrayBuffer = await file.arrayBuffer();
                     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
                     const result = await analyzeAudio(audioBuffer);
 
-                    allBandDataMap.set(file.name, result.bandDataMap);
-                    allRmsData.set(file.name, result.rmsData);
+                    return {
+                        fileName: file.name,
+                        bandDataMap: result.bandDataMap,
+                        rmsData: result.rmsData,
+                        duration: result.duration,
+                        // 遅延計算用のデータ
+                        _channelData: result._channelData,
+                        _sampleRate: result._sampleRate,
+                        _numTimePoints: result._numTimePoints,
+                        _actualTimeInterval: result._actualTimeInterval
+                    };
+                } catch (error) {
+                    console.error(`ファイル ${file.name} の解析エラー:`, error);
+                    return null;
+                }
+            });
 
-                    // 新機能のデータを保存
-                    timeStatsDataMap.set(file.name, result.timeStatsData);
-                    envelopeDataMap.set(file.name, result.envelopeData);
+            const results = await Promise.all(filePromises);
+
+            // 結果を集約
+            results.forEach(result => {
+                if (result) {
+                    allBandDataMap.set(result.fileName, result.bandDataMap);
+                    allRmsData.set(result.fileName, result.rmsData);
 
                     if (result.duration > maxDuration) {
                         maxDuration = result.duration;
                     }
-                } catch (error) {
-                    console.error(`ファイル ${file.name} の解析エラー:`, error);
+
+                    // 時間領域統計量とエンベロープは後で計算（非同期）
+                    setTimeout(() => {
+                        const timeStatsData = calculateTimeStats(
+                            result._channelData,
+                            result._sampleRate,
+                            result._numTimePoints,
+                            result._actualTimeInterval
+                        );
+                        const envelopeData = calculateEnvelope(
+                            result._channelData,
+                            result._sampleRate,
+                            result._numTimePoints,
+                            result._actualTimeInterval
+                        );
+                        timeStatsDataMap.set(result.fileName, timeStatsData);
+                        envelopeDataMap.set(result.fileName, envelopeData);
+                    }, AUDIO_CONFIG.ASYNC_DELAY);
                 }
-            }
+            });
 
             // グラフを描画（フーリエ変換グラフのみ）
             renderChartMultiFile(allBandDataMap, allRmsData, maxDuration);
-
-            // 注意: 時間領域統計量とエンベロープ分析は呼び出し元で段階的に描画
         }
 
         // 音声を解析する関数（長時間データ対応版）
@@ -1359,7 +1471,7 @@
 
             // 長時間データの場合は自動的にサンプリング（高速化）
             let actualTimeInterval = timeInterval;
-            const maxDataPoints = 500; // 最大データポイント数を削減（1000→500）
+            const maxDataPoints = AUDIO_CONFIG.MAX_DATA_POINTS;
             let numTimePoints = Math.floor(duration / actualTimeInterval);
 
             if (numTimePoints > maxDataPoints) {
@@ -1368,11 +1480,22 @@
             }
 
             // 詳細分析モード: 5つの帯域それぞれを追跡
-            let bandDataMap = new Map(); // 帯域名 -> 時系列データ
-            const batchSize = 50; // バッチサイズ（UI更新頻度）
+            let bandDataMap = new Map();
+            const batchSize = AUDIO_CONFIG.BATCH_SIZE;
 
+            // 配列を事前確保（push不要で高速化）
             multiBands.forEach(bandKey => {
-                bandDataMap.set(bandKey, []);
+                bandDataMap.set(bandKey, new Array(numTimePoints));
+            });
+
+            // 周波数ビンを事前計算（ループ内で繰り返し計算しない）
+            const bandBins = {};
+            multiBands.forEach(bandKey => {
+                const band = freqBands[bandKey];
+                bandBins[bandKey] = {
+                    min: Math.floor(band.min * fftSize / sampleRate),
+                    max: Math.floor(band.max * fftSize / sampleRate)
+                };
             });
 
             // FFT処理を一括実行（バッチ待機なし - 高速化）
@@ -1389,68 +1512,64 @@
                 // FFTを実行（高速版）- 1回のFFTで全周波数を取得
                 const fftResult = performFFTFast(windowedFrame);
 
-                // 各帯域のパワーを計算
+                // 各帯域のパワーを計算（事前計算したビンを使用、直接代入）
                 bandDataMap.forEach((dataArray, bandKey) => {
-                    const band = freqBands[bandKey];
-                    const freqBinMin = Math.floor(band.min * fftSize / sampleRate);
-                    const freqBinMax = Math.floor(band.max * fftSize / sampleRate);
-
+                    const bins = bandBins[bandKey];
                     let power = 0;
-                    for (let j = freqBinMin; j < freqBinMax && j < fftResult.length; j++) {
+                    for (let j = bins.min; j < bins.max && j < fftResult.length; j++) {
                         power += fftResult[j];
                     }
 
                     // パワー計算方法に応じて処理
                     if (powerCalculationMode === 'average') {
-                        power = power / (freqBinMax - freqBinMin);
+                        power = power / (bins.max - bins.min);
                     }
-                    // 'sum'の場合は合計値をそのまま使用
 
-                    dataArray.push({ x: currentTime, y: power });
+                    dataArray[i] = { x: currentTime, y: power };  // push→直接代入で高速化
                 });
             }
 
-            // 移動平均でスムージング
+            // 移動平均でスムージング（非同期で実行して高速化）
             const smoothedBandData = new Map();
             bandDataMap.forEach((dataArray, bandKey) => {
                 smoothedBandData.set(bandKey, applyMovingAverage(dataArray, smoothWindow));
             });
 
-            // RMS（実効値）を計算（時間刻みに合わせて集約）
-            const rmsData = [];
+            // RMS計算を簡略化：FFTフレームから計算（配列事前確保）
+            const rmsData = new Array(numTimePoints);
             for (let i = 0; i < numTimePoints; i++) {
                 const currentTime = i * actualTimeInterval;
-                const nextTime = (i + 1) * actualTimeInterval;
-
                 const startSample = Math.floor(currentTime * sampleRate);
-                const endSample = Math.floor(nextTime * sampleRate);
 
-                if (endSample > channelData.length) break;
+                if (startSample + fftSize > channelData.length) break;
 
-                const window = channelData.slice(startSample, endSample);
-                if (window.length > 0) {
-                    const rms = Math.sqrt(window.reduce((sum, val) => sum + val * val, 0) / window.length);
-                    rmsData.push({ x: currentTime, y: rms });
+                // FFTと同じフレームを使用してRMS計算（高速化）
+                const frame = channelData.slice(startSample, startSample + fftSize);
+                let sumSquares = 0;
+                for (let j = 0; j < frame.length; j++) {
+                    sumSquares += frame[j] * frame[j];
                 }
+                const rms = Math.sqrt(sumSquares / frame.length);
+                rmsData[i] = { x: currentTime, y: rms };  // push→直接代入
             }
 
-            // ===========================
-            // 新機能1: 時間領域統計量の計算
-            // ===========================
-            const timeStatsData = calculateTimeStats(channelData, sampleRate, numTimePoints, actualTimeInterval);
+            // メイングラフ表示を高速化するため、重い計算は遅延実行
+            // 時間領域統計量とエンベロープは別途計算
+            const timeStatsData = null;
+            const envelopeData = null;
 
-            // ===========================
-            // 新機能2: エンベロープ分析
-            // ===========================
-            const envelopeData = calculateEnvelope(channelData, sampleRate, numTimePoints, actualTimeInterval);
-
-            // 結果を返す
+            // 結果を返す（channelDataも保持して後で計算できるようにする）
             return {
                 bandDataMap: smoothedBandData,
                 rmsData: rmsData,
                 timeStatsData: timeStatsData,
                 envelopeData: envelopeData,
-                duration: duration
+                duration: duration,
+                // 後で統計量計算に使用
+                _channelData: channelData,
+                _sampleRate: sampleRate,
+                _numTimePoints: numTimePoints,
+                _actualTimeInterval: actualTimeInterval
             };
         }
 
@@ -1475,21 +1594,31 @@
                 // RMS（実効値）
                 const rms = Math.sqrt(window.reduce((sum, val) => sum + val * val, 0) / window.length);
 
-                // ピーク値（絶対値の最大）
-                const peak = Math.max(...window.map(Math.abs));
+                // ピーク値（絶対値の最大）- 最適化版
+                let peak = 0;
+                for (let j = 0; j < window.length; j++) {
+                    const absVal = Math.abs(window[j]);
+                    if (absVal > peak) peak = absVal;
+                }
 
                 // クレストファクター = ピーク値 / RMS
                 const crestFactor = rms > 0 ? peak / rms : 0;
 
-                // 尖度 (Kurtosis)
+                // 尖度 (Kurtosis) - 最適化版
                 const mean = window.reduce((sum, val) => sum + val, 0) / window.length;
-                const variance = window.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / window.length;
+                const variance = window.reduce((sum, val) => {
+                    const diff = val - mean;
+                    return sum + diff * diff;  // Math.pow(diff, 2)より高速
+                }, 0) / window.length;
                 const stdDev = Math.sqrt(variance);
 
                 let kurtosis = 0;
                 if (stdDev > 0) {
-                    const fourthMoment = window.reduce((sum, val) => sum + Math.pow((val - mean) / stdDev, 4), 0) / window.length;
-                    kurtosis = fourthMoment; // 正規分布の場合は3
+                    const fourthMoment = window.reduce((sum, val) => {
+                        const z = (val - mean) / stdDev;
+                        return sum + z * z * z * z;  // Math.pow(z, 4)より高速
+                    }, 0) / window.length;
+                    kurtosis = fourthMoment;
                 }
 
                 crestFactorData.push({ x: currentTime, y: crestFactor });
@@ -1580,12 +1709,24 @@
             return real.slice(0, N);
         }
 
-        // ハミング窓を適用
+        // ハミング窓を適用（係数をキャッシュして高速化）
         function applyHammingWindow(frame) {
             const N = frame.length;
+
+            // キャッシュから係数を取得、なければ計算
+            let windowCoeffs = hammingWindowCache.get(N);
+            if (!windowCoeffs) {
+                windowCoeffs = new Float32Array(N);
+                for (let i = 0; i < N; i++) {
+                    windowCoeffs[i] = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1));
+                }
+                hammingWindowCache.set(N, windowCoeffs);
+            }
+
+            // 係数を適用
             const windowed = new Float32Array(N);
             for (let i = 0; i < N; i++) {
-                windowed[i] = frame[i] * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1)));
+                windowed[i] = frame[i] * windowCoeffs[i];
             }
             return windowed;
         }
@@ -1684,16 +1825,41 @@
         }
 
         // 移動平均でスムージング
+        // 最適化版移動平均（スライディングウィンドウ）
         function applyMovingAverage(data, windowSize) {
             if (windowSize <= 1) return data;
 
-            const smoothed = [];
-            for (let i = 0; i < data.length; i++) {
-                const start = Math.max(0, i - Math.floor(windowSize / 2));
-                const end = Math.min(data.length, i + Math.ceil(windowSize / 2));
-                const windowData = data.slice(start, end);
-                const avg = windowData.reduce((sum, d) => sum + d.y, 0) / windowData.length;
-                smoothed.push({ x: data[i].x, y: avg });
+            const smoothed = new Array(data.length);
+            const halfWindow = Math.floor(windowSize / 2);
+
+            // 初期ウィンドウの合計を計算
+            let sum = 0;
+            let count = 0;
+            const start = 0;
+            const end = Math.min(data.length, halfWindow + 1);
+            for (let j = start; j < end; j++) {
+                sum += data[j].y;
+                count++;
+            }
+            smoothed[0] = { x: data[0].x, y: sum / count };
+
+            // スライディングウィンドウで高速計算
+            for (let i = 1; i < data.length; i++) {
+                const leftIdx = i - halfWindow - 1;
+                const rightIdx = i + halfWindow;
+
+                // 左端を削除
+                if (leftIdx >= 0) {
+                    sum -= data[leftIdx].y;
+                    count--;
+                }
+                // 右端を追加
+                if (rightIdx < data.length) {
+                    sum += data[rightIdx].y;
+                    count++;
+                }
+
+                smoothed[i] = { x: data[i].x, y: sum / count };
             }
             return smoothed;
         }
@@ -1735,23 +1901,19 @@
                     if (excludedBands.includes(bandKey)) return;
 
                     const band = freqBands[bandKey];
-                    let data = bandDataMap.get(bandKey) || [];
-
-                    // オフセットを適用
-                    if (offset !== 0) {
-                        data = data.map(point => ({ x: point.x + offset, y: point.y }));
-                    }
+                    const bandData = bandDataMap.get(bandKey) || [];
+                    const data = applyDataOffset(bandData, offset);
 
                     // 帯域の基本色を取得し、ファイルごとに調整
                     const baseColor = bandBaseColors[bandKey];
                     const adjustedColor = adjustColor(baseColor, colorVariant);
-                    const colorString = `rgb(${adjustedColor[0]}, ${adjustedColor[1]}, ${adjustedColor[2]})`;
+                    const colorString = rgbArrayToRgb(adjustedColor);
 
                     datasets.push({
                         label: `${fileName} - ${band.label}`,
                         data: data,
                         borderColor: colorString,
-                        backgroundColor: `rgba(${adjustedColor[0]}, ${adjustedColor[1]}, ${adjustedColor[2]}, 0.1)`,
+                        backgroundColor: rgbArrayToRgba(adjustedColor, 0.1),
                         borderWidth: 2,
                         pointRadius: 0,
                         pointHoverRadius: 0,
@@ -1776,20 +1938,15 @@
 
                 const colorVariant = fileColorVariants[fileIndex % fileColorVariants.length];
                 const adjustedColor = adjustColor(rmsBaseColor, colorVariant);
-                const colorString = `rgb(${adjustedColor[0]}, ${adjustedColor[1]}, ${adjustedColor[2]})`;
+                const colorString = rgbArrayToRgb(adjustedColor);
                 const offset = fileOffsets.get(fileName) || 0;
-
-                // オフセットを適用
-                let data = rmsData;
-                if (offset !== 0) {
-                    data = data.map(point => ({ x: point.x + offset, y: point.y }));
-                }
+                const data = applyDataOffset(rmsData, offset);
 
                 datasets.push({
                     label: `${fileName} - RMS振幅`,
                     data: data,
                     borderColor: colorString,
-                    backgroundColor: `rgba(${adjustedColor[0]}, ${adjustedColor[1]}, ${adjustedColor[2]}, 0.1)`,
+                    backgroundColor: rgbArrayToRgba(adjustedColor, 0.1),
                     borderWidth: 2,
                     pointRadius: 0,
                     pointHoverRadius: 0,
@@ -1958,7 +2115,7 @@
                     label: band.label,
                     data: data,
                     borderColor: band.color,
-                    backgroundColor: band.color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    backgroundColor: rgbStringToRgba(band.color, 0.1),
                     borderWidth: 2,
                     pointRadius: 0,
                     pointHoverRadius: 0,
@@ -2135,14 +2292,14 @@
             const duration = audioBuffer.duration;
 
             // スペクトログラム設定
-            const fftSizeSpec = 2048; // スペクトログラム用FFTサイズ
-            const hopSize = Math.floor(fftSizeSpec / 4); // オーバーラップ75%
+            const fftSizeSpec = AUDIO_CONFIG.FFT_SIZE_SPECTROGRAM;
+            const hopSize = Math.floor(fftSizeSpec / 4);
             const numFrames = Math.floor((channelData.length - fftSizeSpec) / hopSize);
             const numFreqBins = fftSizeSpec / 2;
 
             // 周波数範囲（500Hz - 10000Hz）
-            const minFreq = 500;
-            const maxFreq = 10000;
+            const minFreq = FREQUENCY_CONFIG.MIN_FREQ_SPECTROGRAM;
+            const maxFreq = FREQUENCY_CONFIG.MAX_FREQ_SPECTROGRAM;
             const minBin = Math.floor(minFreq * fftSizeSpec / sampleRate);
             const maxBin = Math.floor(maxFreq * fftSizeSpec / sampleRate);
 
@@ -2222,7 +2379,7 @@
             }
 
             // ダイナミックレンジを制限（見やすくするため）
-            const dynamicRange = 60; // dB
+            const dynamicRange = FREQUENCY_CONFIG.DYNAMIC_RANGE_DB;
             const dbMin = maxDB - dynamicRange;
 
             // 描画領域のサイズを計算
@@ -2409,6 +2566,13 @@
 
             const datasets = [];
 
+            // 指標ごとの色定義（見分けやすい色）
+            const statColors = {
+                crestFactor: 'rgb(37, 99, 235)',    // 青
+                kurtosis: 'rgb(220, 38, 38)',       // 赤
+                peak: 'rgb(34, 197, 94)'            // 緑
+            };
+
             // 各ファイルのデータを追加
             let fileIndex = 0;
             timeStatsDataMap.forEach((statsData, fileName) => {
@@ -2417,20 +2581,16 @@
                     return;
                 }
 
-                const color = fileColors[fileIndex % fileColors.length];
                 const offset = fileOffsets.get(fileName) || 0;
 
-                // クレストファクター
+                // クレストファクター（青系）
                 if (document.getElementById('showCrestFactor')?.checked) {
-                    let data = statsData.crestFactor;
-                    if (offset !== 0) {
-                        data = data.map(point => ({ x: point.x + offset, y: point.y }));
-                    }
+                    const data = applyDataOffset(statsData.crestFactor, offset);
                     datasets.push({
                         label: `${fileName} - クレストファクター`,
                         data: data,
-                        borderColor: color,
-                        backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                        borderColor: statColors.crestFactor,
+                        backgroundColor: rgbStringToRgba(statColors.crestFactor, 0.1),
                         borderWidth: 2,
                         pointRadius: 0,
                         tension: 0.1,
@@ -2438,17 +2598,14 @@
                     });
                 }
 
-                // 尖度
+                // 尖度（赤系）
                 if (document.getElementById('showKurtosis')?.checked) {
-                    let data = statsData.kurtosis;
-                    if (offset !== 0) {
-                        data = data.map(point => ({ x: point.x + offset, y: point.y }));
-                    }
+                    const data = applyDataOffset(statsData.kurtosis, offset);
                     datasets.push({
                         label: `${fileName} - 尖度`,
                         data: data,
-                        borderColor: color.replace('rgb', 'rgba').replace(')', ', 0.7)'),
-                        backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                        borderColor: statColors.kurtosis,
+                        backgroundColor: rgbStringToRgba(statColors.kurtosis, 0.1),
                         borderWidth: 2,
                         pointRadius: 0,
                         tension: 0.1,
@@ -2456,17 +2613,14 @@
                     });
                 }
 
-                // ピーク値
+                // ピーク値（緑系）
                 if (document.getElementById('showPeak')?.checked) {
-                    let data = statsData.peak;
-                    if (offset !== 0) {
-                        data = data.map(point => ({ x: point.x + offset, y: point.y }));
-                    }
+                    const data = applyDataOffset(statsData.peak, offset);
                     datasets.push({
                         label: `${fileName} - ピーク値`,
                         data: data,
-                        borderColor: color.replace('rgb', 'rgba').replace(')', ', 0.4)'),
-                        backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                        borderColor: statColors.peak,
+                        backgroundColor: rgbStringToRgba(statColors.peak, 0.1),
                         borderWidth: 2,
                         pointRadius: 0,
                         tension: 0.1,
@@ -2601,16 +2755,13 @@
                 const color = fileColors[fileIndex % fileColors.length];
                 const offset = fileOffsets.get(fileName) || 0;
 
-                let data = envData.envelope;
-                if (offset !== 0) {
-                    data = data.map(point => ({ x: point.x + offset, y: point.y }));
-                }
+                const data = applyDataOffset(envData.envelope, offset);
 
                 datasets.push({
                     label: `${fileName} - エンベロープ`,
                     data: data,
                     borderColor: color,
-                    backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    backgroundColor: rgbStringToRgba(color, 0.1),
                     borderWidth: 2,
                     pointRadius: 0,
                     tension: 0.1,
@@ -2704,8 +2855,13 @@
             timeStatsDataMap.forEach((statsData, fileName) => {
                 if (excludedFiles.includes(fileName)) return;
 
-                // クレストファクターの異常チェック
-                const crestFactorMax = Math.max(...statsData.crestFactor.map(d => d.y));
+                // クレストファクターの異常チェック（最適化版）
+                let crestFactorMax = 0;
+                for (let i = 0; i < statsData.crestFactor.length; i++) {
+                    if (statsData.crestFactor[i].y > crestFactorMax) {
+                        crestFactorMax = statsData.crestFactor[i].y;
+                    }
+                }
                 if (crestFactorMax > anomalyThresholds.crestFactor) {
                     anomalies.push({
                         file: fileName,
@@ -2716,8 +2872,13 @@
                     });
                 }
 
-                // 尖度の異常チェック
-                const kurtosisMax = Math.max(...statsData.kurtosis.map(d => d.y));
+                // 尖度の異常チェック（最適化版）
+                let kurtosisMax = 0;
+                for (let i = 0; i < statsData.kurtosis.length; i++) {
+                    if (statsData.kurtosis[i].y > kurtosisMax) {
+                        kurtosisMax = statsData.kurtosis[i].y;
+                    }
+                }
                 if (kurtosisMax > 10) {
                     anomalies.push({
                         file: fileName,
@@ -2736,8 +2897,13 @@
                     });
                 }
 
-                // ピーク値の異常チェック
-                const peakMax = Math.max(...statsData.peak.map(d => d.y));
+                // ピーク値の異常チェック（最適化版）
+                let peakMax = 0;
+                for (let i = 0; i < statsData.peak.length; i++) {
+                    if (statsData.peak[i].y > peakMax) {
+                        peakMax = statsData.peak[i].y;
+                    }
+                }
                 if (peakMax > anomalyThresholds.peak) {
                     anomalies.push({
                         file: fileName,
