@@ -31,6 +31,15 @@ td.weekend .overtime-input {
 </style>
 </head>
 <body class="assembly-plan">
+<!-- ローディングオーバーレイ（loading.jsで管理） -->
+<div id="loadingOverlay" class="loading-overlay visible">
+    <div class="loading-container">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loadingText"></div>
+    </div>
+</div>
+<!-- loading.jsを即座に実行してLoading...テキストを挿入 -->
+<script src="{% static 'js/loading.js' %}"></script>
 <div class="page-container">
     <div class="header-section">
         <div class="page-title">鋳造生産スケジュール</div>
@@ -445,7 +454,6 @@ td.weekend .overtime-input {
 <script src="{% static 'js/vendor/jquery/jquery-3.7.1.min.js' %}"></script>
 <script src="{% static 'js/vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
 <script src="{% static 'js/vendor/select2/select2.min.js' %}"></script>
-<script src="{% static 'js/loading.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
 <script src="{% static 'js/casting_production_plan.js' %}"></script>
 
@@ -454,7 +462,7 @@ td.weekend .overtime-input {
 function exportToExcel() {
     const targetMonthInput = document.getElementById('target-month');
     if (!targetMonthInput || !targetMonthInput.value) {
-        alert('対象月を選択してください');
+        showToast('error', '対象月を選択してください');
         return;
     }
 

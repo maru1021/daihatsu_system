@@ -2659,7 +2659,7 @@ function showMoldCountEditModal(moldCountDisplay) {
             // 型替えハイライトと残業制御を更新
             applyItemChangeHighlights();
         } else {
-            alert('1から99の間の値を入力してください');
+            showToast('error', '1から99の間の値を入力してください');
         }
     });
 
@@ -2787,7 +2787,7 @@ function setupEventListeners() {
 
     // 生産数入力の変更を監視（デバウンス適用）
     document.querySelectorAll('.production-input').forEach(input => {
-        input.addEventListener('input', function() {
+        input.addEventListener('input', function () {
             debouncedRecalculateInventory();
             debouncedCalculateRowTotals();
         });
@@ -2795,7 +2795,7 @@ function setupEventListeners() {
 
     // 出庫数入力の変更を監視（デバウンス適用）
     document.querySelectorAll('.delivery-input').forEach(input => {
-        input.addEventListener('input', function() {
+        input.addEventListener('input', function () {
             debouncedRecalculateInventory();
             debouncedCalculateRowTotals();
         });
@@ -2839,86 +2839,88 @@ function buildAllCaches() {
 // 初期計算実行
 // ========================================
 function performInitialCalculations() {
+    return new Promise((resolve) => {
+        const dateCount = domConstantCache.dateCount;
+        const totalMachines = domConstantCache.totalMachines;
 
-    const dateCount = domConstantCache.dateCount;
-    const totalMachines = domConstantCache.totalMachines;
+        // 前月データの初期化
+        if (typeof prevUsableMolds !== 'undefined' && prevUsableMolds) {
+            prevMonthMoldsOriginal = JSON.parse(JSON.stringify(prevUsableMolds));
+            prevMonthMoldsStatus = prevUsableMolds.map(() => ({
+                used: false,
+                usedBy: null,
+                exhausted: false  // 6直完了したかどうかのフラグ
+            }));
 
-    // 前月データの初期化
-    if (typeof prevUsableMolds !== 'undefined' && prevUsableMolds) {
-        prevMonthMoldsOriginal = JSON.parse(JSON.stringify(prevUsableMolds));
-        prevMonthMoldsStatus = prevUsableMolds.map(() => ({
-            used: false,
-            usedBy: null,
-            exhausted: false  // 6直完了したかどうかのフラグ
-        }));
-
-        // 最初の稼働日（日勤）を探す（dateIndex=0が土日の場合に対応）
-        let firstWorkingDateIndex = -1;
-        for (let d = 0; d < dateCount; d++) {
-            const testSelect = selectElementCache['day']?.[d]?.[0];
-            if (testSelect) {
-                firstWorkingDateIndex = d;
-                break;
+            // 最初の稼働日（日勤）を探す（dateIndex=0が土日の場合に対応）
+            let firstWorkingDateIndex = -1;
+            for (let d = 0; d < dateCount; d++) {
+                const testSelect = selectElementCache['day']?.[d]?.[0];
+                if (testSelect) {
+                    firstWorkingDateIndex = d;
+                    break;
+                }
             }
-        }
 
-        // 最初の稼働日で前月末金型を使用している設備の金型を使用済みとしてマーク
-        if (firstWorkingDateIndex !== -1) {
-            const machineElements = document.querySelectorAll('[data-section="production_plan"][data-shift="day"] .facility-number');
-            for (let m = 0; m < totalMachines; m++) {
-                const firstDaySelect = selectElementCache['day']?.[firstWorkingDateIndex]?.[m];
-                const firstDayMoldDisplay = moldCountDisplayCache['day']?.[firstWorkingDateIndex]?.[m];
+            // 最初の稼働日で前月末金型を使用している設備の金型を使用済みとしてマーク
+            if (firstWorkingDateIndex !== -1) {
+                const machineElements = document.querySelectorAll('[data-section="production_plan"][data-shift="day"] .facility-number');
+                for (let m = 0; m < totalMachines; m++) {
+                    const firstDaySelect = selectElementCache['day']?.[firstWorkingDateIndex]?.[m];
+                    const firstDayMoldDisplay = moldCountDisplayCache['day']?.[firstWorkingDateIndex]?.[m];
 
-                if (firstDaySelect && firstDayMoldDisplay) {
-                    const isPrevMonthMold = firstDayMoldDisplay.getAttribute('data-prev-month-mold') === 'true';
-                    if (isPrevMonthMold) {
-                        const itemName = firstDaySelect.value;
-                        const machineName = machineElements[m] ? machineElements[m].textContent.trim() : '';
+                    if (firstDaySelect && firstDayMoldDisplay) {
+                        const isPrevMonthMold = firstDayMoldDisplay.getAttribute('data-prev-month-mold') === 'true';
+                        if (isPrevMonthMold) {
+                            const itemName = firstDaySelect.value;
+                            const machineName = machineElements[m] ? machineElements[m].textContent.trim() : '';
 
-                        // この設備の前月末金型を検索して使用済みにマーク
-                        for (let i = 0; i < prevMonthMoldsOriginal.length; i++) {
-                            const mold = prevMonthMoldsOriginal[i];
-                            if (mold.machine_name === machineName && mold.item_name === itemName) {
-                                prevMonthMoldsStatus[i].used = true;
-                                prevMonthMoldsStatus[i].usedBy = {
-                                    machineIndex: m,
-                                    itemName: itemName,
-                                    dateIndex: firstWorkingDateIndex,
-                                    shift: 'day'
-                                };
-                                break;
+                            // この設備の前月末金型を検索して使用済みにマーク
+                            for (let i = 0; i < prevMonthMoldsOriginal.length; i++) {
+                                const mold = prevMonthMoldsOriginal[i];
+                                if (mold.machine_name === machineName && mold.item_name === itemName) {
+                                    prevMonthMoldsStatus[i].used = true;
+                                    prevMonthMoldsStatus[i].usedBy = {
+                                        machineIndex: m,
+                                        itemName: itemName,
+                                        dateIndex: firstWorkingDateIndex,
+                                        shift: 'day'
+                                    };
+                                    break;
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    // 初期化完了フラグを先に設定（在庫計算が動作するように）
-    isInitializing = false;
+        // 初期化完了フラグを先に設定（在庫計算が動作するように）
+        isInitializing = false;
 
-    // 段階的に計算を実行（ページの応答性を向上）
-    // ステップ1: 金型使用数を計算
-    requestAnimationFrame(() => {
-        for (let i = 0; i < dateCount; i++) {
-            for (let m = 0; m < totalMachines; m++) {
-                updateMoldCount(i, 'day', m);
-                updateMoldCount(i, 'night', m);
-            }
-        }
-
-        // ステップ2: 生産台数を計算
+        // 段階的に計算を実行（ページの応答性を向上）
+        // ステップ1: 金型使用数を計算
         requestAnimationFrame(() => {
             for (let i = 0; i < dateCount; i++) {
-                calculateProduction(i, 'day');
-                calculateProduction(i, 'night');
+                for (let m = 0; m < totalMachines; m++) {
+                    updateMoldCount(i, 'day', m);
+                    updateMoldCount(i, 'night', m);
+                }
             }
 
-            // ステップ3: 在庫を再計算（月末在庫カードも自動更新される）
-            // 行合計と溶湯計算はrecalculateAllInventory内で非同期実行される
+            // ステップ2: 生産台数を計算
             requestAnimationFrame(() => {
-                recalculateAllInventory();
+                for (let i = 0; i < dateCount; i++) {
+                    calculateProduction(i, 'day');
+                    calculateProduction(i, 'night');
+                }
+
+                // ステップ3: 在庫を再計算（月末在庫カードも自動更新される）
+                // 行合計と溶湯計算はrecalculateAllInventory内で非同期実行される
+                requestAnimationFrame(() => {
+                    recalculateAllInventory();
+                    resolve();
+                });
             });
         });
     });
@@ -3239,7 +3241,7 @@ function saveProductionPlan() {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || getCookie('csrftoken');
 
     if (!csrfToken) {
-        alert('CSRFトークンが取得できませんでした。ページをリロードしてください。');
+        showToast('error', 'CSRFトークンが取得できませんでした。ページをリロードしてください。');
         saveBtn.disabled = false;
         saveBtn.textContent = '保存';
         return;
@@ -3263,13 +3265,13 @@ function saveProductionPlan() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                alert('保存しました');
+                showToast('success', '保存しました');
             } else {
-                alert('保存に失敗しました: ' + (data.message || ''));
+                showToast('error', '保存に失敗しました: ' + (data.message || ''));
             }
         })
         .catch(error => {
-            alert('保存に失敗しました: ' + error.message);
+            showToast('errror', '保存に失敗しました: ' + error.message);
         })
         .finally(() => {
             saveBtn.disabled = false;
@@ -3285,23 +3287,20 @@ function autoProductionPlan() {
     autoBtn.disabled = true;
     autoBtn.textContent = '計算中...';
 
-    // ローディング表示を開始
-    if (typeof showLoading === 'function') {
-        showLoading('自動生産計画を生成中...');
-    }
-
     // 対象年月を取得
     const targetMonthInput = document.getElementById('target-month');
     const selectedMonth = targetMonthInput.value;
 
     if (!selectedMonth) {
-        alert('対象月を選択してください');
+        showToast('error', '対象月を選択してください');
         autoBtn.disabled = false;
         autoBtn.textContent = '自動';
-        if (typeof hideLoading === 'function') {
-            hideLoading();
-        }
         return;
+    }
+
+    // ローディング表示を開始
+    if (typeof showLoading === 'function') {
+        showLoading();
     }
 
     const [year, month] = selectedMonth.split('-');
@@ -3367,7 +3366,7 @@ function autoProductionPlan() {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || getCookie('csrftoken');
 
     if (!csrfToken) {
-        alert('CSRFトークンが取得できませんでした。ページをリロードしてください。');
+        showToast('error', 'CSRFトークンが取得できませんでした。ページをリロードしてください。');
         autoBtn.disabled = false;
         autoBtn.textContent = '自動';
         if (typeof hideLoading === 'function') {
@@ -3392,32 +3391,51 @@ function autoProductionPlan() {
         })
     })
         .then(response => response.json())
-        .then(data => {
+        .then(async data => {
             if (data.status === 'success') {
                 // 使用されなかった金型データをグローバル変数に保存
                 window.autoGeneratedUnusedMolds = data.unused_molds || [];
 
-                // 生産計画を画面に反映
-                applyAutoProductionPlan(data.data);
-                alert('自動生産計画を適用しました。保存ボタンを押してください。');
+                // ローディング表示を終了
+                if (typeof hideLoading === 'function') {
+                    hideLoading();
+                }
+
+                // トーストを表示
+                showToast('success', '自動生産計画を適用しました。保存ボタンを押してください。');
+
+                // ブラウザにレンダリング時間を与えてから重い処理を実行
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                await new Promise(resolve => requestAnimationFrame(resolve));
+
+                // 生産計画を画面に非同期で反映
+                await applyAutoProductionPlan(data.data);
             } else {
-                alert('自動生産計画の生成に失敗しました: ' + (data.message || ''));
+                if (typeof hideLoading === 'function') {
+                    hideLoading();
+                }
+                showToast('error', '自動生産計画の生成に失敗しました: ' + (data.message || ''));
             }
         })
         .catch(error => {
-            alert('自動生産計画の生成に失敗しました: ' + error.message);
+            if (typeof hideLoading === 'function') {
+                hideLoading();
+            }
+            showToast('error', '自動生産計画の生成に失敗しました: ' + error.message);
         })
         .finally(() => {
             autoBtn.disabled = false;
             autoBtn.textContent = '自動';
-            // ローディング表示を終了
-            if (typeof hideLoading === 'function') {
-                hideLoading();
-            }
         });
 }
 
-function applyAutoProductionPlan(planData) {
+async function applyAutoProductionPlan(planData) {
+    // テーブルを一時的に非表示にしてReflow/Repaintを抑制
+    const table = document.querySelector('.production-plan-table');
+    if (table) {
+        table.style.display = 'none';
+    }
+
     // 自動計算の結果を適用する際、前月データは使用しないためクリア
     // （自動計算アルゴリズムが独自にdetached_moldsを管理するため）
     prevMonthMoldsOriginal = [];
@@ -3505,6 +3523,9 @@ function applyAutoProductionPlan(planData) {
         }
     });
 
+    // ブラウザにレンダリング時間を与える
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
     // 全ての金型カウントと引き継ぎ情報を再計算
     const dateCount = domConstantCache.dateCount;
     const totalMachines = domConstantCache.totalMachines;
@@ -3533,6 +3554,11 @@ function applyAutoProductionPlan(planData) {
 
     // 引き継ぎの矢印を表示
     drawInheritanceArrows();
+
+    // テーブルを再表示
+    if (table) {
+        table.style.display = '';
+    }
 }
 
 // ========================================
@@ -3929,7 +3955,9 @@ function displayReusableMolds() {
 // ========================================
 // 初期化
 // ========================================
-function initialize() {
+async function initialize() {
+    // ページ読み込み時は既にloading.jsでローディングが表示されている
+
     const targetMonthInput = document.getElementById('target-month');
     const lineSelect = document.getElementById('line-select');
     const saveBtn = document.getElementById('save-btn');
@@ -3972,25 +4000,34 @@ function initialize() {
     // ========================================
     // ステップ5: 初期計算（非同期で段階的に実行）
     // ========================================
-    performInitialCalculations();
+    await performInitialCalculations();
 
     // ========================================
     // ステップ6: 重い処理を遅延実行（ページ応答性を向上）
     // ========================================
-    setTimeout(() => {
-        updateWorkingDayStatus(false);   // 稼働日状態を初期化（再計算なし）
-        applyItemChangeHighlights();     // 型替えハイライトと残業制御を適用
-        drawInheritanceArrows();         // 金型引き継ぎの矢印を表示
+    await new Promise(resolve => {
+        setTimeout(() => {
+            updateWorkingDayStatus(false);   // 稼働日状態を初期化（再計算なし）
+            applyItemChangeHighlights();     // 型替えハイライトと残業制御を適用
+            drawInheritanceArrows();         // 金型引き継ぎの矢印を表示
 
-        // ========================================
-        // ステップ7: ページ初期化完了
-        // ========================================
-        // すべての初期化が完了したら、テーブルを表示
-        if (scheduleTable) {
-            scheduleTable.classList.remove('table-initializing');
-            scheduleTable.classList.add('table-ready');
-        }
-    }, 0);
+            // ========================================
+            // ステップ7: ページ初期化完了
+            // ========================================
+            // すべての初期化が完了したら、テーブルを表示
+            if (scheduleTable) {
+                scheduleTable.classList.remove('table-initializing');
+                scheduleTable.classList.add('table-ready');
+            }
+
+            resolve();
+        }, 0);
+    });
+
+    // ローディング非表示
+    if (typeof hideLoading === 'function') {
+        hideLoading();
+    }
 
     // ウィンドウリサイズ時・スクロール時に矢印を再描画
     const debouncedRedrawArrows = debounce(() => {
@@ -4019,7 +4056,7 @@ function initialize() {
         const selectedMonth = targetMonthInput.value;
 
         if (!selectedLine || !selectedMonth) {
-            alert('ラインと対象月を選択してください');
+            showToast('error', 'ラインと対象月を選択してください');
             return;
         }
 

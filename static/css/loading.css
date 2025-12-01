@@ -54,7 +54,7 @@
     100% { transform: rotate(360deg); }
 }
 
-/* ローディングテキスト（波打つドットアニメーション） */
+/* ローディングテキスト（各文字が波打つアニメーション） */
 .loading-text {
     font-size: 18px;
     color: #333;
@@ -63,43 +63,21 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
 }
 
-.loading-dots {
-    display: inline-flex;
-    gap: 4px;
-    margin-left: 4px;
-}
-
-.loading-dots span {
-    width: 8px;
-    height: 8px;
-    background-color: #3498db;
-    border-radius: 50%;
+/* 各文字のspan要素に波打つアニメーションを適用 */
+.loading-text span {
     display: inline-block;
     animation: wave 1.4s ease-in-out infinite;
-}
-
-.loading-dots span:nth-child(1) {
-    animation-delay: 0s;
-}
-
-.loading-dots span:nth-child(2) {
-    animation-delay: 0.2s;
-}
-
-.loading-dots span:nth-child(3) {
-    animation-delay: 0.4s;
 }
 
 @keyframes wave {
     0%, 60%, 100% {
         transform: translateY(0);
-        opacity: 0.6;
+        opacity: 0.7;
     }
     30% {
-        transform: translateY(-12px);
+        transform: translateY(-8px);
         opacity: 1;
     }
 }
@@ -126,6 +104,11 @@
     font-size: 20px;
     color: #2c3e50;
     margin-top: 10px;
+}
+
+.table-loading-placeholder .loading-text span {
+    display: inline-block;
+    animation: wave 1.4s ease-in-out infinite;
 }
 
 /* インラインローディング（テーブル内などで使用） */

@@ -13,43 +13,69 @@
 (function() {
     'use strict';
 
-    // ローディングオーバーレイのHTML（波打つドットアニメーション付き）
+    // 定数：Loading...の波打つHTMLテキスト（キャッシュして再利用）
+    const LOADING_TEXT_HTML = (function() {
+        const text = 'Loading...';
+        return text.split('').map((char, index) =>
+            `<span style="animation-delay: ${index * 0.1}s">${char === ' ' ? '&nbsp;' : char}</span>`
+        ).join('');
+    })();
+
+    // ローディングオーバーレイのHTML（初期状態でvisibleクラス付き）
     const loadingHTML = `
-        <div id="loadingOverlay" class="loading-overlay">
+        <div id="loadingOverlay" class="loading-overlay visible">
             <div class="loading-container">
                 <div class="loading-spinner"></div>
-                <div class="loading-text">
-                    <span id="loadingText">読み込み中</span>
-                    <div class="loading-dots">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                    </div>
+                <div class="loading-text" id="loadingText">
+                    ${LOADING_TEXT_HTML}
                 </div>
             </div>
         </div>
     `;
 
-    // DOMContentLoadedでローディングUIを初期化
+    // 共通：loadingTextにHTMLを挿入するヘルパー関数
+    function setLoadingText(element) {
+        if (element) {
+            element.innerHTML = LOADING_TEXT_HTML;
+        }
+    }
+
+    // スクリプト読み込み時に即座にローディングを初期化
+    (function initializeLoading() {
+        // 既存のローディングテキスト要素を検索してテキストを挿入
+        const loadingText = document.getElementById('loadingText');
+        if (loadingText) {
+            setLoadingText(loadingText);
+        }
+    })();
+
+    // DOMContentLoadedで再度チェック（HTMLに書かれていない場合の保険）
     document.addEventListener('DOMContentLoaded', function() {
-        // ローディングオーバーレイをbodyに追加
+        // オーバーレイが存在しない場合のみ作成
         if (!document.getElementById('loadingOverlay')) {
-            document.body.insertAdjacentHTML('beforeend', loadingHTML);
+            document.body.insertAdjacentHTML('afterbegin', loadingHTML);
+        } else {
+            // 存在するがテキストが空の場合は挿入
+            const loadingText = document.getElementById('loadingText');
+            if (loadingText && !loadingText.innerHTML.trim()) {
+                setLoadingText(loadingText);
+            }
         }
     });
 
     /**
      * ローディング表示を開始
-     * @param {string} message - 表示するメッセージ（デフォルト: "読み込み中..."）
+     * @param {string} message - 廃止：常に"Loading..."を表示
      */
-    window.showLoading = function(message = '読み込み中...') {
-        const overlay = document.getElementById('loadingOverlay');
-        const text = document.getElementById('loadingText');
+    window.showLoading = function(message) {
+        let overlay = document.getElementById('loadingOverlay');
 
-        if (overlay) {
-            if (text) {
-                text.textContent = message;
-            }
+        // オーバーレイが存在しない場合は作成（通常は既に存在する）
+        if (!overlay) {
+            document.body.insertAdjacentHTML('afterbegin', loadingHTML);
+            overlay = document.getElementById('loadingOverlay');
+        } else {
+            // 既に存在する場合は単にvisibleクラスを追加
             // 少し遅延させてからvisibleクラスを追加（CSSトランジションのため）
             setTimeout(() => {
                 overlay.classList.add('visible');
@@ -106,9 +132,9 @@
     /**
      * テーブルをローディングプレースホルダーに置き換える
      * @param {HTMLElement} tableContainer - テーブルコンテナ要素
-     * @param {string} message - 表示するメッセージ（デフォルト: "データを読み込んでいます"）
+     * @param {string} message - 廃止：常に"Loading..."を表示
      */
-    window.showTableLoading = function(tableContainer, message = 'データを読み込んでいます') {
+    window.showTableLoading = function(tableContainer, message) {
         if (!tableContainer) return;
 
         // 元のコンテンツを保存
@@ -116,17 +142,12 @@
             tableContainer.setAttribute('data-original-table', tableContainer.innerHTML);
         }
 
-        // ローディングプレースホルダーを表示
+        // ローディングプレースホルダーを表示（常に"Loading..."）
         tableContainer.innerHTML = `
             <div class="table-loading-placeholder">
                 <div class="loading-spinner"></div>
                 <div class="loading-text">
-                    <span>${message}</span>
-                    <div class="loading-dots">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                    </div>
+                    ${LOADING_TEXT_HTML}
                 </div>
             </div>
         `;
