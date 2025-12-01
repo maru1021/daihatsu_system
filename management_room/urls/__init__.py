@@ -9,9 +9,11 @@ urlpatterns = [
     path('assembly-item-master/', include('management_room.urls.master.assembly_item')),
     path('machining-item-master/', include('management_room.urls.master.machining_item')),
     path('casting-item-master/', include('management_room.urls.master.casting_item')),
+    path('cvt-item-master/', include('management_room.urls.master.cvt_item')),
     path('assembly-item-machining-item-map/', include('management_room.urls.master.assembly_item_machining_item_map')),
     path('machining_item_casting_item_map/', include('management_room.urls.master.machining_item_casting_item_map')),
     path('casting-item-machine-map/', include('management_room.urls.master.casting_item_machine_map')),
+    path('cvt-item-machine-map/', include('management_room.urls.master.cvt_item_machine_map')),
     path('casting-item-prohibited-pattern/', include('management_room.urls.master.casting_item_prohibited_pattern')),
 
     path('production-plan/', include('management_room.urls.production_plan')),

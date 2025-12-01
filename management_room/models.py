@@ -172,6 +172,26 @@ class CastingItem(MasterMethodMixin, models.Model):
     def __str__(self):
         return f"{self.line.name} - {self.name}"
 
+class CVTItem(MasterMethodMixin, models.Model):
+    line = models.ForeignKey('manufacturing.CVTLine', on_delete=models.CASCADE, verbose_name="CVTライン", null=True, blank=True, db_index=True)
+    name = models.CharField(verbose_name="品番", max_length=100, null=True, blank=True)
+    order = models.IntegerField(verbose_name="表示順", null=True, blank=True, default=0)
+    optimal_inventory = models.IntegerField(verbose_name="適正在庫数", null=True, blank=True, default=0)
+    active = models.BooleanField(verbose_name="有効", default=True)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+    molten_metal_usage = models.FloatField(verbose_name="溶湯使用量", null=True, blank=True, default=0)
+
+    class Meta:
+        verbose_name = "CVT品番"
+        verbose_name_plural = "CVT品番"
+        ordering = ['-active', 'line', 'order']
+        indexes = [
+            models.Index(fields=['line', 'active', 'name']),
+        ]
+
+    def __str__(self):
+        return f"{self.line.name} - {self.name}"
+
 
 class CastingItemProhibitedPattern(models.Model):
     line = models.ForeignKey('manufacturing.CastingLine', on_delete=models.CASCADE, verbose_name="鋳造ライン", null=True, blank=True, db_index=True)
@@ -205,6 +225,30 @@ class CastingItemMachineMap(MasterMethodMixin, models.Model):
     class Meta:
         verbose_name = "鋳造品番-設備紐づけ"
         verbose_name_plural = "鋳造品番-設備紐づけ"
+        ordering = ['-active', 'line__order', 'machine__order', 'casting_item__order']
+        indexes = [
+            models.Index(fields=['line', 'machine', 'casting_item', 'active']),
+        ]
+
+    def __str__(self):
+        line_name = self.line.name if self.line else ''
+        machine_name = self.machine.name if self.machine else ''
+        item_name = self.casting_item.name if self.casting_item else ''
+        return f"{line_name} - {machine_name} - {item_name}"
+
+
+class CVTItemMachineMap(MasterMethodMixin, models.Model):
+    line = models.ForeignKey('manufacturing.CVTLine', on_delete=models.CASCADE, verbose_name="CVTライン", null=True, blank=True, db_index=True)
+    machine = models.ForeignKey('manufacturing.CVTMachine', on_delete=models.CASCADE, verbose_name="CVT鋳造機", null=True, blank=True, db_index=True)
+    casting_item = models.ForeignKey(CVTItem, on_delete=models.CASCADE, verbose_name="CVT品番", null=True, blank=True, db_index=True)
+    tact = models.FloatField(verbose_name="タクト", null=True, blank=True, default=0)
+    yield_rate = models.FloatField(verbose_name="良品率", null=True, blank=True, default=0)
+    active = models.BooleanField(verbose_name="有効", default=True)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "CVT品番-設備紐づけ"
+        verbose_name_plural = "CVT品番-設備紐づけ"
         ordering = ['-active', 'line__order', 'machine__order', 'casting_item__order']
         indexes = [
             models.Index(fields=['line', 'machine', 'casting_item', 'active']),
@@ -263,6 +307,24 @@ class MonthlyAssemblyProductionPlan(models.Model):
     class Meta:
         verbose_name = "月別組付生産計画"
         verbose_name_plural = "月別組付生産計画"
+        ordering = ['-month', 'line']
+        indexes = [
+            models.Index(fields=['line', 'month']),
+            models.Index(fields=['line', 'month', 'production_item']),
+        ]
+
+    def __str__(self):
+        return f"{self.month} - {self.line} - {self.production_item.name}"
+
+class MonthlyCVTProductionPlan(models.Model):
+    month = models.DateField(verbose_name="月", null=True, blank=True, db_index=True)
+    line = models.ForeignKey('manufacturing.CVTLine', on_delete=models.CASCADE, verbose_name="CVTライン", null=True, blank=True, db_index=True)
+    production_item = models.ForeignKey(CVTItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
+    quantity = models.IntegerField(verbose_name="数量", null=True, blank=True, default=0)
+
+    class Meta:
+        verbose_name = "月別CVT生産計画"
+        verbose_name_plural = "月別CVT生産計画"
         ordering = ['-month', 'line']
         indexes = [
             models.Index(fields=['line', 'month']),

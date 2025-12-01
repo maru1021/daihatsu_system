@@ -10,8 +10,10 @@ urlpatterns = [
     path('assembly-line-master/', include('manufacturing.urls.master.assembly_line')),
     path('machining-line-master/', include('manufacturing.urls.master.machining_line')),
     path('casting-line-master/', include('manufacturing.urls.master.casting_line')),
+    path('cvt-line-master/', include('manufacturing.urls.master.cvt_line')),
     path('machining-machine-master/', include('manufacturing.urls.master.machining_machine')),
     path('casting-machine-master/', include('manufacturing.urls.master.casting_machine')),
+    path('cvt-machine-master/', include('manufacturing.urls.master.cvt_machine')),
     path('machining-tool-no-master/', include('manufacturing.urls.master.machining_tool_no')),
 
     # API

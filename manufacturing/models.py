@@ -49,6 +49,13 @@ class CastingLine(Line):
         verbose_name = '鋳造ライン'
         verbose_name_plural = '鋳造ライン'
 
+class CVTLine(Line):
+    changeover_time = models.IntegerField('段取時間', null=True, blank=True, default=0)
+
+    class Meta:
+        verbose_name = 'CVTライン'
+        verbose_name_plural = 'CVTライン'
+
 class Machine(MasterMethodMixin, models.Model):
     id = models.AutoField('ID', primary_key=True)
     name = models.CharField('設備名', max_length=100, db_index=True)
@@ -101,6 +108,11 @@ class CastingMachine(Machine):
     class Meta:
         verbose_name = '鋳造機'
         verbose_name_plural = '鋳造機'
+
+class CVTMachine(Machine):
+    class Meta:
+        verbose_name = '鋳造機(CVT)'
+        verbose_name_plural = '鋳造機(CVT)'
 
 
 class MachiningToolNo(MasterMethodMixin, models.Model):

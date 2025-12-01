@@ -1,0 +1,30 @@
+<div class="mb-3">
+  <label for="id_line_id" class="form-label line-select">ライン<span class="text-danger">*</span></label>
+  <select class="form-control select2" id="id_line_id" name="line_id">
+    {% for line in lines %}
+    <option value="{{ line.id }}">{{ line.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label for="id_name" class="form-label">品番<span class="text-danger">*</span></label>
+  <input type="text" class="form-control" id="id_name" name="name">
+</div>
+<div class="mb-3">
+  <label for="id_optimal_inventory" class="form-label">適正在庫<span class="text-danger">*</span></label>
+  <input type="number" class="form-control" id="id_optimal_inventory" name="optimal_inventory">
+</div>
+<div class="mb-3">
+  <label for="id_molten_metal_usage" class="form-label">溶湯使用量<span class="text-danger">*</span></label>
+  <input type="number" class="form-control" id="id_molten_metal_usage" name="molten_metal_usage" step="0.01">
+</div>
+<div class="mb-3">
+  <label for="id_order" class="form-label">並び順<span class="text-danger">*</span></label>
+  <input type="number" class="form-control" id="id_order" name="order">
+</div>
+<div class="mb-3">
+  <div class="form-check">
+      <input type="checkbox" class="form-check-input" id="id_active" name="active">
+      <label class="form-check-label" for="id_active">有効</label>
+  </div>
+</div>
