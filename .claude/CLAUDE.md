@@ -1,126 +1,28 @@
 use context7
 
-# 鋳造生産計画の金型管理システム
+# システム仕様
 
-## 金型管理の基本ルール
+## ドキュメント
 
-1. **型数の範囲**: 1→2→3→4→5→6のサイクル（型数0は一時的な内部状態）
-2. **6直完了後**: 金型メンテナンス後、新しい金型を型数=1で開始
-3. **途中で品番変更**: 使いかけの金型（型数1～5）は記録し、次に同じ品番を生産する時に引き継ぐ
-4. **金型カウントの保存・引継ぎ**:
-   - 保存: この直で使用後の型数（shift_count + 1）を保存
-   - 引継: 保存された型数をそのまま使用（既に+1済み）
+- [quick_reference.md](quick_reference.md): 頻出パターン
 
-## UsableMold（使用可能金型）の管理
+### 生産計画
+- **共通**: [management_room/production_plan/common/](management_room/production_plan/common/)
+  - [stock_management.md](management_room/production_plan/common/stock_management.md): 在庫管理
+  - [performance.md](management_room/production_plan/common/performance.md): 最適化
 
-### end_of_monthフラグの意味
+- **鋳造**: [management_room/production_plan/casting/](management_room/production_plan/casting/)
+  - [mold_management.md](management_room/production_plan/casting/mold_management.md): 金型管理
+  - [algorithm.md](management_room/production_plan/casting/algorithm.md): アルゴリズム
+  - [frontend.md](management_room/production_plan/casting/frontend.md): JS
 
-| フラグ | 意味 | 引き継ぎルール | 表示 |
-|--------|------|---------------|------|
-| `end_of_month=true` | 月末時点で設備に取り付いている金型 | 同じ設備でのみ引き継ぎ可能 | 再利用可能金型リストに表示されない |
-| `end_of_month=false` | 月内で途中で外された金型 | どの設備でも引き継ぎ可能 | 再利用可能金型リストに表示される |
+- **加工**: [management_room/production_plan/machining/](management_room/production_plan/machining/)
+  - [overview.md](management_room/production_plan/machining/overview.md): 概要・モデル
+  - [backend.md](management_room/production_plan/machining/backend.md): Python
+  - [frontend.md](management_room/production_plan/machining/frontend.md): JS
 
-## バックエンド（自動生産計画）
+## 規約
 
-### 目標優先順位
-1. **在庫を0以下にしない**（絶対条件）
-2. **矢印を最小化**（6直連続生産を優先し、型替え回数を削減）
-3. **全品番の残個数を均等化**（月末予測在庫の偏りを最小化）
-4. **適正在庫周辺を保つ**
-5. **残業時間を最小化**
-
-### 重要な修正履歴（2025-11-30）
-
-#### end_of_month=False金型の型替えタイミング修正
-
-**問題**: 前月から継承された金型が、6直サイクルを正しく計算せず、型替えタイミングがずれていた
-- 例: VET2が型数1で取り外され、翌月に型数2から開始すべきところ、型替えが大幅に遅れていた
-
-**修正内容**:
-1. **前月金型の読み込み時に+1** (`auto_casting_production_plan.py` 207行目)
-   ```python
-   # DBのused_countは取り外し時の値、次回使用時は+1
-   prev_detached_molds[item_name].append(mold.used_count + 1)
-   ```
-
-2. **残り直数の計算** (979行目)
-   ```python
-   # 型数Nから開始 → (6 - N + 1)直分のみ生産
-   # 例: 型数2から開始 → 5直分生産（型数2→3→4→5→6）
-   remaining_shifts_to_six = MOLD_CHANGE_THRESHOLD - mold_count + 1
-   ```
-
-3. **次の型替えタイミングの更新** (794行目)
-   ```python
-   # 前月から継続した設備の型替えタイミングを正しく設定
-   next_changeover_timing[machine.id] = timing
-   ```
-
-### アルゴリズムの流れ
-
-#### 1. 初期化フェーズ
-- **前月金型の2種類を処理**:
-  - `end_of_month=true`: `machine_current_item`と`machine_shift_count`に設定
-  - `end_of_month=false`: `prev_detached_molds`に（used_count+1）で追加
-- 次の型替えタイミング（`next_changeover_timing`）を計算
-
-#### 2. 型替えイベント駆動メインループ
-- 最も早い型替えタイミングを持つ設備を特定
-- 型替えタイミングまでの在庫・出荷処理を実行
-- 型替えタイミングで品番を決定（`find_most_urgent_item`）
-- 型数に応じた直数分の計画を立てる
-
-#### 3. 品番選定（find_most_urgent_item）
-**優先順位**:
-1. 6直分すべての直で禁止パターンに違反しない品番のみを候補とする
-2. 将来在庫がマイナスになる品番（最も早く在庫切れする順）
-3. 在庫切れがない場合は、月末在庫が最小になる品番
-
-**制約チェック**:
-- `can_assign_item`: 1つの直での制約（同一品番上限2台、品番ペア制約）
-- `can_assign_item_for_6_shifts`: 6直分すべての直で制約違反がないかチェック
-
-**禁止パターン**: `pair_limit`以上を禁止
-- 例: VE7とVET2で`prohibited_patterns['VE7_VET2'] = 3`の場合
-  - VE7=1台 + VET2=1台 = 2台合計: OK
-  - VE7=2台 + VET2=1台 = 3台合計: NG
-
-#### 4. 型替え時間の設定
-**重要**: 型替え時間は常に**前の品番の最終直**に設定する
-
-- **6直目**: 常に`CHANGEOVER_TIME`を設定（金型メンテナンス）
-- **品番変更**: 前の品番の最終直に型替え時間を追加
-
-## フロントエンド（金型引き継ぎ）
-
-### 引き継ぎ情報の双方向管理
-- **引き継ぎ元**: `data-mold-inheritance-target`属性
-- **引き継ぎ先**: `data-mold-inheritance`属性
-- **矢印表示**: 他設備からの引き継ぎのみ表示
-
-### 品番変更時の引き継ぎクリア
-品番変更時には、引き継ぎ情報を**双方向**かつ**全体**でクリア：
-1. **前方向クリア**: 引き継ぎ元として参照している先の連鎖を再帰的にクリア
-2. **後方向クリア**: 引き継ぎ元の`data-mold-inheritance-target`をクリア
-3. **全体クリア**: 全設備の参照をチェックし、品番不一致の参照を削除
-
-### 前月金型の再利用管理
-**重要**: `prevMonthMoldsStatus`の`used`フラグが真実の源泉
-- 再利用リストから引き継いだ時に`used=true`にマーク
-- `updateReusableMolds()`は`used=false`の金型のみをリストに追加
-- 再計算時は既存の表示値を保持
-
-## 注意事項
-
-### バックエンド
-- 型数は必ず1～6の範囲（0は一時状態）
-- `detached_molds`には型数1～5のみ記録（0と6は記録しない）
-- 金型は全設備で共有（設備IDは含めない）
-- 6直分の計画を一度に立てる（型替えイベント駆動）
-- 生産数は不良品も含むが、在庫に加算するのは良品のみ（yield_rate考慮）
-
-### フロントエンド
-- 引き継ぎ元には必ず`data-mold-inheritance-target`を設定
-- 引き継ぎ先には必ず`data-mold-inheritance`を設定
-- 品番変更時は3方向でクリアが必要
-- 同一設備での継続優先時は、`removeAttribute`→新規設定→再計算の順序を厳守
+- Python: PEP 8、`snake_case`、`PascalCase`クラス
+- JavaScript: ES6+、`camelCase`、`UPPER_SNAKE_CASE`定数
+- DB: 単数形、`snake_case`、`db_index=True`

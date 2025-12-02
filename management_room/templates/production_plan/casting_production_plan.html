@@ -233,8 +233,7 @@ td.weekend .overtime-input {
     {% with machine_data=date_data.shifts.day.machines|get_item:machine.name %}
     <td{% if date_data.is_weekend %} class="weekend"{% endif %} data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">
         {% if machine_data.items %}
-        <div class="select-container" draggable="true">
-            <span class="drag-handle">⋮⋮</span>
+        <div class="select-container">
             <select class="vehicle-select" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-vehicle="{{ machine_data.selected_item }}">
                 <option value="">-</option>
                 {% for item in machine_data.items %}
@@ -261,8 +260,7 @@ td.weekend .overtime-input {
     {% with machine_data=date_data.shifts.night.machines|get_item:machine.name %}
     <td{% if date_data.is_weekend %} class="weekend"{% endif %} data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}">
         {% if not date_data.is_weekend and machine_data.items %}
-        <div class="select-container" draggable="true">
-            <span class="drag-handle">⋮⋮</span>
+        <div class="select-container">
             <select class="vehicle-select" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-vehicle="{{ machine_data.selected_item }}">
                 <option value="">-</option>
                 {% for item in machine_data.items %}

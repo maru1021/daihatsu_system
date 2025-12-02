@@ -62,6 +62,36 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             if plan.date and plan.regular_working_hours:
                 regular_working_hours_dict[plan.date] = True
 
+        # 鋳造品番と加工品番の紐づけを取得（土日出庫数判定に必要）
+        casting_to_machining_map = {}
+        item_maps = MachiningItemCastingItemMap.objects.filter(
+            casting_line_name=line.name,
+            active=True
+        )
+        for item_map in item_maps:
+            casting_key = item_map.casting_item_name
+            if casting_key not in casting_to_machining_map:
+                casting_to_machining_map[casting_key] = []
+            casting_to_machining_map[casting_key].append({
+                'machining_line_name': item_map.machining_line_name,
+                'machining_item_name': item_map.machining_item_name
+            })
+
+        # 加工生産計画データを取得（出庫数のデフォルト値として使用）
+        machining_plans = DailyMachiningProductionPlan.objects.filter(
+            date__gte=start_date,
+            date__lte=end_date
+        ).select_related('production_item', 'line')
+
+        # 加工生産計画を辞書化: {(machining_line_name, machining_item_name, date, shift): [plans]}
+        machining_plans_dict = {}
+        for plan in machining_plans:
+            if plan.production_item and plan.line:
+                key = (plan.line.name, plan.production_item.name, plan.date, plan.shift)
+                if key not in machining_plans_dict:
+                    machining_plans_dict[key] = []
+                machining_plans_dict[key].append(plan)
+
         # 土日の出庫数データを取得（DailyCastingProductionPlanから）
         # 出庫数が0より大きい日付を抽出
         weekend_delivery_dates = set()
@@ -75,6 +105,24 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
         for plan in weekend_stock_plans:
             if plan.date and plan.date.weekday() >= 5 and plan.holding_out_count and plan.holding_out_count > 0:
                 weekend_delivery_dates.add(plan.date)
+
+        # 加工生産計画からも土日の出庫数をチェック
+        for item_name in item_names:
+            machining_items = casting_to_machining_map.get(item_name, [])
+            for machining_item_info in machining_items:
+                for current_date in date_list:
+                    if current_date.weekday() >= 5:  # 土日のみ
+                        machining_key = (
+                            machining_item_info['machining_line_name'],
+                            machining_item_info['machining_item_name'],
+                            current_date,
+                            'day'
+                        )
+                        machining_plans_list = machining_plans_dict.get(machining_key, [])
+                        for machining_plan in machining_plans_list:
+                            if machining_plan.production_quantity and machining_plan.production_quantity > 0:
+                                weekend_delivery_dates.add(current_date)
+                                break
 
         # 日付リストを生成
         dates = []
@@ -179,37 +227,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             if plan.production_item:
                 key = (plan.production_item.name, plan.date, plan.shift)
                 stock_plans_dict[key] = plan
-
-        # 鋳造品番と加工品番の紐づけを取得
-        casting_to_machining_map = {}
-        item_maps = MachiningItemCastingItemMap.objects.filter(
-            casting_line_name=line.name,
-            active=True
-        )
-        for item_map in item_maps:
-            casting_key = item_map.casting_item_name
-            if casting_key not in casting_to_machining_map:
-                casting_to_machining_map[casting_key] = []
-            casting_to_machining_map[casting_key].append({
-                'machining_line_name': item_map.machining_line_name,
-                'machining_item_name': item_map.machining_item_name
-            })
-
-        # 加工生産計画データを取得（出庫数のデフォルト値として使用）
-        machining_plans = DailyMachiningProductionPlan.objects.filter(
-            date__gte=start_date,
-            date__lte=end_date
-        ).select_related('production_item', 'line')
-
-        # 加工生産計画を辞書化: {(machining_line_name, machining_item_name, date, shift): [plans]}
-        # 同じキーで複数のプランが存在する可能性があるため、リストで保持
-        machining_plans_dict = {}
-        for plan in machining_plans:
-            if plan.production_item and plan.line:
-                key = (plan.line.name, plan.production_item.name, plan.date, plan.shift)
-                if key not in machining_plans_dict:
-                    machining_plans_dict[key] = []
-                machining_plans_dict[key].append(plan)
 
         # 生産計画データを辞書化（重複がある場合はIDが最大のものを使用）
         plans_dict = {}

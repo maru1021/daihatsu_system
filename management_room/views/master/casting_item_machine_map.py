@@ -40,7 +40,7 @@ class CastingItemMachineMapView(ManagementRoomPermissionMixin, BasicTableView):
                     'machine_id': data.machine.id if data.machine else '',
                     'casting_item_id': data.casting_item.id if data.casting_item else '',
                     'tact': data.tact if data.tact else 0,
-                    'yield_rate': data.yield_rate if data.yield_rate else 0,
+                    'yield_rate': data.yield_rate * 100 if data.yield_rate else 0,
                     'active': data.active,
                     'last_updated_user': data.last_updated_user,
                 },

@@ -34,7 +34,7 @@
         <i class="fas fa-database"></i>
         完成品番別生産台数入力
       </a>
-            <a
+      <a
         class="nav-link {% if 'management_room:assembly_production_plan' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:assembly_production_plan' %}"
       >
@@ -63,13 +63,20 @@
         鋳造生産計画
       </a>
       <a
+        class="nav-link {% if 'management_room:cvt_volume_input' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:cvt_volume_input' %}"
+      >
+        <i class="fas fa-database"></i>
+        CVT生産台数入力
+      </a>
+      <a
         class="nav-link {% if 'management_room:akashi_order_list' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:akashi_order_list' %}"
         hx-get="{% url 'management_room:akashi_order_list' %}"
         hx-target=".main-content"
         hx-push-url="true"
       >
-      <i class="fas fa-clipboard-list"></i>
+        <i class="fas fa-clipboard-list"></i>
         明石発注データリスト
       </a>
       <a

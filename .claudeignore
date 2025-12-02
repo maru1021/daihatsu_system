@@ -1,0 +1,48 @@
+# Python
+*.pyc
+*.pyo
+__pycache__/
+*.egg-info/
+dist/
+build/
+
+# Django
+*.sqlite3
+*.log
+db.sqlite3
+/media/
+/staticfiles/
+migrations/
+
+# 環境設定
+.env
+.venv
+venv/
+env/
+
+# IDEファイル
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 外部ライブラリ（変更しないファイル）
+node_modules/
+static/libs/
+static/admin/
+static/jquery/
+static/select2/
+
+# テスト・カバレッジ
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS生成ファイル
+.DS_Store
+Thumbs.db
+
+# バックアップ
+*.bak
+*.tmp
+*~
