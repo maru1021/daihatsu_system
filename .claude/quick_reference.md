@@ -27,14 +27,12 @@ if (!overtimeInput || overtimeInput.style.display === 'none') return true;
 ```
 
 ```python
-# 加工: 出庫数と在庫数の扱い
-# 出庫数: DBに保存せず、常に組付けから計算
-#   GET: _get_shipment_for_item() で組付け生産数→出庫数
-#   POST: shipment=None（保存しない）
-# 在庫数: DBから読み込まず、フロントエンドで計算
-#   GET: stock_map 使用せず
-#   POST: 計算値を保存（翌月の前月末在庫として使用）
+# 出庫数の扱い（上位工程からリアルタイム反映）
+# 鋳造: 出庫数 = 加工生産数の合計（holding_out_countフィールドは削除済み）
+# 加工: 出庫数 = 組付け生産数の合計（shipmentフィールドは使用しない）
+# 在庫数: フロントエンドで計算、DBに保存（翌月の前月末在庫として使用）
 
+# 加工の出庫数計算
 has_multiple_lines = len(lines) > 1
 
 # 1. 組付側出庫数を取得
@@ -52,9 +50,39 @@ if has_multiple_lines:
     allocate_flexible_items(flexible_items)
 
 # 3. 出庫数を計算（_get_shipment_for_item）
-# 4. 生産数・出庫数の初期値設定
+# 4. 生産数はDBから取得（データがない場合は0）、出庫数は常に計算
 # 5. 残業時間を計算
 ```
+
+```javascript
+// 鋳造: 中子計算（24の倍数に丸める）
+const coreCount = Math.round(productionValue / 24) * 24;
+// 例: 生産数50→中子48、生産数60→中子60
+
+// 鋳造: 生産台数は読み取り専用（HTML: readonly属性）
+<input type="number" class="production-input" readonly />
+```
+
+## Excel出力リファクタリング
+
+```python
+# 出庫数計算ロジックの共通化
+def _calculate_delivery_from_machining(self, item_name, date, shift, ...):
+    """加工生産計画から出庫数を計算（共通ヘルパー）"""
+    delivery = 0
+    for machining_item_info in casting_to_machining_map.get(item_name, []):
+        for machining_plan in machining_plans_dict.get(key, []):
+            delivery += machining_plan.production_quantity or 0
+    return delivery
+
+# 直別行書き込みの統合
+def _write_casting_delivery_shift_rows(self, ws, ..., shift, shift_label, is_first_shift):
+    """日勤・夜勤で共通のロジック（DRY原則）"""
+    # shift='day'/'night', shift_label='日勤'/'夜勤'
+    # is_first_shift=True: セクション名を出力
+```
+
+**メリット**: 重複コード削減（約80行→40行）、保守性向上、テスタビリティ向上
 
 ## エラー対処
 

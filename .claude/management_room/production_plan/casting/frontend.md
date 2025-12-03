@@ -40,4 +40,20 @@ updateReusableMolds();  // used=falseのみ表示
 
 必須: 引継元`data-mold-inheritance-target`、引継先`data-mold-inheritance`、品番変更時3方向クリア
 
+## 中子計算（24の倍数）
+
+```javascript
+// 生産数から中子を計算（24の倍数に丸める）
+const coreCount = Math.round(productionValue / 24) * 24;
+
+// 例:
+// 生産数 50 → 中子 48
+// 生産数 60 → 中子 60
+// 生産数 12 → 中子 12
+```
+
+**適用箇所**:
+- フロントエンド: `calculateMoltenMetalPotAndCore()` 関数
+- Excel出力: `_write_casting_core_section()` メソッド
+
 ref: `casting_production_plan.js`

@@ -101,6 +101,51 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
                 current_row += 1  # 1行空ける
             current_row = self._write_casting_table(ws, casting_line, month, date_list, current_row)
 
+    def _get_machining_assembly_data(self, line, item_names, date_list):
+        """加工-組付けマッピングと組付け生産計画を取得"""
+        from management_room.models import AssemblyItemMachiningItemMap
+
+        # マッピングを取得
+        machining_to_assembly_map = {}
+        items_obj = MachiningItem.objects.filter(line=line, name__in=item_names, active=True)
+        mappings = AssemblyItemMachiningItemMap.objects.filter(
+            machining_item__in=items_obj,
+            active=True
+        ).select_related('assembly_item', 'machining_item')
+
+        for mapping in mappings:
+            machining_name = mapping.machining_item.name
+            assembly_name = mapping.assembly_item.name
+            assembly_line_id = mapping.assembly_item.line_id if mapping.assembly_item.line else None
+            if machining_name not in machining_to_assembly_map:
+                machining_to_assembly_map[machining_name] = []
+            machining_to_assembly_map[machining_name].append({
+                'assembly_name': assembly_name,
+                'assembly_line_id': assembly_line_id
+            })
+
+        # 組付け生産計画を取得
+        assembly_item_info = [(info['assembly_name'], info['assembly_line_id'])
+                              for items in machining_to_assembly_map.values()
+                              for info in items]
+        assembly_item_names = list(set([name for name, _ in assembly_item_info]))
+
+        assembly_plans = DailyAssenblyProductionPlan.objects.filter(
+            date__gte=date_list[0],
+            date__lte=date_list[-1],
+            production_item__name__in=assembly_item_names
+        ).select_related('production_item', 'line')
+
+        assembly_plans_dict = {}
+        for plan in assembly_plans:
+            if plan.production_item and plan.line:
+                key = (plan.line.id, plan.production_item.name, plan.date, plan.shift)
+                if key not in assembly_plans_dict:
+                    assembly_plans_dict[key] = []
+                assembly_plans_dict[key].append(plan)
+
+        return machining_to_assembly_map, assembly_plans_dict
+
     def _write_machining_table(self, ws, line, month, date_list, start_row):
         """加工テーブルを書き込む（フロントエンドと同じ形式）"""
         current_row = start_row
@@ -116,6 +161,9 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
 
         if not item_names:
             return current_row
+
+        # 加工-組付けマッピングと組付け生産計画を取得
+        machining_to_assembly_map, assembly_plans_dict = self._get_machining_assembly_data(line, item_names, date_list)
 
         # 生産計画データを取得
         plans = DailyMachiningProductionPlan.objects.filter(
@@ -148,7 +196,10 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
         current_row = self._write_common_header(ws, date_list, month, plans_map, current_row)
 
         # 出庫数セクション
-        current_row = self._write_section_rows(ws, '出庫数', item_names, date_list, plans_map, 'shipment', current_row)
+        current_row = self._write_machining_shipment_section(
+            ws, item_names, date_list, current_row,
+            machining_to_assembly_map, assembly_plans_dict
+        )
 
         # 生産数セクション
         current_row = self._write_section_rows(ws, '生産数', item_names, date_list, plans_map, 'production_quantity', current_row)
@@ -178,6 +229,46 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
         if not item_names:
             return current_row
 
+        # 加工-組付けマッピングと組付け生産計画を取得（ライン未設定用）
+        from management_room.models import AssemblyItemMachiningItemMap
+        machining_to_assembly_map = {}
+        items_obj = MachiningItem.objects.filter(name__in=item_names, line__isnull=True, active=True)
+        mappings = AssemblyItemMachiningItemMap.objects.filter(
+            machining_item__in=items_obj,
+            active=True
+        ).select_related('assembly_item', 'machining_item')
+
+        for mapping in mappings:
+            machining_name = mapping.machining_item.name
+            assembly_name = mapping.assembly_item.name
+            assembly_line_id = mapping.assembly_item.line_id if mapping.assembly_item.line else None
+            if machining_name not in machining_to_assembly_map:
+                machining_to_assembly_map[machining_name] = []
+            machining_to_assembly_map[machining_name].append({
+                'assembly_name': assembly_name,
+                'assembly_line_id': assembly_line_id
+            })
+
+        # 組付け生産計画を取得
+        assembly_item_info = [(info['assembly_name'], info['assembly_line_id'])
+                              for items_list in machining_to_assembly_map.values()
+                              for info in items_list]
+        assembly_item_names = list(set([name for name, _ in assembly_item_info]))
+
+        assembly_plans = DailyAssenblyProductionPlan.objects.filter(
+            date__gte=date_list[0],
+            date__lte=date_list[-1],
+            production_item__name__in=assembly_item_names
+        ).select_related('production_item', 'line')
+
+        assembly_plans_dict = {}
+        for plan in assembly_plans:
+            if plan.production_item and plan.line:
+                key = (plan.line.id, plan.production_item.name, plan.date, plan.shift)
+                if key not in assembly_plans_dict:
+                    assembly_plans_dict[key] = []
+                assembly_plans_dict[key].append(plan)
+
         # データを取得
         plans = DailyMachiningProductionPlan.objects.filter(
             production_item__name__in=item_names,
@@ -195,8 +286,13 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
         # ヘッダー（共通メソッド使用）
         current_row = self._write_common_header(ws, date_list, month, plans_map, current_row)
 
-        # 出庫数・生産数
-        current_row = self._write_section_rows(ws, '出庫数', item_names, date_list, plans_map, 'shipment', current_row)
+        # 出庫数セクション
+        current_row = self._write_machining_shipment_section(
+            ws, item_names, date_list, current_row,
+            machining_to_assembly_map, assembly_plans_dict
+        )
+
+        # 生産数セクション
         current_row = self._write_section_rows(ws, '生産数', item_names, date_list, plans_map, 'production_quantity', current_row)
 
         return current_row
@@ -244,6 +340,42 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
 
         return current_row
 
+    def _get_casting_machining_data(self, line, date_list):
+        """鋳造-加工マッピングと加工生産計画を取得"""
+        from management_room.models import MachiningItemCastingItemMap
+
+        # マッピングを取得
+        casting_to_machining_map = {}
+        mappings = MachiningItemCastingItemMap.objects.filter(
+            casting_line_name=line.name,
+            active=True
+        )
+
+        for mapping in mappings:
+            casting_name = mapping.casting_item_name
+            if casting_name not in casting_to_machining_map:
+                casting_to_machining_map[casting_name] = []
+            casting_to_machining_map[casting_name].append({
+                'machining_line_name': mapping.machining_line_name,
+                'machining_item_name': mapping.machining_item_name
+            })
+
+        # 加工生産計画を取得
+        machining_plans = DailyMachiningProductionPlan.objects.filter(
+            date__gte=date_list[0],
+            date__lte=date_list[-1]
+        ).select_related('production_item', 'line')
+
+        machining_plans_dict = {}
+        for plan in machining_plans:
+            if plan.production_item and plan.line:
+                key = (plan.line.name, plan.production_item.name, plan.date, plan.shift)
+                if key not in machining_plans_dict:
+                    machining_plans_dict[key] = []
+                machining_plans_dict[key].append(plan)
+
+        return casting_to_machining_map, machining_plans_dict
+
     def _write_casting_table(self, ws, line, month, date_list, start_row):
         """鋳造テーブルを書き込む"""
         current_row = start_row
@@ -264,6 +396,9 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
 
         if not item_names or not machines:
             return current_row
+
+        # 鋳造-加工マッピングと加工生産計画を取得
+        casting_to_machining_map, machining_plans_dict = self._get_casting_machining_data(line, date_list)
 
         # データを取得
         machine_plans = DailyMachineCastingProductionPlan.objects.filter(
@@ -300,7 +435,10 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
                                                  label='設備', total_label1='日計/夜計', total_label2='合計')
 
         # 1. 出庫数セクション
-        current_row = self._write_casting_delivery_section(ws, item_names, date_list, delivery_map, current_row)
+        current_row = self._write_casting_delivery_section(
+            ws, item_names, date_list, delivery_map, current_row,
+            casting_to_machining_map, machining_plans_dict
+        )
 
         # 2. 生産台数セクション（品番ごと）
         current_row = self._write_casting_production_count_section(ws, item_names, date_list, plans_map, machines, current_row)
@@ -636,8 +774,26 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
         current_row += 1
         return current_row
 
-    def _write_casting_delivery_section(self, ws, item_names, date_list, delivery_map, start_row):
-        """鋳造の出庫数セクションを書き込む"""
+    def _calculate_shipment_from_assembly(self, item_name, date, shift, machining_to_assembly_map, assembly_plans_dict):
+        """組付け生産計画から出庫数を計算"""
+        shipment = 0
+        assembly_items = machining_to_assembly_map.get(item_name, [])
+        for assembly_item_info in assembly_items:
+            assembly_key = (
+                assembly_item_info['assembly_line_id'],
+                assembly_item_info['assembly_name'],
+                date,
+                shift
+            )
+            assembly_plans_list = assembly_plans_dict.get(assembly_key, [])
+            for assembly_plan in assembly_plans_list:
+                if assembly_plan.production_quantity:
+                    shipment += assembly_plan.production_quantity
+        return shipment
+
+    def _write_machining_shipment_section(self, ws, item_names, date_list, start_row,
+                                         machining_to_assembly_map, assembly_plans_dict):
+        """加工の出庫数セクションを書き込む"""
         current_row = start_row
 
         # 日勤
@@ -655,14 +811,13 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
 
             day_total = 0
             for col_idx, date in enumerate(date_list, start=4):
-                key = (date, 'day', item_name)
-                if key in delivery_map:
-                    value = delivery_map[key].holding_out_count
-                    if value is not None:
-                        ws.cell(current_row, col_idx, value)
-                        day_total += value
-                    else:
-                        ws.cell(current_row, col_idx, '')
+                shipment = self._calculate_shipment_from_assembly(
+                    item_name, date, 'day', machining_to_assembly_map, assembly_plans_dict
+                )
+
+                if shipment > 0:
+                    ws.cell(current_row, col_idx, shipment)
+                    day_total += shipment
                 else:
                     ws.cell(current_row, col_idx, '')
                 ws.cell(current_row, col_idx).alignment = Alignment(horizontal='right')
@@ -684,14 +839,13 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
 
             night_total = 0
             for col_idx, date in enumerate(date_list, start=4):
-                key = (date, 'night', item_name)
-                if key in delivery_map:
-                    value = delivery_map[key].holding_out_count
-                    if value is not None:
-                        ws.cell(current_row, col_idx, value)
-                        night_total += value
-                    else:
-                        ws.cell(current_row, col_idx, '')
+                shipment = self._calculate_shipment_from_assembly(
+                    item_name, date, 'night', machining_to_assembly_map, assembly_plans_dict
+                )
+
+                if shipment > 0:
+                    ws.cell(current_row, col_idx, shipment)
+                    night_total += shipment
                 else:
                     ws.cell(current_row, col_idx, '')
                 ws.cell(current_row, col_idx).alignment = Alignment(horizontal='right')
@@ -708,6 +862,90 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
             ws.cell(current_row, len(date_list) + 5).alignment = Alignment(horizontal='right')
 
             current_row += 1
+
+        return current_row
+
+    def _calculate_delivery_from_machining(self, item_name, date, shift, casting_to_machining_map, machining_plans_dict):
+        """加工生産計画から出庫数を計算"""
+        delivery = 0
+        machining_items = casting_to_machining_map.get(item_name, [])
+        for machining_item_info in machining_items:
+            machining_key = (
+                machining_item_info['machining_line_name'],
+                machining_item_info['machining_item_name'],
+                date,
+                shift
+            )
+            machining_plans_list = machining_plans_dict.get(machining_key, [])
+            for machining_plan in machining_plans_list:
+                if machining_plan.production_quantity:
+                    delivery += machining_plan.production_quantity
+        return delivery
+
+    def _write_casting_delivery_shift_rows(self, ws, item_names, date_list, shift, shift_label,
+                                           start_row, casting_to_machining_map, machining_plans_dict,
+                                           is_first_shift):
+        """鋳造出庫数の直別行を書き込む"""
+        current_row = start_row
+
+        for idx, item_name in enumerate(item_names):
+            if idx == 0 and is_first_shift:
+                ws.cell(current_row, 1, '出庫数')
+                ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row + len(item_names) * 2 - 1, end_column=1)
+                ws.cell(current_row, 1).alignment = Alignment(horizontal='center', vertical='center')
+
+            if idx == 0:
+                ws.cell(current_row, 2, shift_label)
+                ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row + len(item_names) - 1, end_column=2)
+                ws.cell(current_row, 2).alignment = Alignment(horizontal='center', vertical='center')
+
+            ws.cell(current_row, 3, item_name)
+
+            shift_total = 0
+            for col_idx, date in enumerate(date_list, start=4):
+                delivery = self._calculate_delivery_from_machining(
+                    item_name, date, shift, casting_to_machining_map, machining_plans_dict
+                )
+
+                if delivery > 0:
+                    ws.cell(current_row, col_idx, delivery)
+                    shift_total += delivery
+                else:
+                    ws.cell(current_row, col_idx, '')
+                ws.cell(current_row, col_idx).alignment = Alignment(horizontal='right')
+
+            # 直計
+            ws.cell(current_row, len(date_list) + 4, shift_total if shift_total > 0 else '')
+            ws.cell(current_row, len(date_list) + 4).alignment = Alignment(horizontal='right')
+
+            # 夜勤の場合は合計列も出力
+            if shift == 'night':
+                day_row = current_row - len(item_names)
+                day_total_value = ws.cell(day_row, len(date_list) + 4).value or 0
+                combined_total = (day_total_value if isinstance(day_total_value, (int, float)) else 0) + shift_total
+                ws.cell(current_row, len(date_list) + 5, combined_total if combined_total > 0 else '')
+                ws.cell(current_row, len(date_list) + 5).alignment = Alignment(horizontal='right')
+
+            current_row += 1
+
+        return current_row
+
+    def _write_casting_delivery_section(self, ws, item_names, date_list, delivery_map, start_row,
+                                        casting_to_machining_map, machining_plans_dict):
+        """鋳造の出庫数セクションを書き込む"""
+        current_row = start_row
+
+        # 日勤
+        current_row = self._write_casting_delivery_shift_rows(
+            ws, item_names, date_list, 'day', '日勤', current_row,
+            casting_to_machining_map, machining_plans_dict, is_first_shift=True
+        )
+
+        # 夜勤
+        current_row = self._write_casting_delivery_shift_rows(
+            ws, item_names, date_list, 'night', '夜勤', current_row,
+            casting_to_machining_map, machining_plans_dict, is_first_shift=False
+        )
 
         return current_row
 
@@ -853,19 +1091,14 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
             for col_idx, date in enumerate(date_list, start=4):
                 # この設備・直で生産している品番を探す
                 item_name = ''
-                mold_count = ''
                 for key in plans_map:
                     if key[0] == date and key[1] == 'day' and key[2] == machine.name:
                         plan = plans_map[key]
                         if plan.production_item:
                             item_name = plan.production_item.name
-                            mold_count = plan.mold_count if plan.mold_count else ''
                         break
 
-                cell_value = item_name
-                if mold_count:
-                    cell_value += f" ({mold_count})"
-                ws.cell(current_row, col_idx, cell_value)
+                ws.cell(current_row, col_idx, item_name)
                 ws.cell(current_row, col_idx).alignment = Alignment(horizontal='center')
 
             current_row += 1
@@ -882,19 +1115,14 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
             for col_idx, date in enumerate(date_list, start=4):
                 # この設備・直で生産している品番を探す
                 item_name = ''
-                mold_count = ''
                 for key in plans_map:
                     if key[0] == date and key[1] == 'night' and key[2] == machine.name:
                         plan = plans_map[key]
                         if plan.production_item:
                             item_name = plan.production_item.name
-                            mold_count = plan.mold_count if plan.mold_count else ''
                         break
 
-                cell_value = item_name
-                if mold_count:
-                    cell_value += f" ({mold_count})"
-                ws.cell(current_row, col_idx, cell_value)
+                ws.cell(current_row, col_idx, item_name)
                 ws.cell(current_row, col_idx).alignment = Alignment(horizontal='center')
 
             current_row += 1
@@ -1228,7 +1456,13 @@ class ProductionPlanExcelExportView(ManagementRoomPermissionMixin, View):
                     if night_key in plans_map:
                         production_sum += plans_map[night_key].production_count or 0
 
-                ws.cell(current_row, col_idx, production_sum if production_sum > 0 else '')
+                # 中子は24の倍数に丸める
+                if production_sum > 0:
+                    core_count = round(production_sum / 24) * 24
+                else:
+                    core_count = 0
+
+                ws.cell(current_row, col_idx, core_count if core_count > 0 else '')
                 ws.cell(current_row, col_idx).alignment = Alignment(horizontal='right')
 
             current_row += 1

@@ -412,7 +412,6 @@ class DailyCastingProductionPlan(models.Model):
     production_item = models.ForeignKey(CastingItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
     date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
     shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
-    holding_out_count = models.IntegerField(verbose_name="持ち出し数", null=True, blank=True, default=0)
     stock = models.IntegerField(verbose_name="在庫数", null=True, blank=True, default=0)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 

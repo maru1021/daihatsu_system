@@ -169,8 +169,8 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                             if first_plan_for_shift is None:
                                 first_plan_for_shift = plan
                         else:
-                            # 既存データがない場合は出庫数を初期値として使用
-                            production_qty = allocated_qty
+                            # 既存データがない場合は0
+                            production_qty = 0
 
                         # 組付側の出庫数がある場合、has_dataをTrueに設定（土日の休出表示のため）
                         if allocated_qty is not None and allocated_qty > 0:
@@ -178,7 +178,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
                         date_info['shifts'][shift]['items'][item_name] = {
                             'production_quantity': production_qty,
-                            'shipment': allocated_qty
+                            'shipment': allocated_qty  # 出庫数は常に組付けから計算
                         }
 
                     if first_plan_for_shift:
@@ -366,6 +366,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                             if not item_pk:
                                 continue
 
+                            # 生産数はDBに保存
                             production_quantity = item_data.get('production_quantity', 0) if isinstance(item_data, dict) else item_data
                             # 出庫数は保存しない（常に組付けから計算）
 

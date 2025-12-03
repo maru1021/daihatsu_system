@@ -388,6 +388,16 @@ function updateWorkingDayStatus(recalculate = true) {
                     operationRateInput.style.display = 'none';
                 }
             }
+
+            // 休出の場合、日勤の残業時間を0にする
+            if (isWorking) {
+                const dayOvertimeInputs = document.querySelectorAll(
+                    `.overtime-input[data-shift="day"][data-date-index="${dateIndex}"]`
+                );
+                dayOvertimeInputs.forEach(input => {
+                    input.value = 0;
+                });
+            }
         } else {
             // 平日の場合
             const isRegularTime = checkText === '定時';
@@ -4312,11 +4322,12 @@ function calculateMoltenMetalPotAndCore() {
                         // 溶湯: 生産数 × 溶湯使用量
                         moltenMetalTotal += productionValue * moltenMetalUsageCache[itemName];
 
-                        // 中子: 生産数（直接DOM更新）
+                        // 中子: 24の倍数に丸める（直接DOM更新）
+                        const coreCount = Math.round(productionValue / 24) * 24;
                         const coreKey = `${itemName}-${dateIndex}`;
                         const coreCell = moltenMetalElementCache.core[coreKey];
                         if (coreCell) {
-                            coreCell.textContent = productionValue;
+                            coreCell.textContent = coreCount;
                         }
                     } else {
                         // 生産数が0の場合は中子をクリア

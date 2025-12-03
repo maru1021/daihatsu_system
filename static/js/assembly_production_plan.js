@@ -1382,8 +1382,8 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName) {
     const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
     if (occupancyRate === 0) return true;
 
+    // 残業入力（定時・休出時は非表示のため、存在確認は後で行う）
     const overtimeInput = getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
-    if (!overtimeInput || overtimeInput.style.display === 'none') return true;
 
     const stopTimeInput = getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
     const stopTime = getInputValue(stopTimeInput);
@@ -1414,6 +1414,31 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName) {
     // 残業で必要な追加生産数
     const additionalProduction = totalProduction - regularTotalProduction;
 
+    // チェックセル取得
+    const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"]`);
+    const date = checkCell?.getAttribute('data-date') || '';
+    const shiftName = shift === 'day' ? '日勤' : '夜勤';
+
+    // 日勤のみ：定時ONまたは休出の場合は残業不可
+    if (shift === 'day') {
+        const isRegularHours = checkCell && checkCell.getAttribute('data-regular-hours') === 'true';
+        const checkText = checkCell ? checkCell.textContent.trim() : '';
+        const isHolidayWork = checkText === '休出';
+
+        if (isRegularHours || isHolidayWork) {
+            if (additionalProduction > 0) {
+                const mode = isRegularHours ? '定時' : '休出';
+                showToast('error', `${date} 日勤：${mode}の場合は残業できません。生産数合計を${regularTotalProduction}以下にしてください。`);
+                return false;
+            }
+            // 定時内に収まっている場合は正常終了
+            return true;
+        }
+    }
+
+    // 定時・休出でない場合のみ残業入力の存在を確認
+    if (!overtimeInput || overtimeInput.style.display === 'none') return true;
+
     if (additionalProduction <= 0) {
         overtimeInput.value = 0;
         return true;
@@ -1426,11 +1451,9 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName) {
 
     const maxOvertime = shift === 'day' ? OVERTIME_MAX_DAY : OVERTIME_MAX_NIGHT;
 
-    // 残業上限を超える場合
+    // 残業上限を超える場合（通常時の残業上限チェック）
     if (calculatedOvertime > maxOvertime) {
-        const shiftName = shift === 'day' ? '日勤' : '夜勤';
-        const date = document.querySelector(`.check-cell[data-date-index="${dateIndex}"]`)?.getAttribute('data-date');
-        showToast('error', `${date} ${shiftName}：残業時間が上限に達しています。`);
+        showToast('error', `${date} ${shiftName}：残業時間が上限（${maxOvertime}分）に達しています。生産数合計を${regularTotalProduction + Math.floor(maxOvertime * occupancyRate / tact)}以下にしてください。`);
         return false; // 入力を拒否
     }
 

@@ -102,11 +102,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             shift='day'
         ).select_related('production_item')
 
-        for plan in weekend_stock_plans:
-            if plan.date and plan.date.weekday() >= 5 and plan.holding_out_count and plan.holding_out_count > 0:
-                weekend_delivery_dates.add(plan.date)
-
-        # 加工生産計画からも土日の出庫数をチェック
+        # 加工生産計画から土日の出庫数をチェック
         for item_name in item_names:
             machining_items = casting_to_machining_map.get(item_name, [])
             for machining_item_info in machining_items:
@@ -282,25 +278,24 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 品番データを処理
                 for item_name in item_names:
                     plan = stock_plans_dict.get((item_name, current_date, shift))
-                    delivery = plan.holding_out_count if plan and plan.holding_out_count else None
 
-                    # 出庫数がない場合は加工生産計画から取得
-                    if delivery is None or delivery == 0:
-                        machining_items = casting_to_machining_map.get(item_name, [])
-                        total_production = 0
-                        for machining_item_info in machining_items:
-                            machining_key = (
-                                machining_item_info['machining_line_name'],
-                                machining_item_info['machining_item_name'],
-                                current_date,
-                                shift
-                            )
-                            machining_plans_list = machining_plans_dict.get(machining_key, [])
-                            for machining_plan in machining_plans_list:
-                                if machining_plan.production_quantity:
-                                    total_production += machining_plan.production_quantity
-                        if total_production > 0:
-                            delivery = total_production
+                    # 出庫数は常に加工生産計画から取得
+                    delivery = None
+                    machining_items = casting_to_machining_map.get(item_name, [])
+                    total_production = 0
+                    for machining_item_info in machining_items:
+                        machining_key = (
+                            machining_item_info['machining_line_name'],
+                            machining_item_info['machining_item_name'],
+                            current_date,
+                            shift
+                        )
+                        machining_plans_list = machining_plans_dict.get(machining_key, [])
+                        for machining_plan in machining_plans_list:
+                            if machining_plan.production_quantity:
+                                total_production += machining_plan.production_quantity
+                    if total_production > 0:
+                        delivery = total_production
 
                     date_data['shifts'][shift]['items'][item_name] = {
                         'inventory': plan.stock if plan and plan.stock is not None else '',
@@ -715,10 +710,9 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     }
                     if stock is not None:
                         defaults['stock'] = stock
-                    if delivery is not None:
-                        defaults['holding_out_count'] = delivery
+                    # 出庫数は保存しない（常に加工生産計画から取得）
 
-                    # DailyCastingProductionPlanに在庫数・出庫数を保存
+                    # DailyCastingProductionPlanに在庫数を保存
                     DailyCastingProductionPlan.objects.update_or_create(
                         line=line,
                         production_item=production_item,

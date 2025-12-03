@@ -229,17 +229,21 @@ allocated_qty = self._get_shipment_for_item(
     allocated_shipment_map, assembly_shipment_map
 )
 
-# 既存データがあれば生産数を取得、なければ出庫数を初期値として使用
+# 生産数は既存データがあればDBから取得、なければ0
 if key in plans_map:
-    production_qty = plans_map[key].production_quantity
+    production_qty = plans_map[key].production_quantity if plans_map[key].production_quantity is not None else 0
 else:
-    production_qty = allocated_qty  # 生産数 = 出庫数（初期値）
+    production_qty = 0
 
 date_info['shifts'][shift]['items'][item_name] = {
     'production_quantity': production_qty,
     'shipment': allocated_qty  # 常に組付けから計算
 }
 ```
+
+**重要な変更**:
+- 生産数は常にDBから取得し、データがない場合は0を設定
+- 出庫数は常に組付けの生産数から計算され、上位工程の変更がリアルタイムに反映される
 
 ### 4. 残業時間の自動計算 (`_calculate_overtime_for_dates`)
 

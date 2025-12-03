@@ -110,12 +110,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
             # 品番ごとの出庫数を集計（日付・シフト別）
             item_delivery = {}
 
-            # まずDailyCastingProductionPlanから取得
-            delivery_dict = {}
-            for plan in delivery_plans:
-                if plan.production_item:
-                    key = (plan.production_item.name, plan.date, plan.shift)
-                    delivery_dict[key] = plan.holding_out_count or 0
+            # 出庫数は常に加工生産計画から取得（holding_out_countフィールドは削除済み）
 
             # 全品番、全日付、全シフトをループ
             casting_items = CastingItem.objects.filter(line=line, active=True)
@@ -125,27 +120,23 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
                 for current_date in date_list:
                     for shift in ['day', 'night']:
-                        # DailyCastingProductionPlanから出庫数を取得
-                        delivery_key = (item_name, current_date, shift)
-                        delivery = delivery_dict.get(delivery_key, 0)
-
-                        # 出庫数がない場合は加工生産計画から取得
-                        if delivery == 0:
-                            machining_items = casting_to_machining_map.get(item_name, [])
-                            total_production = 0
-                            for machining_item_info in machining_items:
-                                machining_key = (
-                                    machining_item_info['machining_line_name'],
-                                    machining_item_info['machining_item_name'],
-                                    current_date,
-                                    shift
-                                )
-                                machining_plans_list = machining_plans_dict.get(machining_key, [])
-                                for machining_plan in machining_plans_list:
-                                    if machining_plan.production_quantity:
-                                        total_production += machining_plan.production_quantity
-                            if total_production > 0:
-                                delivery = total_production
+                        # 加工生産計画から出庫数を取得
+                        delivery = 0
+                        machining_items = casting_to_machining_map.get(item_name, [])
+                        total_production = 0
+                        for machining_item_info in machining_items:
+                            machining_key = (
+                                machining_item_info['machining_line_name'],
+                                machining_item_info['machining_item_name'],
+                                current_date,
+                                shift
+                            )
+                            machining_plans_list = machining_plans_dict.get(machining_key, [])
+                            for machining_plan in machining_plans_list:
+                                if machining_plan.production_quantity:
+                                    total_production += machining_plan.production_quantity
+                        if total_production > 0:
+                            delivery = total_production
 
                         if delivery > 0:
                             item_delivery[item_name].append({
