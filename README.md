@@ -11,8 +11,6 @@ django.logでログ確認
 
 # 製造管理システム セットアップガイド
 
-> **注意**: Docker 未使用時用のガイドです。Docker 使用時は `DOCKER_USAGE.md` を参考にしてください。
-
 ## Django の設定
 
 以下の操作は `manage.py` と同じディレクトリで行う
@@ -49,9 +47,6 @@ python manage.py migrate
 ```bash
 # 開発環境
 python manage.py runserver
-
-# ホットリロード付き開発環境
-python dev.py
 ```
 
 ### データベース管理
@@ -143,50 +138,6 @@ rmdir /s /q static\CACHE
 python manage.py compress --force
 ```
 
-## 負荷テスト
-
-### Apache Bench を使用
-```bash
-# インストール確認
-which ab
-
-# 負荷テスト実行
-ab -n リクエスト数 -c 同接数 http://127.0.0.1/
-```
-
-## AI 設定
-
-## 音声文字起こし
-
-### ffmpegのインストール
-```bash
-brew install ffmpeg
-brew install portaudio
-
-### 使用方法
-
-#### ローカルWhisper（APIキー不要）
-```bash
-# 基本的な使用方法
-python daihatsu/scripts/speech_to_text/local_speech_to_text.py audio.mp3
-
-# モデルサイズを指定（高精度だが時間がかかる）
-python local_speech_to_text.py --model large audio.mp3
-
-# 英語翻訳
-python local_speech_to_text.py --task translate audio.mp3
-
-# 字幕ファイル生成
-python local_speech_to_text.py --format srt audio.mp3
-```
-
-### モデルサイズ比較
-- `tiny`: 39MB, 高速だが精度低め
-- `base`: 74MB, バランス型（推奨）
-- `small`: 244MB, 高精度
-- `medium`: 769MB, より高精度
-- `large`: 1550MB, 最高精度だが時間がかかる
-
 ### サーバーの80、443ポートを開ける
 管理者権限powershellで
 New-NetFirewallRule -DisplayName "Nginx HTTP" -Direction Inbound -LocalPort 80 -Protocol TCP -Action Allow
@@ -225,3 +176,39 @@ Get-NetFirewallRule | Where-Object {
         RemoteAddress = $filter.RemoteAddress
     }
 }
+
+## データベースのバックアップと復元
+
+### バックアップの作成
+```bash
+# カスタムフォーマットでバックアップ（推奨）
+pg_dump -U postgres -d dkc -F c -f backup.sql
+
+# プレーンテキストSQLでバックアップ
+pg_dump -U postgres -d dkc > backup.sql
+```
+
+### バックアップからの復元手順
+
+#### 1. 既存の接続を終了してデータベースを再作成
+```bash
+# postgresデータベースに接続
+psql -d postgres
+
+# 既存の接続を終了
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'dkc' AND pid <> pg_backend_pid();
+
+# データベースを削除して再作成
+DROP DATABASE IF EXISTS dkc;
+CREATE DATABASE dkc;
+\q
+```
+
+#### 2. バックアップファイルを復元
+```bash
+# カスタムフォーマットの場合（pg_dumpで-Fcオプション使用時）
+pg_restore -d dkc --clean --if-exists backup.sql
+
+# プレーンテキストSQLの場合
+psql -d dkc -f backup.sql
+```

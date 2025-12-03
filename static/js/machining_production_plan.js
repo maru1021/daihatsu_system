@@ -332,12 +332,28 @@ function updateProductionQuantity(dateIndex, shift, itemName, forceUpdate = fals
     const productionInput = getCachedInput('production', lineIndex, dateIndex, shift, itemName) ||
         getInputElement(`.production-input[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
 
-    if (!productionInput || productionInput.style.display === 'none') return;
-
-    // 強制更新フラグがfalseで既にデータが入力されている場合はスキップ
-    // 値が空文字列でなければデータが入力されていると判断（0も含む）
-    if (!forceUpdate && productionInput.value !== '') {
+    if (!productionInput || productionInput.style.display === 'none') {
         return;
+    }
+
+    // DBに保存されたデータがある場合はスキップ（data-has-db-value属性で判定）
+    const hasDbValue = productionInput.dataset.hasDbValue === 'true';
+    if (!forceUpdate && hasDbValue) {
+        return;
+    }
+
+    // 生産数データがDBにない場合（初期表示時）は、まず出庫数をチェック
+    if (!forceUpdate && !hasDbValue) {
+        const shipmentInput = getCachedInput('shipment', lineIndex, dateIndex, shift, itemName) ||
+            getInputElement(`.shipment-input[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+
+        if (shipmentInput && shipmentInput.value !== '') {
+            const shipmentValue = parseInt(shipmentInput.value) || 0;
+            if (shipmentValue > 0) {
+                productionInput.value = shipmentValue;
+                return;
+            }
+        }
     }
 
     const quantity = calculateProductionQuantity(dateIndex, shift, itemName, lineIndex);
@@ -1285,8 +1301,8 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex
         return false;
     }
 
-    // 5分刻みに丸める
-    calculatedOvertime = Math.round(calculatedOvertime / 5) * 5;
+    // 5分刻みに切り上げ
+    calculatedOvertime = Math.ceil(calculatedOvertime / 5) * 5;
     overtimeInput.value = calculatedOvertime;
     return true;
 }
@@ -1496,6 +1512,12 @@ function updateOvertimeInputVisibility() {
         const nightOvertimeInputs = document.querySelectorAll(
             `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"]`
         );
+        const dayStopTimeInputs = document.querySelectorAll(
+            `.stop-time-input[data-shift="day"][data-date-index="${dateIndex}"]`
+        );
+        const nightStopTimeInputs = document.querySelectorAll(
+            `.stop-time-input[data-shift="night"][data-date-index="${dateIndex}"]`
+        );
 
         if (isWeekend && !isHolidayWork) {
             // 土日（休出なし）: 両方非表示
@@ -1507,8 +1529,16 @@ function updateOvertimeInputVisibility() {
                 input.style.display = 'none';
                 input.value = 0;
             });
+            dayStopTimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
+            nightStopTimeInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = 0;
+            });
         } else if (isHolidayWork) {
-            // 休出: 両方非表示
+            // 休出: 残業は非表示、計画停止は表示
             dayOvertimeInputs.forEach(input => {
                 input.style.display = 'none';
                 input.value = 0;
@@ -1516,14 +1546,26 @@ function updateOvertimeInputVisibility() {
             nightOvertimeInputs.forEach(input => {
                 input.style.display = 'none';
                 input.value = 0;
+            });
+            dayStopTimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+            nightStopTimeInputs.forEach(input => {
+                input.style.display = '';
             });
         } else if (isRegularTime) {
-            // 定時: 日勤のみ非表示
+            // 定時: 日勤の残業のみ非表示、計画停止は表示
             dayOvertimeInputs.forEach(input => {
                 input.style.display = 'none';
                 input.value = 0;
             });
             nightOvertimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+            dayStopTimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+            nightStopTimeInputs.forEach(input => {
                 input.style.display = '';
             });
         } else {
@@ -1532,6 +1574,12 @@ function updateOvertimeInputVisibility() {
                 input.style.display = '';
             });
             nightOvertimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+            dayStopTimeInputs.forEach(input => {
+                input.style.display = '';
+            });
+            nightStopTimeInputs.forEach(input => {
                 input.style.display = '';
             });
         }
@@ -1585,7 +1633,10 @@ async function performInitialCalculations() {
         }
     });
 
-    // 初期表示時の生産数比率を保存
+    // 初期表示時にすべての生産数を設定（出庫数からコピー）
+    updateAllProductionQuantities();
+
+    // 生産数設定後に比率を保存
     const tables = domCache.tables || document.querySelectorAll('table[data-line-index]');
     const dateCount = domCache.dateCount || document.querySelectorAll('.operation-rate-input[data-line-index="0"]').length;
 
@@ -1597,11 +1648,106 @@ async function performInitialCalculations() {
         }
     });
 
-    // 初期表示時にすべての生産数を計算
-    updateAllProductionQuantities();
+    // 残業時間の初期値を計算（データがない場合のみ）
+    calculateInitialOvertimes();
 
     // 在庫数を非同期で計算
     await asyncUpdateStockQuantities();
+}
+
+// シフトの合計生産数を取得
+function getTotalProductionForShift(lineIndex, dateIndex, shift) {
+    const itemNames = getItemNames(lineIndex);
+    let total = 0;
+
+    itemNames.forEach(itemName => {
+        const productionInput = getCachedInput('production', lineIndex, dateIndex, shift, itemName) ||
+            getInputElement(`.production-input[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+
+        if (productionInput && productionInput.style.display !== 'none') {
+            total += parseInt(productionInput.value) || 0;
+        }
+    });
+
+    return total;
+}
+
+// 生産数から必要な残業時間を逆算
+function calculateRequiredOvertime(totalProduction, tact, occupancyRate, stopTime, shift) {
+    const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
+    const regularProductionTime = regularTime - stopTime;
+
+    // 定時間で生産できる台数
+    const regularTotalProduction = regularProductionTime > 0
+        ? Math.ceil(regularProductionTime / tact * occupancyRate)
+        : 0;
+
+    // 残業で必要な追加生産数
+    const additionalProduction = totalProduction - regularTotalProduction;
+
+    if (additionalProduction <= 0) {
+        return 0;
+    }
+
+    // 残業時間を逆算
+    let calculatedOvertime = (additionalProduction * tact) / occupancyRate;
+    calculatedOvertime = Math.max(0, calculatedOvertime);
+
+    // 5分刻みに切り上げ
+    calculatedOvertime = Math.ceil(calculatedOvertime / 5) * 5;
+
+    // 上限チェック
+    const maxOvertime = shift === 'day' ? OVERTIME_MAX_DAY : OVERTIME_MAX_NIGHT;
+    return Math.min(calculatedOvertime, maxOvertime);
+}
+
+// 残業時間の初期値を計算（生産数から逆算）
+function calculateInitialOvertimes() {
+    const tables = domCache.tables || document.querySelectorAll('table[data-line-index]');
+    const dateCount = domCache.dateCount || document.querySelectorAll('.operation-rate-input[data-line-index="0"]').length;
+
+    tables.forEach((table, lineIndex) => {
+        for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+            ['day', 'night'].forEach(shift => {
+                const overtimeInput = getCachedInput('overtime', lineIndex, dateIndex, shift) ||
+                    getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+
+                if (!overtimeInput || overtimeInput.style.display === 'none' || overtimeInput.dataset.hasDbValue === 'true') {
+                    return;
+                }
+
+                // 生産数の合計を取得
+                const totalProduction = getTotalProductionForShift(lineIndex, dateIndex, shift);
+                if (totalProduction === 0) {
+                    overtimeInput.value = 0;
+                    return;
+                }
+
+                // タクトと稼働率を取得
+                const itemData = linesItemData[lineIndex] || {};
+                const tact = itemData.tact || 0;
+                if (tact === 0) return;
+
+                const occupancyRateInput = getCachedInput('operationRate', lineIndex, dateIndex) ||
+                    getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+                const occupancyRate = occupancyRateInput ? (parseFloat(occupancyRateInput.value) || 0) / 100 : 0;
+                if (occupancyRate === 0) return;
+
+                // 停止時間を取得
+                const stopTimeInput = getCachedInput('stopTime', lineIndex, dateIndex, shift) ||
+                    getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+                const stopTime = getInputValue(stopTimeInput);
+
+                // 残業時間を計算
+                const calculatedOvertime = calculateRequiredOvertime(totalProduction, tact, occupancyRate, stopTime, shift);
+
+                // プログラマティックな変更を示すフラグを設定（inputイベントを抑制）
+                overtimeInput.dataset.programmaticChange = 'true';
+                overtimeInput.value = calculatedOvertime;
+                setTimeout(() => delete overtimeInput.dataset.programmaticChange, 0);
+            });
+        }
+    });
 }
 
 // ========================================
@@ -1737,18 +1883,18 @@ $(document).ready(async function () {
     checkAndDisableSingleTableItems();
 
     // ========================================
-    // ステップ4: イベントリスナーとインタラクション
+    // ステップ4: 初期計算（イベントリスナー設定前に実行）
     // ========================================
-    // イベントリスナーを設定
+    await performInitialCalculations();
+
+    // ========================================
+    // ステップ5: イベントリスナーとインタラクション
+    // ========================================
+    // イベントリスナーを設定（初期計算後に設定することで、初期値設定時のイベント発火を防ぐ）
     setupEventListeners();
 
     // カラムホバーを設定
     setupColumnHover();
-
-    // ========================================
-    // ステップ5: 初期計算（非同期で段階的に実行）
-    // ========================================
-    await performInitialCalculations();
 
     // ========================================
     // ステップ6: ページ初期化完了

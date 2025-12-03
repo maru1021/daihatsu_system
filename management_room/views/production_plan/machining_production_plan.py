@@ -139,8 +139,8 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                     'regular_working_hours': False,
                     'has_data': False,
                     'shifts': {
-                        'day': {'items': {}, 'stop_time': 0, 'overtime': 0},
-                        'night': {'items': {}, 'stop_time': 0, 'overtime': 0}
+                        'day': {'items': {}, 'stop_time': 0, 'overtime': None},
+                        'night': {'items': {}, 'stop_time': 0, 'overtime': None}
                     }
                 }
 
@@ -160,7 +160,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                         production_qty = None
                         if key in plans_map:
                             plan = plans_map[key]
-                            production_qty = plan.production_quantity if plan.production_quantity is not None else 0
+                            production_qty = plan.production_quantity
                             date_info['has_data'] = True
 
                             if first_plan_for_common is None:
@@ -168,9 +168,6 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
                             if first_plan_for_shift is None:
                                 first_plan_for_shift = plan
-                        else:
-                            # 既存データがない場合は0
-                            production_qty = 0
 
                         # 組付側の出庫数がある場合、has_dataをTrueに設定（土日の休出表示のため）
                         if allocated_qty is not None and allocated_qty > 0:
@@ -182,8 +179,8 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                         }
 
                     if first_plan_for_shift:
-                        date_info['shifts'][shift]['stop_time'] = first_plan_for_shift.stop_time or 0
-                        date_info['shifts'][shift]['overtime'] = first_plan_for_shift.overtime or 0
+                        date_info['shifts'][shift]['stop_time'] = first_plan_for_shift.stop_time if first_plan_for_shift.stop_time is not None else 0
+                        date_info['shifts'][shift]['overtime'] = first_plan_for_shift.overtime
 
                 if first_plan_for_common:
                     if first_plan_for_common.occupancy_rate is not None:
@@ -642,9 +639,13 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
         return machining_to_assembly_map, assembly_plans_map_for_all, assembly_shipment_map
 
     def _calculate_overtime_for_dates(self, dates_data, line, item_names):
-        """残業時間を計算"""
+        """残業時間を計算（DBに保存されていない場合のみ）"""
         for date_info in dates_data:
             for shift in ['day', 'night']:
+                # DBに既に残業時間が保存されている場合はスキップ
+                if date_info['shifts'][shift].get('overtime') is not None:
+                    continue
+
                 # この直の全品番の生産数を合計
                 total_production = 0
                 for item_name in item_names:
