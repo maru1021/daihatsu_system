@@ -46,12 +46,12 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
         month_date = date(year, month, 1)
 
         # 全てのアクティブなAssemblyLineを取得
-        assembly_lines = AssemblyLine.objects.filter(active=True).order_by('name')
+        assembly_lines = AssemblyLine.objects.filter(active=True)
 
         # 全てのアクティブなAssemblyItemを取得してDataFrameに変換
         assembly_items = AssemblyItem.objects.filter(active=True).select_related('line').values(
             'id', 'name', 'line__id', 'line__name', 'line__tact', 'main_line'
-        ).order_by('name')
+        )
 
         # DataFrameに変換
         df_items = pd.DataFrame(assembly_items)

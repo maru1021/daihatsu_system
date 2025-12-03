@@ -40,7 +40,12 @@ const colorMap = {
     'VE7': '#87CEEB',
     'VET': '#90EE90',
     'VE5': '#FFE4C4',
-    'POL': '#a4cea4ff'
+    'POL': '#56d9f0ff',
+    'CCH': '#91f48aff',
+    'CCS': '#fdbe92ff',
+    'POL(7)': '#9076faff',
+    'CCL': '#fb50deff',
+    'CCL(7)': '#fb50deff',
 };
 
 // ========================================

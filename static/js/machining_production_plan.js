@@ -7,6 +7,14 @@
 // - 同じ加工ライン名での在庫共有
 // - 生産数比率の保存と自動計算
 // - 良品率を考慮した在庫計算
+// - 出庫数の自動調整（複数テーブル間で合計維持）
+//
+// 重要な設計方針:
+// - 出庫数はバックエンドで組付けの生産数から毎回計算される（DBには保存されない）
+// - フロントエンドでは出庫数は表示・編集可能だが、保存時はサーバーで再計算される
+// - 複数テーブルに存在する品番の出庫数を変更すると、他のテーブルの値を自動調整して合計を維持
+// - 1つのテーブルにしかない品番の出庫数は編集不可（readonly）
+// - 在庫数もフロントエンドで毎回計算される（翌月の前月末在庫として使用するため保存される）
 //
 // パフォーマンス最適化:
 // - DOM要素のキャッシュシステム（O(1)アクセス）
@@ -414,7 +422,10 @@ function updateDailyTotals() {
 }
 
 // 在庫数を計算（前日在庫 + 生産数 - 出庫数）
-// ★重要: 同じ直内では全テーブルで同じ在庫を表示（在庫共有）
+// ★重要:
+// - 同じ直内では全テーブルで同じ在庫を表示（在庫共有）
+// - DBから在庫値は読み込まず、常にフロントエンドで計算
+// - 保存時にDBに保存し、翌月の前月末在庫として使用
 function updateStockQuantities() {
     const itemNames = getAllItemNames();
     const tables = domCache.tables || document.querySelectorAll('table[data-line-index]');
@@ -687,8 +698,8 @@ function updateRowTotals() {
 // ========================================
 // 定時・休出チェック機能
 // ========================================
-const debouncedUpdateWorkingDayStatus = debounce(function (dateIndex) {
-    updateWorkingDayStatus(dateIndex);
+const debouncedUpdateWorkingDayStatus = debounce(function (dateIndex, lineIndex) {
+    updateWorkingDayStatus(dateIndex, lineIndex);
 }, 100);
 
 function toggleCheck(element) {
@@ -711,7 +722,8 @@ function toggleCheck(element) {
     element.setAttribute('data-regular-hours', newText === '定時' ? 'true' : 'false');
 
     const dateIndex = parseInt(element.getAttribute('data-date-index'));
-    debouncedUpdateWorkingDayStatus(dateIndex);
+    const lineIndex = parseInt(element.getAttribute('data-line-index')) || 0;
+    debouncedUpdateWorkingDayStatus(dateIndex, lineIndex);
 
     // 残業input表示制御を更新
     updateOvertimeInputVisibility();
@@ -723,8 +735,13 @@ function toggleCheck(element) {
 }
 
 // 入力フィールドの表示/非表示を制御
-function toggleInputs(dateIndex, shift, show) {
-    const selector = `[data-shift="${shift}"][data-date-index="${dateIndex}"] input`;
+function toggleInputs(dateIndex, shift, show, lineIndex = null) {
+    let selector = `[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
+    if (lineIndex !== null) {
+        selector += `[data-line-index="${lineIndex}"]`;
+    }
+    selector += ' input';
+
     document.querySelectorAll(selector).forEach(input => {
         // 残業inputは除外（別途制御）
         if (input.classList.contains('overtime-input')) {
@@ -735,8 +752,12 @@ function toggleInputs(dateIndex, shift, show) {
 }
 
 // 残業上限を設定
-function setOvertimeLimit(dateIndex, shift, max) {
-    const input = getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
+function setOvertimeLimit(dateIndex, shift, max, lineIndex = null) {
+    let selector = `.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
+    if (lineIndex !== null) {
+        selector += `[data-line-index="${lineIndex}"]`;
+    }
+    const input = getInputElement(selector);
     if (input) {
         if (max !== null) {
             input.setAttribute('max', max);
@@ -760,6 +781,7 @@ function setOvertimeLimit(dateIndex, shift, max) {
 function initializeWeekendWorkingStatus() {
     document.querySelectorAll('.check-cell').forEach((checkCell) => {
         const dateIndex = parseInt(checkCell.getAttribute('data-date-index'));
+        const lineIndex = parseInt(checkCell.getAttribute('data-line-index')) || 0;
         const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
         const isRegularHours = checkCell.getAttribute('data-regular-hours') === 'true';
         const hasAssemblyWeekendWork = checkCell.getAttribute('data-has-assembly-weekend-work') === 'true';
@@ -773,22 +795,22 @@ function initializeWeekendWorkingStatus() {
                 // パターン1: 加工側に休出データあり（組付側より優先）
                 checkCell.textContent = '休出';
                 checkCell.setAttribute('data-regular-hours', 'false');
-                updateWorkingDayStatus(dateIndex, true);
+                updateWorkingDayStatus(dateIndex, lineIndex, true);
             } else if (hasAssemblyWeekendWork) {
                 // パターン2: 組付側のみ休出データあり（出庫数入力のみ表示）
                 checkCell.textContent = '';
                 checkCell.setAttribute('data-regular-hours', 'false');
 
-                const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
+                const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
                 if (occupancyRateInput) {
                     occupancyRateInput.style.display = 'none';
                 }
 
-                toggleInputs(dateIndex, 'day', false);
-                toggleInputs(dateIndex, 'night', false);
+                toggleInputs(dateIndex, 'day', false, lineIndex);
+                toggleInputs(dateIndex, 'night', false, lineIndex);
 
                 // 出庫数入力のみ表示
-                document.querySelectorAll(`.shipment-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
+                document.querySelectorAll(`.shipment-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`).forEach(input => {
                     input.style.display = '';
                 });
             } else {
@@ -796,29 +818,29 @@ function initializeWeekendWorkingStatus() {
                 checkCell.textContent = '';
                 checkCell.setAttribute('data-regular-hours', 'false');
 
-                const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
+                const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
                 if (occupancyRateInput) {
                     occupancyRateInput.style.display = 'none';
                 }
 
-                toggleInputs(dateIndex, 'day', false);
-                toggleInputs(dateIndex, 'night', false);
+                toggleInputs(dateIndex, 'day', false, lineIndex);
+                toggleInputs(dateIndex, 'night', false, lineIndex);
             }
         } else {
             // 平日の初期化処理
             if (isRegularHours) {
                 checkCell.textContent = '定時';
                 checkCell.setAttribute('data-regular-hours', 'true');
-                updateWorkingDayStatus(dateIndex, true);
+                updateWorkingDayStatus(dateIndex, lineIndex, true);
             }
         }
     });
 }
 
 // 稼働日状態の更新
-function updateWorkingDayStatus(dateIndex, isInitializing = false) {
-    const checkCells = document.querySelectorAll('.check-cell');
-    const checkCell = checkCells[dateIndex];
+function updateWorkingDayStatus(dateIndex, lineIndex = 0, isInitializing = false) {
+    // 各ラインごとに独立したcheckCellを取得
+    const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
     if (!checkCell) return;
 
     const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
@@ -828,52 +850,52 @@ function updateWorkingDayStatus(dateIndex, isInitializing = false) {
         // 週末の処理
         const isWorking = checkText === '休出';
 
-        // 稼働率入力の表示制御
-        const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
+        // 稼働率入力の表示制御（このラインのみ）
+        const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
         if (occupancyRateInput) {
             occupancyRateInput.style.display = isWorking ? '' : 'none';
         }
 
         if (isWorking) {
-            // 休出あり: すべての入力フィールドを表示
-            toggleInputs(dateIndex, 'day', true);
-            toggleInputs(dateIndex, 'night', false); // 夜勤は週末常に非表示
+            // 休出あり: すべての入力フィールドを表示（このラインのみ）
+            toggleInputs(dateIndex, 'day', true, lineIndex);
+            toggleInputs(dateIndex, 'night', false, lineIndex); // 夜勤は週末常に非表示
 
             // 休出の場合、初期化時以外は生産数を計算して在庫を再計算
             if (!isInitializing) {
-                updateAllItemsProduction(dateIndex, ['day'], false);
+                updateAllItemsProduction(dateIndex, ['day'], false, lineIndex);
                 updateStockQuantities();
             }
         } else {
-            // 休出なし: 出庫数と在庫のみ表示
-            toggleInputs(dateIndex, 'day', false);
-            toggleInputs(dateIndex, 'night', false);
+            // 休出なし: 出庫数と在庫のみ表示（このラインのみ）
+            toggleInputs(dateIndex, 'day', false, lineIndex);
+            toggleInputs(dateIndex, 'night', false, lineIndex);
 
             // 出庫数がある場合は出庫数と在庫を表示、ない場合は出庫数のみ表示
             const hasShipment = Array.from(
-                document.querySelectorAll(`.shipment-input[data-shift="day"][data-date-index="${dateIndex}"]`)
+                document.querySelectorAll(`.shipment-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`)
             ).some(input => parseInt(input.value || 0) > 0);
 
-            document.querySelectorAll(`.shipment-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
+            document.querySelectorAll(`.shipment-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`).forEach(input => {
                 input.style.display = '';
             });
 
             if (hasShipment) {
                 // 出庫数がある場合は在庫も表示
-                document.querySelectorAll(`.stock-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
+                document.querySelectorAll(`.stock-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`).forEach(input => {
                     input.style.display = '';
                 });
             }
 
             // 休出を消した場合は生産数を0にクリアして在庫を再計算
             if (!isInitializing) {
-                document.querySelectorAll(`.production-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
+                document.querySelectorAll(`.production-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`).forEach(input => {
                     input.value = '0';
                 });
 
                 if (!hasShipment) {
                     // 出庫数がない場合は在庫を0にクリア
-                    document.querySelectorAll(`.stock-input[data-shift="day"][data-date-index="${dateIndex}"]`).forEach(input => {
+                    document.querySelectorAll(`.stock-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`).forEach(input => {
                         input.value = '0';
                     });
                 }
@@ -883,9 +905,9 @@ function updateWorkingDayStatus(dateIndex, isInitializing = false) {
             }
         }
 
-        // 残業計画の上限値を設定（休出は残業0）
-        setOvertimeLimit(dateIndex, 'day', isWorking ? 0 : 0);
-        setOvertimeLimit(dateIndex, 'night', isWorking ? 0 : 0);
+        // 残業計画の上限値を設定（休出は残業0）（このラインのみ）
+        setOvertimeLimit(dateIndex, 'day', isWorking ? 0 : 0, lineIndex);
+        setOvertimeLimit(dateIndex, 'night', isWorking ? 0 : 0, lineIndex);
     } else {
         // 平日の場合
         const isWorking = checkText === '定時';
@@ -1180,6 +1202,7 @@ function saveProductionPlan() {
 // ========================================
 function recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex) {
     lineIndex = lineIndex || 0;
+
     const itemData = linesItemData[lineIndex] || {};
     const tact = itemData.tact || 0;
     if (tact === 0) return true;
@@ -1189,8 +1212,8 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex
     const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
     if (occupancyRate === 0) return true;
 
+    // 残業入力（定時・休出時は非表示のため、存在確認は後で行う）
     const overtimeInput = getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-    if (!overtimeInput || overtimeInput.style.display === 'none') return true;
 
     const stopTimeInput = getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
     const stopTime = getInputValue(stopTimeInput);
@@ -1207,11 +1230,11 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex
     });
 
     if (totalProduction === 0) {
-        overtimeInput.value = 0;
+        if (overtimeInput) overtimeInput.value = 0;
         return true;
     }
 
-    // 定時間で生産できる台数を計算（全車種の合計）
+    // 定時間で生産できる台数を計算
     const regularProductionTime = regularTime - stopTime;
     const regularTotalProduction = regularProductionTime > 0
         ? Math.ceil(regularProductionTime / tact * occupancyRate)
@@ -1219,6 +1242,31 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex
 
     // 残業で必要な追加生産数
     const additionalProduction = totalProduction - regularTotalProduction;
+
+    // チェックセル取得（各ラインごとに独立）
+    const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+    const date = checkCell?.getAttribute('data-date') || '';
+    const shiftName = shift === 'day' ? '日勤' : '夜勤';
+
+    // 日勤のみ：定時ONまたは休出の場合は残業不可
+    if (shift === 'day') {
+        const isRegularHours = checkCell && checkCell.getAttribute('data-regular-hours') === 'true';
+        const checkText = checkCell ? checkCell.textContent.trim() : '';
+        const isHolidayWork = checkText === '休出';
+
+        if (isRegularHours || isHolidayWork) {
+            if (additionalProduction > 0) {
+                const mode = isRegularHours ? '定時' : '休出';
+                showToast('error', `${date} 日勤：${mode}の場合は残業できません。生産数合計を${regularTotalProduction}以下にしてください。`);
+                return false;
+            }
+            // 定時内に収まっている場合は正常終了
+            return true;
+        }
+    }
+
+    // 定時・休出でない場合のみ残業入力の存在を確認
+    if (!overtimeInput || overtimeInput.style.display === 'none') return true;
 
     if (additionalProduction <= 0) {
         overtimeInput.value = 0;
@@ -1231,11 +1279,9 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex
 
     const maxOvertime = shift === 'day' ? OVERTIME_MAX_DAY : OVERTIME_MAX_NIGHT;
 
-    // 残業上限を超える場合
+    // 残業上限を超える場合（通常時の残業上限チェック）
     if (calculatedOvertime > maxOvertime) {
-        const shiftName = shift === 'day' ? '日勤' : '夜勤';
-        const date = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`)?.getAttribute('data-date');
-        showToast('error', '残業時間が上限に達しています。');
+        showToast('error', `${date} ${shiftName}：残業時間が上限（${maxOvertime}分）に達しています。生産数合計を${regularTotalProduction + Math.floor(maxOvertime * occupancyRate / tact)}以下にしてください。`);
         return false;
     }
 
@@ -1296,57 +1342,13 @@ function setupEventListeners() {
             const itemName = this.getAttribute('data-item');
             const lineIndex = parseInt(this.getAttribute('data-line-index')) || 0;
 
-            // 定時ONかつ日勤の場合、定時での生産可能数を超えないかチェック
-            if (shift === 'day') {
-                const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-                const isRegularHours = checkCell && checkCell.getAttribute('data-regular-hours') === 'true';
-
-                if (isRegularHours) {
-                    // 定時での生産可能数の上限を計算
-                    const itemData = linesItemData[lineIndex] || {};
-                    const tact = itemData.tact || 0;
-                    if (tact > 0) {
-                        const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-                        const occupancyRate = occupancyRateInput ? (parseFloat(occupancyRateInput.value) || 0) / 100 : 0;
-
-                        if (occupancyRate > 0) {
-                            const stopTimeInput = getInputElement(`.stop-time-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-                            const stopTime = getInputValue(stopTimeInput);
-                            const productionTime = REGULAR_TIME_DAY - stopTime;
-                            const maxProduction = Math.ceil(productionTime / tact * occupancyRate);
-
-                            // 全品番の生産数合計を計算（今入力している値を含む）
-                            const itemNames = getItemNames(lineIndex);
-                            let totalProduction = 0;
-                            itemNames.forEach(name => {
-                                const prodInput = getInputElement(`.production-input[data-shift="day"][data-item="${name}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-                                if (prodInput && prodInput.style.display !== 'none') {
-                                    if (name === itemName) {
-                                        totalProduction += parseInt(this.value) || 0;
-                                    } else {
-                                        totalProduction += parseInt(prodInput.value) || 0;
-                                    }
-                                }
-                            });
-
-                            if (totalProduction > maxProduction) {
-                                const date = checkCell.getAttribute('data-date');
-                                showToast('error', `${date} 日勤：定時の場合は生産数合計を${maxProduction}以下にしてください。`);
-                                this.value = previousValue;
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-
             isRecalculating = true;
 
             // 生産数が変更されたので、新しい比率を保存
             saveProductionRatios(lineIndex, dateIndex, shift);
 
+            // 残業時間の逆算と上限チェック（定時・休出時の上限チェックも含む）
             const isValid = recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex);
-
             if (!isValid) {
                 this.value = previousValue;
                 // 元の値に戻したので、比率も再保存
@@ -1366,7 +1368,34 @@ function setupEventListeners() {
 
     // 出庫数の変更時に在庫を再計算
     document.querySelectorAll('.shipment-input').forEach(input => {
+        let previousShipmentValue = input.value;
+
+        input.addEventListener('focus', function () {
+            previousShipmentValue = this.value;
+        });
+
         input.addEventListener('input', function () {
+            // プログラマティックな変更の場合はスキップ（無限ループ防止）
+            if (this.dataset.programmaticChange === 'true') {
+                debouncedUpdateRowTotals();
+                debouncedUpdateStockQuantities();
+                return;
+            }
+
+            const dateIndex = parseInt(this.getAttribute('data-date-index'));
+            const shift = this.getAttribute('data-shift');
+            const itemName = this.getAttribute('data-item');
+            const lineIndex = parseInt(this.getAttribute('data-line-index')) || 0;
+
+            const oldValue = parseInt(previousShipmentValue) || 0;
+            const newValue = parseInt(this.value) || 0;
+
+            // 他のテーブルの出庫数を調整（合計値維持）
+            adjustOtherTableShipments(itemName, lineIndex, dateIndex, shift, oldValue, newValue);
+
+            // 前回の値を更新
+            previousShipmentValue = this.value;
+
             debouncedUpdateRowTotals();
             debouncedUpdateStockQuantities();
         });
@@ -1576,6 +1605,100 @@ async function performInitialCalculations() {
 }
 
 // ========================================
+// 品番の分布チェックと出庫数入力制御
+// ========================================
+// 品番ごとに存在するテーブルのインデックスリストを保存
+// { itemName: [lineIndex1, lineIndex2, ...] }
+let itemTableMapping = {};
+
+/**
+ * 品番が複数のテーブルに存在するかチェックし、
+ * 1つのテーブルにしかない品番の出庫数入力を無効化
+ */
+function checkAndDisableSingleTableItems() {
+    const tables = domCache.tables || document.querySelectorAll('table[data-line-index]');
+
+    // テーブルが1つしかない場合は処理不要
+    if (tables.length <= 1) {
+        return;
+    }
+
+    // 品番ごとに存在するテーブルのリストを記録
+    itemTableMapping = {};
+
+    tables.forEach((table, lineIndex) => {
+        const itemNames = getItemNames(lineIndex);
+        itemNames.forEach(itemName => {
+            if (!itemTableMapping[itemName]) {
+                itemTableMapping[itemName] = [];
+            }
+            itemTableMapping[itemName].push(lineIndex);
+        });
+    });
+
+    // 1つのテーブルにしかない品番の出庫数入力を無効化
+    Object.keys(itemTableMapping).forEach(itemName => {
+        if (itemTableMapping[itemName].length === 1) {
+            // この品番の全ての出庫数入力を無効化
+            document.querySelectorAll(`.shipment-input[data-item="${itemName}"]`).forEach(input => {
+                input.setAttribute('readonly', 'true');
+                input.style.backgroundColor = '#f5f5f5';
+                input.style.cursor = 'not-allowed';
+                input.title = 'この品番は1つのラインでしか生産できないため変更できません';
+            });
+        }
+    });
+}
+
+/**
+ * 出庫数変更時に他のテーブルの値を調整して合計を維持
+ */
+function adjustOtherTableShipments(itemName, changedLineIndex, changedDateIndex, shift, oldValue, newValue) {
+    // この品番が存在するテーブルのリストを取得
+    const tableList = itemTableMapping[itemName];
+
+    // 1つのテーブルにしかない、または存在しない場合は処理不要
+    if (!tableList || tableList.length <= 1) {
+        return;
+    }
+
+    // 変更量を計算
+    const diff = newValue - oldValue;
+
+    // 変更がない場合は処理不要
+    if (diff === 0) {
+        return;
+    }
+
+    // 変更したテーブル以外のテーブルリストを取得
+    const otherTables = tableList.filter(lineIndex => lineIndex !== changedLineIndex);
+
+    // 他のテーブルに均等に配分（逆の変更を適用）
+    const adjustPerTable = -diff / otherTables.length;
+
+    otherTables.forEach(lineIndex => {
+        const shipmentInput = getCachedInput('shipment', lineIndex, changedDateIndex, shift, itemName);
+
+        if (shipmentInput && shipmentInput.style.display !== 'none' && !shipmentInput.hasAttribute('readonly')) {
+            const currentValue = parseInt(shipmentInput.value) || 0;
+            let newAdjustedValue = Math.round(currentValue + adjustPerTable);
+
+            // マイナスにならないように制限
+            newAdjustedValue = Math.max(0, newAdjustedValue);
+
+            // プログラマティックな変更であることを示すフラグを設定
+            shipmentInput.dataset.programmaticChange = 'true';
+            shipmentInput.value = newAdjustedValue;
+
+            // フラグをクリア
+            setTimeout(() => {
+                delete shipmentInput.dataset.programmaticChange;
+            }, 0);
+        }
+    });
+}
+
+// ========================================
 // 初期化処理
 // ========================================
 $(document).ready(async function () {
@@ -1609,6 +1732,9 @@ $(document).ready(async function () {
 
     // 残業input表示制御を初期化
     updateOvertimeInputVisibility();
+
+    // 品番の分布をチェックして1つのテーブルにしかない品番の出庫数入力を無効化
+    checkAndDisableSingleTableItems();
 
     // ========================================
     // ステップ4: イベントリスナーとインタラクション

@@ -42,13 +42,6 @@
         組付生産計画
       </a>
       <a
-        class="nav-link {% if 'management_room:machining_shipment_adjustment' in request.resolver_match.url_name %}active{% endif %}"
-        href="{% url 'management_room:machining_shipment_adjustment' %}"
-      >
-        <i class="fas fa-database"></i>
-        加工割り振り調整
-      </a>
-            <a
         class="nav-link {% if 'management_room:machining_production_plan' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:machining_production_plan' %}"
       >

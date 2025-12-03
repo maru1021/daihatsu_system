@@ -1528,9 +1528,9 @@ $(document).ready(function () {
         const targetMonth = $('#target-month').val();
         if (targetMonth) {
             const [year, month] = targetMonth.split('-');
-            window.location.href = `/management_room/production-plan/machining-shipment-adjustment/?year=${year}&month=${month}`;
+            window.location.href = `/management_room/production-plan/machining-production-plan/?line_name=ヘッド&year=${year}&month=${month}`;
         } else {
-            window.location.href = '/management_room/production-plan/machining-shipment-adjustment/';
+            window.location.href = '/management_room/production-plan/machining-production-plan/?line_name=ヘッド';
         }
     });
 
@@ -1559,7 +1559,7 @@ function setupColumnHover() {
 
     let currentHoverDateIndex = -1;
 
-    tbody.addEventListener('mouseover', function(e) {
+    tbody.addEventListener('mouseover', function (e) {
         const cell = e.target.closest('td, th');
         if (!cell) return;
 
@@ -1585,7 +1585,7 @@ function setupColumnHover() {
         addDateHighlight(dateIndexNum);
     });
 
-    tbody.addEventListener('mouseout', function(e) {
+    tbody.addEventListener('mouseout', function (e) {
         // tbodyから完全に出た場合のみハイライトを削除
         if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
             if (currentHoverDateIndex >= 0) {

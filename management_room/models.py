@@ -366,7 +366,6 @@ class DailyMachiningProductionPlan(models.Model):
     date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
     shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
     production_quantity = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
-    shipment = models.IntegerField(verbose_name="出荷数", null=True, blank=True, default=0)
     stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
     overtime = models.IntegerField(verbose_name="生産残業", null=True, blank=True, default=0)
     occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
