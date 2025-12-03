@@ -118,77 +118,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                 if plan.production_item and plan.shift
             }
 
-            # 日付ベースのデータ構造を構築
-            dates_data = []
-            for date in date_list:
-                date_info = {
-                    'date': date,
-                    'day': date.day,
-                    'weekday': date.weekday(),
-                    'is_weekend': date.weekday() >= 5,
-                    'occupancy_rate': default_occupancy_rate,
-                    'regular_working_hours': False,
-                    'has_data': False,
-                    'shifts': {
-                        'day': {'items': {}, 'stop_time': 0, 'overtime': 0},
-                        'night': {'items': {}, 'stop_time': 0, 'overtime': 0}
-                    }
-                }
-
-                first_plan_for_common = None
-
-                for shift in ['day', 'night']:
-                    first_plan_for_shift = None
-                    for item_name in item_names:
-                        key = (date, shift, item_name)
-                        if key in plans_map:
-                            plan = plans_map[key]
-                            production_qty = plan.production_quantity if plan.production_quantity is not None else 0
-                            date_info['shifts'][shift]['items'][item_name] = {
-                                'production_quantity': production_qty,
-                                'shipment': plan.shipment if plan.shipment is not None else 0
-                            }
-                            date_info['has_data'] = True
-
-                            if first_plan_for_common is None:
-                                first_plan_for_common = plan
-
-                            if first_plan_for_shift is None:
-                                first_plan_for_shift = plan
-                        else:
-                            date_info['shifts'][shift]['items'][item_name] = {
-                                'production_quantity': None,
-                                'shipment': None
-                            }
-
-                    if first_plan_for_shift:
-                        date_info['shifts'][shift]['stop_time'] = first_plan_for_shift.stop_time or 0
-                        date_info['shifts'][shift]['overtime'] = first_plan_for_shift.overtime or 0
-
-                if first_plan_for_common:
-                    if first_plan_for_common.occupancy_rate is not None:
-                        date_info['occupancy_rate'] = first_plan_for_common.occupancy_rate * 100
-                    date_info['regular_working_hours'] = first_plan_for_common.regular_working_hours
-
-                dates_data.append(date_info)
-
-            # 在庫データを日付データに反映
-            for date_info in dates_data:
-                date = date_info['date']
-                for shift in ['day', 'night']:
-                    for item_name in item_names:
-                        stock_key = (date, shift, item_name)
-                        stock_value = stock_map.get(stock_key, None)
-                        if item_name in date_info['shifts'][shift]['items']:
-                            date_info['shifts'][shift]['items'][item_name]['stock'] = stock_value
-                        else:
-                            date_info['shifts'][shift]['items'][item_name] = {
-                                'production_quantity': None,
-                                'shipment': None,
-                                'stock': stock_value
-                            }
-
-            # 組付側の休出日をチェック
+            # 組付側の休出日をチェック + 組付ラインと紐づいていない場合の初期値取得
             machining_items_obj = MachiningItem.objects.filter(line=line, active=True, name__in=item_names)
             assembly_mappings = AssemblyItemMachiningItemMap.objects.filter(
                 machining_item__in=machining_items_obj,
@@ -219,6 +149,152 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                 if plan.production_item and plan.shift and plan.line_id
             }
 
+            # 組付ラインと紐づいていない場合、組付側の出庫数を初期値として使用
+            has_assembly_link = line.assembly is not None
+            assembly_shipment_map = {}  # {(date, shift, item_name): shipment}
+
+            if not has_assembly_link:
+                # AssemblyItemMachiningItemMapから組付側の出庫数（=組付生産数）を取得
+                for date in date_list:
+                    for shift in ['day', 'night']:
+                        for item_name in item_names:
+                            total_assembly_shipment = 0
+                            assembly_items = machining_to_assembly_map.get(item_name, [])
+                            for assembly_item_name, assembly_line_id in assembly_items:
+                                key = (date, shift, assembly_line_id, assembly_item_name)
+                                if key in assembly_plans_map:
+                                    assembly_plan = assembly_plans_map[key]
+                                    total_assembly_shipment += assembly_plan.production_quantity or 0
+
+                            if total_assembly_shipment > 0:
+                                assembly_shipment_map[(date, shift, item_name)] = total_assembly_shipment
+
+            # 日付ベースのデータ構造を構築
+            dates_data = []
+            for date in date_list:
+                date_info = {
+                    'date': date,
+                    'day': date.day,
+                    'weekday': date.weekday(),
+                    'is_weekend': date.weekday() >= 5,
+                    'occupancy_rate': default_occupancy_rate,
+                    'regular_working_hours': False,
+                    'has_data': False,
+                    'shifts': {
+                        'day': {'items': {}, 'stop_time': 0, 'overtime': 0},
+                        'night': {'items': {}, 'stop_time': 0, 'overtime': 0}
+                    }
+                }
+
+                first_plan_for_common = None
+
+                for shift in ['day', 'night']:
+                    first_plan_for_shift = None
+                    for item_name in item_names:
+                        key = (date, shift, item_name)
+                        if key in plans_map:
+                            plan = plans_map[key]
+                            production_qty = plan.production_quantity if plan.production_quantity is not None else 0
+                            shipment_value = plan.shipment if plan.shipment is not None else 0
+                            date_info['shifts'][shift]['items'][item_name] = {
+                                'production_quantity': production_qty,
+                                'shipment': shipment_value
+                            }
+                            date_info['has_data'] = True
+
+                            if first_plan_for_common is None:
+                                first_plan_for_common = plan
+
+                            if first_plan_for_shift is None:
+                                first_plan_for_shift = plan
+                        else:
+                            # 既存データがない場合、組付側の出庫数を初期値として使用
+                            assembly_shipment = None
+                            assembly_production = None
+                            if not has_assembly_link:
+                                shipment_key = (date, shift, item_name)
+                                assembly_shipment = assembly_shipment_map.get(shipment_key, None)
+                                # 生産数も出庫数と同じ値を初期値とする
+                                assembly_production = assembly_shipment
+
+                                # 組付側の出庫数がある場合、has_dataをTrueに設定（土日の休出表示のため）
+                                if assembly_shipment is not None and assembly_shipment > 0:
+                                    date_info['has_data'] = True
+
+                            date_info['shifts'][shift]['items'][item_name] = {
+                                'production_quantity': assembly_production,
+                                'shipment': assembly_shipment
+                            }
+
+                    if first_plan_for_shift:
+                        date_info['shifts'][shift]['stop_time'] = first_plan_for_shift.stop_time or 0
+                        date_info['shifts'][shift]['overtime'] = first_plan_for_shift.overtime or 0
+
+                if first_plan_for_common:
+                    if first_plan_for_common.occupancy_rate is not None:
+                        date_info['occupancy_rate'] = first_plan_for_common.occupancy_rate * 100
+                    date_info['regular_working_hours'] = first_plan_for_common.regular_working_hours
+
+                dates_data.append(date_info)
+
+            # 組付ラインと紐づいていない場合、残業時間を計算
+            if not has_assembly_link:
+                # 定時時間
+                REGULAR_TIME_DAY = 455
+                REGULAR_TIME_NIGHT = 450
+                OVERTIME_ROUND_MINUTES = 5
+
+                for date_info in dates_data:
+                    for shift in ['day', 'night']:
+                        # この直の全品番の生産数を合計
+                        total_production = 0
+                        for item_name in item_names:
+                            item = date_info['shifts'][shift]['items'].get(item_name)
+                            if item and item.get('production_quantity') is not None:
+                                total_production += item['production_quantity']
+
+                        # 生産数がない場合は残業0
+                        if total_production == 0:
+                            date_info['shifts'][shift]['overtime'] = 0
+                            continue
+
+                        # タクトと稼働率を取得
+                        tact = line.tact if line.tact else 0
+                        occupancy_rate = (date_info['occupancy_rate'] / 100) if date_info['occupancy_rate'] else 0
+
+                        if tact == 0 or occupancy_rate == 0:
+                            date_info['shifts'][shift]['overtime'] = 0
+                            continue
+
+                        # 残業時間を計算
+                        regular_time = REGULAR_TIME_DAY if shift == 'day' else REGULAR_TIME_NIGHT
+                        stop_time = date_info['shifts'][shift].get('stop_time', 0)
+
+                        required_time = total_production * tact
+                        available_time = (regular_time - stop_time) * occupancy_rate
+                        overtime_minutes = max(0, required_time - available_time)
+
+                        # 5分刻みに切り上げ
+                        overtime = int((overtime_minutes + OVERTIME_ROUND_MINUTES - 1) // OVERTIME_ROUND_MINUTES * OVERTIME_ROUND_MINUTES)
+                        date_info['shifts'][shift]['overtime'] = overtime
+
+            # 在庫データを日付データに反映
+            for date_info in dates_data:
+                date = date_info['date']
+                for shift in ['day', 'night']:
+                    for item_name in item_names:
+                        stock_key = (date, shift, item_name)
+                        stock_value = stock_map.get(stock_key, None)
+                        if item_name in date_info['shifts'][shift]['items']:
+                            date_info['shifts'][shift]['items'][item_name]['stock'] = stock_value
+                        else:
+                            date_info['shifts'][shift]['items'][item_name] = {
+                                'production_quantity': None,
+                                'shipment': None,
+                                'stock': stock_value
+                            }
+
+            # 組付側の週末休出日チェック
             for date_info in dates_data:
                 date = date_info['date']
                 has_assembly_weekend_work = False

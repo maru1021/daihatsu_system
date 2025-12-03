@@ -710,7 +710,7 @@ function toggleCheck(element) {
     // data-regular-hours属性を更新
     element.setAttribute('data-regular-hours', newText === '定時' ? 'true' : 'false');
 
-    const dateIndex = Array.from(element.parentElement.children).indexOf(element) - 1;
+    const dateIndex = parseInt(element.getAttribute('data-date-index'));
     debouncedUpdateWorkingDayStatus(dateIndex);
 
     // 残業input表示制御を更新
@@ -758,8 +758,8 @@ function setOvertimeLimit(dateIndex, shift, max) {
 
 // 週末の休出状態と平日の定時状態を初期化
 function initializeWeekendWorkingStatus() {
-    document.querySelectorAll('.check-cell').forEach((checkCell, index) => {
-        const dateIndex = index;
+    document.querySelectorAll('.check-cell').forEach((checkCell) => {
+        const dateIndex = parseInt(checkCell.getAttribute('data-date-index'));
         const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
         const isRegularHours = checkCell.getAttribute('data-regular-hours') === 'true';
         const hasAssemblyWeekendWork = checkCell.getAttribute('data-has-assembly-weekend-work') === 'true';
@@ -994,9 +994,12 @@ function saveProductionPlan() {
         const occupancyRateInputs = table.querySelectorAll('.operation-rate-input');
         const dateCount = occupancyRateInputs.length;
 
+        // このテーブルのcheckCellsを取得
+        const checkCells = table.querySelectorAll('.check-cell');
+
         for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
             const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-            const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+            const checkCell = checkCells[dateIndex];
             const checkText = checkCell ? checkCell.textContent.trim() : '';
             const isWeekend = checkCell ? checkCell.getAttribute('data-weekend') === 'true' : false;
             const hadWeekendWork = checkCell ? checkCell.getAttribute('data-has-weekend-work') === 'true' : false;
@@ -1232,7 +1235,7 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex
     if (calculatedOvertime > maxOvertime) {
         const shiftName = shift === 'day' ? '日勤' : '夜勤';
         const date = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`)?.getAttribute('data-date');
-        showToast('error', `${date} ${shiftName}：残業時間が上限に達しています。`);
+        showToast('error', '残業時間が上限に達しています。');
         return false;
     }
 
@@ -1451,7 +1454,8 @@ function removeDateHighlight(dateIndex) {
 function updateOvertimeInputVisibility() {
     const checkCells = document.querySelectorAll('.check-cell');
 
-    checkCells.forEach((checkCell, dateIndex) => {
+    checkCells.forEach((checkCell) => {
+        const dateIndex = parseInt(checkCell.getAttribute('data-date-index'));
         const checkText = checkCell.textContent.trim();
         const isHolidayWork = checkText === '休出';
         const isRegularTime = checkText === '定時';
