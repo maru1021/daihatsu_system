@@ -12,8 +12,9 @@ use context7
   - [performance.md](management_room/production_plan/common/performance.md): 最適化
 
 - **鋳造**: [management_room/production_plan/casting/](management_room/production_plan/casting/)
-  - [mold_management.md](management_room/production_plan/casting/mold_management.md): 金型管理
-  - [algorithm.md](management_room/production_plan/casting/algorithm.md): アルゴリズム
+  - [line_specific_features.md](management_room/production_plan/casting/line_specific_features.md): ライン別機能（ヘッド・ブロック・カバー）
+  - [mold_management.md](management_room/production_plan/casting/mold_management.md): 金型管理（ヘッドのみ）
+  - [algorithm.md](management_room/production_plan/casting/algorithm.md): アルゴリズム（ヘッドのみ）
   - [frontend.md](management_room/production_plan/casting/frontend.md): JS
 
 - **加工**: [management_room/production_plan/machining/](management_room/production_plan/machining/)

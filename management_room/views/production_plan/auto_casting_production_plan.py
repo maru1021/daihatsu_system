@@ -238,21 +238,42 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 prohibited_patterns[f"{item1}_{item2}"] = pattern.count or 2
                 prohibited_patterns[f"{item2}_{item1}"] = pattern.count or 2
 
-            # 自動生産計画を生成
-            result = self._generate_auto_plan(
-                working_days=working_days,
-                machines=machines,
-                item_delivery=item_delivery,
-                prev_inventory=prev_inventory,
-                optimal_inventory=optimal_inventory,
-                item_data=item_data,
-                stop_time_data=stop_time_data,
-                prev_usable_molds=prev_usable_molds,
-                prev_detached_molds=prev_detached_molds,
-                prohibited_patterns=prohibited_patterns,
-                line=line,
-                occupancy_rate=line.occupancy_rate or 1.0
-            )
+            # 稼働率の処理: 1より大きければ%表記（93 = 93%）として100で割る
+            if line.occupancy_rate:
+                occupancy_rate = line.occupancy_rate / 100.0 if line.occupancy_rate > 1.0 else line.occupancy_rate
+            else:
+                occupancy_rate = 1.0
+
+            # ライン名に応じて適切な自動生成メソッドを選択
+            if line.name == 'カバー':
+                # カバーライン用の自動生成（金型管理なし、在庫0-850管理）
+                result = self._generate_auto_plan_cover(
+                    working_days=working_days,
+                    machines=machines,
+                    item_delivery=item_delivery,
+                    prev_inventory=prev_inventory,
+                    optimal_inventory=optimal_inventory,
+                    item_data=item_data,
+                    stop_time_data=stop_time_data,
+                    line=line,
+                    occupancy_rate=occupancy_rate
+                )
+            else:
+                # ヘッドライン用の自動生成（既存アルゴリズム）
+                result = self._generate_auto_plan(
+                    working_days=working_days,
+                    machines=machines,
+                    item_delivery=item_delivery,
+                    prev_inventory=prev_inventory,
+                    optimal_inventory=optimal_inventory,
+                    item_data=item_data,
+                    stop_time_data=stop_time_data,
+                    prev_usable_molds=prev_usable_molds,
+                    prev_detached_molds=prev_detached_molds,
+                    prohibited_patterns=prohibited_patterns,
+                    line=line,
+                    occupancy_rate=occupancy_rate
+                )
 
             return JsonResponse({
                 'status': 'success',
@@ -1250,3 +1271,438 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
             'unused_molds': unused_molds_data
         }
 
+    def _generate_auto_plan_cover(self, working_days, machines, item_delivery, prev_inventory,
+                                  optimal_inventory, item_data, stop_time_data, line, occupancy_rate):
+        """
+        カバーライン用の自動生産計画を生成
+
+        【カバーラインの特徴】
+        - 金型管理なし（6直制約なし）
+        - 型替え可能品番の概念なし
+        - 在庫数が0になる前の直までにできる限り生産
+        - 各品番の在庫数が850個を超えないように残業時間を調整
+        - 同一品番でも設備が異なればタクトが違う
+
+        【絶対制約】
+        - 在庫数を0にしない
+        - 在庫数を850以上にしない
+
+        Args:
+            working_days (list): 稼働日リスト
+            machines (list): 設備リスト
+            item_delivery (dict): 出庫計画 {品番: [{'date': date, 'shift': str, 'count': int}]}
+            prev_inventory (dict): 前月末在庫 {品番: 個数}
+            optimal_inventory (dict): 適正在庫 {品番: 個数}
+            item_data (dict): 品番-設備マスタデータ {key: {'name': str, 'tact': float, 'yield_rate': float, 'machine_id': int}}
+            stop_time_data (list): 計画停止データ [{'date': date, 'shift': str, 'machine_id': int, 'stop_time': int}]
+            line: 鋳造ライン
+            occupancy_rate (float): 稼働率
+
+        Returns:
+            dict: {
+                'plans': [plan_dict, ...],
+                'unused_molds': []
+            }
+        """
+        import os
+        from datetime import datetime
+        import math
+
+        # 定数
+        BASE_TIME = {'day': 455, 'night': 450}  # 基本稼働時間（分）
+        OVERTIME_MAX = {'day': 120, 'night': 60}  # 残業上限（分）
+        MIN_STOCK = 0  # 最小在庫（下回らないようにする）
+        MAX_STOCK = 850  # 最大在庫（上回らないようにする）
+        CHANGEOVER_TIME = line.changeover_time or 90  # 型替え時間（分）
+
+        # ログファイルの設定
+        log_dir = os.path.dirname(os.path.abspath(__file__))
+        log_file_path = os.path.join(log_dir, 'inventory_simulation_log_cover.txt')
+
+        # 既存のログファイルを削除
+        if os.path.exists(log_file_path):
+            os.remove(log_file_path)
+
+        # ログファイルを開く
+        log_file = open(log_file_path, 'w', encoding='utf-8')
+        log_file.write("=" * 80 + "\n")
+        log_file.write("カバーライン 鋳造生産計画 在庫シミュレーションログ\n")
+        log_file.write(f"生成日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        log_file.write("=" * 80 + "\n\n")
+
+        # 全シフトのリスト（日付×シフト）
+        all_shifts = []
+        for date in working_days:
+            all_shifts.append((date, 'day'))
+            # 土日（weekday: 5=土曜, 6=日曜）は夜勤なし
+            if date.weekday() < 5:
+                all_shifts.append((date, 'night'))
+
+        # 計画停止データを辞書化
+        stop_time_dict = {}
+        for stop in stop_time_data:
+            key = (stop['date'], stop['shift'], stop['machine_id'])
+            stop_time_dict[key] = stop['stop_time']
+
+        # 品番リストを作成
+        all_item_names = set()
+        for key, data in item_data.items():
+            all_item_names.add(data['name'])
+
+        # 在庫シミュレーション用の変数を初期化
+        inventory = {item: prev_inventory.get(item, 0) for item in all_item_names}
+
+        # 各鋳造機の生産計画
+        machine_plans = {m.id: [] for m in machines}
+
+        # 各鋳造機の現在の品番（品番変更時の型替え時間判定用）
+        machine_current_item = {m.id: None for m in machines}
+
+        # ========================================
+        # ヘルパー関数定義
+        # ========================================
+
+        def calculate_production(item_name, machine_id, shift, stop_time=0, overtime=0, changeover_time=0):
+            """指定した品番・設備での生産数を計算"""
+            key = f"{item_name}_{machine_id}"
+            data = item_data.get(key)
+
+            if not data or data['tact'] == 0:
+                return 0, 0  # (総生産数, 良品数)
+
+            working_time = BASE_TIME[shift] - stop_time - changeover_time + overtime
+            if working_time < 0:
+                working_time = 0
+
+            # 総生産数（不良品も含む）
+            total_production = math.floor((working_time / data['tact']) * occupancy_rate)
+            # 良品数
+            good_production = math.floor(total_production * data['yield_rate'])
+
+            return total_production, good_production
+
+        def calculate_shifts_until_stockout(item_name, current_shift_idx):
+            """品番の在庫が0になるまでの残り直数を計算"""
+            simulated_inv = inventory.get(item_name, 0)
+
+            for idx in range(current_shift_idx, len(all_shifts)):
+                sim_date, sim_shift = all_shifts[idx]
+
+                # この直での出庫数
+                delivery = 0
+                for d in item_delivery.get(item_name, []):
+                    if d['date'] == sim_date and d['shift'] == sim_shift:
+                        delivery = d['count']
+                        break
+
+                # 出庫
+                simulated_inv -= delivery
+
+                # 在庫が0以下になる場合、残り直数を返す
+                if simulated_inv <= 0:
+                    return idx - current_shift_idx
+
+            # 月末まで在庫切れしない場合、大きい値を返す
+            return float('inf')
+
+        def find_most_urgent_item_for_machine(machine_id, current_shift_idx):
+            """この設備で最も緊急度の高い品番を見つける"""
+            # この設備で生産可能な品番リストを取得
+            machine_items = []
+            for key, data in item_data.items():
+                if data['machine_id'] == machine_id:
+                    item_name = data['name']
+                    if item_name not in machine_items:
+                        machine_items.append(item_name)
+
+            if not machine_items:
+                return None
+
+            # 各品番の緊急度を計算
+            urgency_list = []
+            for item_name in machine_items:
+                shifts_until_stockout = calculate_shifts_until_stockout(item_name, current_shift_idx)
+                current_stock = inventory.get(item_name, 0)
+                urgency_list.append((item_name, shifts_until_stockout, current_stock))
+
+            # 緊急度順にソート（在庫切れまでの直数が少ない順、同じなら在庫が少ない順）
+            urgency_list.sort(key=lambda x: (x[1], x[2]))
+
+            # 最も緊急度の高い品番を返す
+            return urgency_list[0][0]
+
+        def calculate_optimal_overtime(item_name, machine_id, shift, stop_time, changeover_time, current_shift_planned_production):
+            """在庫が850を超えないように最適な残業時間を計算（5分刻み）
+
+            Args:
+                item_name: 品番
+                machine_id: 設備ID
+                shift: シフト
+                stop_time: 停止時間
+                changeover_time: 型替え時間
+                current_shift_planned_production: この直で既に計画された生産数（他の設備分）
+            """
+            current_stock = inventory.get(item_name, 0) + current_shift_planned_production
+
+            # 残業なしの場合の生産数を計算
+            _, good_production_no_overtime = calculate_production(
+                item_name, machine_id, shift, stop_time, 0, changeover_time
+            )
+
+            # 残業なしで850を超えない場合、最大残業時間を使用
+            if current_stock + good_production_no_overtime <= MAX_STOCK:
+                # 最大残業時間での生産数を計算
+                _, good_production_max_overtime = calculate_production(
+                    item_name, machine_id, shift, stop_time, OVERTIME_MAX[shift], changeover_time
+                )
+
+                # 最大残業でも850を超えない場合、最大残業時間を返す
+                if current_stock + good_production_max_overtime <= MAX_STOCK:
+                    return OVERTIME_MAX[shift]
+
+            # 在庫が850を超えないように残業時間を調整（5分刻み）
+            optimal_overtime = 0
+
+            for overtime in range(0, OVERTIME_MAX[shift] + 1, 5):
+                _, good_production = calculate_production(
+                    item_name, machine_id, shift, stop_time, overtime, changeover_time
+                )
+
+                if current_stock + good_production <= MAX_STOCK:
+                    optimal_overtime = overtime
+                else:
+                    break
+
+            return optimal_overtime
+
+        # ========================================
+        # メインループ: 各直で生産計画を立てる
+        # ========================================
+
+        # デバッグ: 設備と品番のマッピングを確認
+        log_file.write("\n" + "=" * 80 + "\n")
+        log_file.write("【設備と品番のマッピング確認】\n")
+        log_file.write("=" * 80 + "\n\n")
+        log_file.write(f"稼働率: {occupancy_rate}\n\n")
+        for machine in machines:
+            log_file.write(f"設備#{machine.name} (ID:{machine.id}):\n")
+            machine_items = []
+            for key, data in item_data.items():
+                if data['machine_id'] == machine.id:
+                    item_name = data['name']
+                    if item_name not in machine_items:
+                        machine_items.append(item_name)
+                        log_file.write(f"  - {item_name} (タクト:{data['tact']}秒, 良品率:{data['yield_rate']})\n")
+            if not machine_items:
+                log_file.write(f"  ※生産可能な品番なし\n")
+            log_file.write("\n")
+
+        log_file.write("\n" + "=" * 80 + "\n")
+        log_file.write("【初期在庫】\n")
+        log_file.write("=" * 80 + "\n\n")
+        for item_name in sorted(all_item_names):
+            log_file.write(f"  {item_name}: {inventory.get(item_name, 0)} 台\n")
+        log_file.write("\n")
+
+        for shift_idx, (date, shift) in enumerate(all_shifts):
+            log_file.write("\n" + "=" * 80 + "\n")
+            log_file.write(f"【{date} {shift}直】\n")
+            log_file.write("=" * 80 + "\n\n")
+
+            # 出荷処理
+            log_file.write("--- 出荷処理 ---\n")
+            for item_name in sorted(all_item_names):
+                delivery = 0
+                for d in item_delivery.get(item_name, []):
+                    if d['date'] == date and d['shift'] == shift:
+                        delivery = d['count']
+                        break
+
+                if delivery > 0:
+                    before_stock = inventory.get(item_name, 0)
+                    after_stock = before_stock - delivery
+                    inventory[item_name] = after_stock
+                    log_file.write(f"  {item_name}: {before_stock} → {after_stock} (出荷: {delivery}台)\n")
+            log_file.write("\n")
+
+            # ステップ1: 全設備の品番を決定する（在庫は更新しない）
+            log_file.write("--- 生産計画（品番選択） ---\n")
+            shift_plans = []  # この直の全設備の計画を一時保存
+            planned_production_by_item = defaultdict(int)  # 品番ごとの計画生産数（良品）
+            assigned_machines = set()  # 既に割り当て済みの設備
+
+            # 全品番の緊急度を評価
+            item_urgency = []
+            for item_name in all_item_names:
+                shifts_until_stockout = calculate_shifts_until_stockout(item_name, shift_idx)
+                current_stock = inventory.get(item_name, 0)
+                item_urgency.append({
+                    'item_name': item_name,
+                    'shifts_until_stockout': shifts_until_stockout,
+                    'current_stock': current_stock,
+                    'is_critical': shifts_until_stockout <= 1  # 次の直で在庫切れ
+                })
+
+            # 緊急度順にソート（在庫切れまでの直数が少ない順、同じなら在庫が少ない順）
+            item_urgency.sort(key=lambda x: (x['shifts_until_stockout'], x['current_stock']))
+
+            log_file.write(f"  品番緊急度評価:\n")
+            for item_info in item_urgency:
+                log_file.write(f"    {item_info['item_name']}: "
+                             f"在庫切れまで{item_info['shifts_until_stockout']}直, "
+                             f"現在在庫{item_info['current_stock']}台\n")
+            log_file.write("\n")
+
+            # 緊急度の高い品番から順に設備を割り当てる
+            for item_info in item_urgency:
+                item_name = item_info['item_name']
+
+                # この品番を生産できる未割り当ての設備を探す
+                available_machines = []
+                for machine in machines:
+                    if machine.id in assigned_machines:
+                        continue
+
+                    # この設備でこの品番が生産可能かチェック
+                    key = f"{item_name}_{machine.id}"
+                    if key in item_data:
+                        available_machines.append(machine)
+
+                if not available_machines:
+                    # この品番を生産できる設備がない、または全設備割り当て済み
+                    continue
+
+                # 最初の利用可能な設備を割り当て
+                machine = available_machines[0]
+
+                # 計画停止時間を取得
+                stop_time = stop_time_dict.get((date, shift, machine.id), 0)
+
+                # 品番変更の有無を判定
+                prev_item = machine_current_item.get(machine.id)
+                changeover_time = 0
+                if prev_item and prev_item != item_name:
+                    changeover_time = CHANGEOVER_TIME
+
+                # この直で既に計画されたこの品番の生産数を取得
+                current_shift_planned = planned_production_by_item.get(item_name, 0)
+
+                # 最適な残業時間を計算（在庫が850を超えないように）
+                optimal_overtime = calculate_optimal_overtime(
+                    item_name, machine.id, shift, stop_time, changeover_time, current_shift_planned
+                )
+
+                # 生産数を計算
+                total_prod, good_prod = calculate_production(
+                    item_name, machine.id, shift, stop_time, optimal_overtime, changeover_time
+                )
+
+                # この直の計画を一時保存
+                shift_plans.append({
+                    'machine': machine,
+                    'item_name': item_name,
+                    'overtime': optimal_overtime,
+                    'stop_time': stop_time,
+                    'changeover_time': changeover_time,
+                    'total_production': total_prod,
+                    'good_production': good_prod
+                })
+
+                # 計画生産数を記録
+                planned_production_by_item[item_name] += good_prod
+
+                # 設備を割り当て済みとしてマーク
+                assigned_machines.add(machine.id)
+
+                log_file.write(f"  設備#{machine.name}: {item_name} を割り当て "
+                             f"(緊急度: 在庫切れまで{item_info['shifts_until_stockout']}直, "
+                             f"残業:{optimal_overtime}分, 型替:{changeover_time}分)\n")
+
+                # 全設備が割り当て済みならループ終了
+                if len(assigned_machines) >= len(machines):
+                    break
+
+            log_file.write("\n")
+
+            # ステップ2: 計画を確定して在庫を更新
+            log_file.write("--- 生産実行 ---\n")
+            for plan in shift_plans:
+                machine = plan['machine']
+                item_name = plan['item_name']
+                good_prod = plan['good_production']
+                total_prod = plan['total_production']
+
+                # 計画を記録
+                machine_plans[machine.id].append({
+                    'date': date,
+                    'shift': shift,
+                    'item_name': item_name,
+                    'overtime': plan['overtime'],
+                    'stop_time': plan['stop_time'],
+                    'changeover_time': plan['changeover_time']
+                })
+
+                # 現在の品番を更新
+                machine_current_item[machine.id] = item_name
+
+                # 在庫を更新
+                before_stock = inventory.get(item_name, 0)
+                after_stock = before_stock + good_prod
+                inventory[item_name] = after_stock
+
+                # 詳細ログ出力
+                key = f"{item_name}_{machine.id}"
+                data = item_data.get(key)
+                working_time = BASE_TIME[shift] - plan['stop_time'] - plan['changeover_time'] + plan['overtime']
+                log_file.write(f"  設備#{machine.name}: {item_name}\n")
+                log_file.write(f"    基本時間:{BASE_TIME[shift]}分 - 停止:{plan['stop_time']}分 - 型替:{plan['changeover_time']}分 + 残業:{plan['overtime']}分 = 稼働時間:{working_time}分\n")
+                log_file.write(f"    タクト:{data['tact']}秒, 良品率:{data['yield_rate']}, 稼働率:{occupancy_rate}\n")
+                log_file.write(f"    総生産:{total_prod}台, 良品:{good_prod}台\n")
+                log_file.write(f"    在庫: {before_stock} → {after_stock}台\n")
+
+            log_file.write("\n")
+
+            # 直後の在庫
+            log_file.write("--- 直後の在庫 ---\n")
+            for item_name in sorted(all_item_names):
+                log_file.write(f"  {item_name}: {inventory.get(item_name, 0)} 台\n")
+            log_file.write("\n")
+
+        # ログファイルを閉じる
+        log_file.write("\n" + "=" * 80 + "\n")
+        log_file.write("計画完了\n")
+        log_file.write("=" * 80 + "\n")
+        log_file.close()
+
+        # 結果をフォーマット
+        result = []
+        log_file = open(log_file_path, 'a', encoding='utf-8')
+        log_file.write("\n" + "=" * 80 + "\n")
+        log_file.write("【返却データ確認】\n")
+        log_file.write("=" * 80 + "\n\n")
+
+        for machine in machines:
+            log_file.write(f"設備: ID={machine.id}, Name={machine.name}\n")
+            plan_count = 0
+            for plan in machine_plans[machine.id]:
+                plan_count += 1
+                result.append({
+                    'machine_id': machine.id,
+                    'machine_name': machine.name,
+                    'date': plan['date'].isoformat(),
+                    'shift': plan['shift'],
+                    'item_name': plan['item_name'],
+                    'overtime': plan['overtime'],
+                    'mold_count': 0,  # カバーラインでは金型管理なし
+                    'changeover_time': plan['changeover_time']
+                })
+                log_file.write(f"  {plan['date']} {plan['shift']}: {plan['item_name']} (残業:{plan['overtime']}分, 型替:{plan['changeover_time']}分)\n")
+            log_file.write(f"  計画数: {plan_count}件\n\n")
+
+        log_file.write(f"\n返却データ総数: {len(result)}件\n")
+        log_file.close()
+
+        return {
+            'plans': result,
+            'unused_molds': []  # カバーラインでは金型管理なし
+        }

@@ -15,6 +15,18 @@ if (shift === 'day' && (isRegularHours || isHolidayWork)) {
 // 鋳造: 中子=24の倍数
 const coreCount = Math.round(productionValue / 24) * 24;
 
+// 鋳造: ライン別定時時間
+if (isHeadLine) {
+    REGULAR_TIME_DAY = 490;   // ヘッド: 日490分
+    REGULAR_TIME_NIGHT = 485; // ヘッド: 夜485分
+} else {
+    REGULAR_TIME_DAY = 455;   // ブロック・カバー: 日455分
+    REGULAR_TIME_NIGHT = 450; // ブロック・カバー: 夜450分
+}
+
+// 鋳造: 金型管理（ヘッドのみ）
+if (!isHeadLine) return; // ブロック・カバーはスキップ
+
 // コンロッド: 出庫数から比率→残業時間で生産数算出
 const totalProducibleQuantity = Math.ceil((regularTime + overtime - stopTime) / tact * occupancyRate);
 const productionQty = Math.round(totalProducibleQuantity * (shipmentValue / totalShipment));

@@ -3,7 +3,7 @@
 // ========================================
 // このファイルは加工生産計画(machining_production_plan.js)と統一された構造を持ちます
 // 主な違い:
-// - 定時時間: 鋳造 490/485分 vs 加工 455/450分
+// - 定時時間: ヘッド 490/485分、ブロック・カバー 455/450分 vs 加工 455/450分
 // - 設備選択: 鋳造は設備ごとに品番を選択、加工は生産数を直接入力
 // - 在庫計算: 鋳造は設備ベースで自動計算、加工は手動入力と自動計算の混合
 //
@@ -27,8 +27,16 @@
 // ========================================
 // 定数
 // ========================================
-const REGULAR_TIME_DAY = 490;     // 鋳造の日勤定時時間（分）
-const REGULAR_TIME_NIGHT = 485;   // 鋳造の夜勤定時時間（分）
+if (isHeadLine) {
+    REGULAR_TIME_DAY = 490;     // ヘッドラインの日勤定時時間（分）
+    REGULAR_TIME_NIGHT = 485;   // ヘッドラインの夜勤定時時間（分）
+} else {
+    // ブロックライン・カバーライン
+    REGULAR_TIME_DAY = 455;     // 日勤定時時間（分）
+    REGULAR_TIME_NIGHT = 450;   // 夜勤定時時間（分）
+}
+
+
 const OVERTIME_MAX_DAY = 120;     // 日勤の残業上限（分）
 const OVERTIME_MAX_NIGHT = 60;    // 夜勤の残業上限（分）
 const MOLD_CHANGE_THRESHOLD = 6;  // 金型交換が必要な使用回数
@@ -51,7 +59,7 @@ const colorMap = {
 // ========================================
 // グローバル変数（HTMLから渡される）
 // ========================================
-/* global itemData, previousMonthInventory, previousMonthProductionPlans, prevUsableMolds */
+/* global itemData, previousMonthInventory, previousMonthProductionPlans, prevUsableMolds, isHeadLine, isBlockLine, isCoverLine */
 
 // 初期化フラグ（ページ読み込み時はtrue、その後はfalse）
 let isInitializing = true;
@@ -182,6 +190,21 @@ function moveToPrevShift(dateIndex, shift) {
     } else {
         return { dateIndex: dateIndex, shift: 'day' };
     }
+}
+
+/**
+ * 設備インデックスから設備名を取得
+ * @param {number} machineIndex - 設備インデックス（0始まり）
+ * @returns {string|null} - 設備名（例: "#1", "#2"）、見つからない場合はnull
+ */
+function getMachineName(machineIndex) {
+    if (!domConstantCache.facilityNumbers) {
+        buildDOMCache();
+    }
+    // facilityNumbersは全セクション（生産計画日勤、夜勤、金型交換日勤、夜勤）の設備名が含まれる
+    // 生産計画日勤の設備名のみを使用（最初のtotalMachines個）
+    const facilityNumber = domConstantCache.facilityNumbers[machineIndex];
+    return facilityNumber ? facilityNumber.textContent.trim() : null;
 }
 
 // 次の稼働している直のselect要素を取得
@@ -461,8 +484,9 @@ function initializeSelectColors() {
             const machineIndex = parseInt(this.dataset.machineIndex);
 
             // 【重要】変更前の金型情報を保存（updateMoldCountで属性がクリアされる前に）
+            // ヘッドライン以外は金型情報なし
             const moldDisplay = moldCountDisplayCache[shift]?.[dateIndex]?.[machineIndex];
-            const oldMoldInfo = {
+            const oldMoldInfo = !isHeadLine ? null : {
                 isPrevMonthMold: moldDisplay?.getAttribute('data-prev-month-mold') === 'true',
                 prevMonthCount: parseInt(moldDisplay?.getAttribute('data-prev-month-count')) || 0,
                 currentCount: parseInt(moldDisplay?.textContent) || 0
@@ -482,6 +506,11 @@ function initializeSelectColors() {
 // 金型使用数更新
 // ========================================
 function updateMoldCount(dateIndex, shift, machineIndex) {
+    // ヘッドライン以外は金型カウント処理をスキップ
+    if (!isHeadLine) {
+        return;
+    }
+
     // キャッシュから直接取得（O(1)アクセス）
     const select = selectElementCache[shift]?.[dateIndex]?.[machineIndex];
     if (!select) return;
@@ -816,6 +845,18 @@ function clearStaleInheritanceReferences(targetDateIndex, targetShift, targetMac
 
 // 指定した直から後の全ての直の金型使用数を更新
 function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineIndex, oldItem, newItem, oldMoldInfo) {
+    // ヘッドライン以外は金型カウント処理をスキップ
+    if (!isHeadLine) {
+        // 生産数と在庫の再計算のみ実行
+        const dateCount = domConstantCache.dateCount;
+        for (let i = startDateIndex; i < dateCount; i++) {
+            calculateProduction(i, 'day');
+            calculateProduction(i, 'night');
+        }
+        recalculateAllInventory();
+        return;
+    }
+
     const dateCount = domConstantCache.dateCount;
     const totalMachines = domConstantCache.totalMachines;
 
@@ -1334,82 +1375,88 @@ function checkItemChanges() {
         buildDOMCache();
     }
 
-    // 型替えが必要な直をトラッキング
-    const shouldHaveChangeover = new Set();
+    // 金型交換が必要なライン（ヘッド・カバー）のみ型替え処理を実行
+    if (!isBlockLine) {
+        // 型替えが必要な直をトラッキング
+        const shouldHaveChangeover = new Set();
 
-    // 全ての生産計画selectを走査（キャッシュから）
-    vehicleSelectCache.forEach(select => {
-        const currentItem = select.value;
-        const dateIndex = parseInt(select.dataset.dateIndex);
-        const shift = select.dataset.shift;
-        const machineIndex = parseInt(select.dataset.machineIndex);
+        // 全ての生産計画selectを走査（キャッシュから）
+        vehicleSelectCache.forEach(select => {
+            const currentItem = select.value;
+            const dateIndex = parseInt(select.dataset.dateIndex);
+            const shift = select.dataset.shift;
+            const machineIndex = parseInt(select.dataset.machineIndex);
 
-        // 現在の直で品番が選択されていない場合はスキップ
-        if (!currentItem) {
-            return;
-        }
-
-        let shouldHighlight = false;
-
-        // 品番変更チェック: 現在の直と次の直、または前の直を比較
-        // ヘルパー関数を使用して次の稼働している直を取得
-        const nextSelect = getNextWorkingShift(dateIndex, shift, machineIndex);
-        const prevSelect = getPrevWorkingShift(dateIndex, shift, machineIndex);
-
-        // 次の直が存在し、品番が異なる場合
-        // ただし、次の直が空でない場合のみ（次の直が空の場合は型替え不要）
-        if (nextSelect && nextSelect.value && nextSelect.value.trim() !== '' && currentItem !== nextSelect.value) {
-            shouldHighlight = true;
-        }
-
-        // 日勤の場合、前の夜勤との品番変更もチェック
-        // ただし、前の夜勤が空でない場合のみ（前の夜勤が空の場合は型替え不要）
-        if (shift === 'day' && prevSelect && prevSelect.value && prevSelect.value.trim() !== '' && currentItem !== prevSelect.value) {
-            shouldHighlight = true;
-        }
-
-        // 6直連続チェック
-        if (is6ConsecutiveShifts(dateIndex, shift, machineIndex, currentItem)) {
-            shouldHighlight = true;
-        }
-
-        // 金型カウントが6の場合、または手動ブロック(赤)の場合もチェック
-        // キャッシュから取得
-        const moldCountDisplay = moldCountDisplayCache[shift]?.[dateIndex]?.[machineIndex];
-        const isManualBlock = moldCountDisplay && moldCountDisplay.getAttribute('data-manual-block') === 'true';
-        const moldCount = moldCountDisplay ? (parseInt(moldCountDisplay.textContent) || 0) : 0;
-
-        if (shouldHighlight || isManualBlock || (moldCount % MOLD_CHANGE_THRESHOLD === 0 && moldCount > 0)) {
-            const container = select.closest('.select-container');
-            if (container) {
-                container.classList.add('item-changed');
+            // 現在の直で品番が選択されていない場合はスキップ
+            if (!currentItem) {
+                return;
             }
 
-            // この直は型替えが必要とマーク
-            const key = `${shift}-${dateIndex}-${machineIndex}`;
-            shouldHaveChangeover.add(key);
+            let shouldHighlight = false;
 
-            // 金型交換時間を設定
-            const moldChangeInput = getInputElement(
-                `.mold-change-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
-            );
+            // 品番変更チェック: 現在の直と次の直、または前の直を比較
+            // ヘルパー関数を使用して次の稼働している直を取得
+            const nextSelect = getNextWorkingShift(dateIndex, shift, machineIndex);
+            const prevSelect = getPrevWorkingShift(dateIndex, shift, machineIndex);
 
-            if (moldChangeInput && moldChangeInput.style.display !== 'none') {
-                moldChangeInput.value = changeoverTime;
+            // 次の直が存在し、品番が異なる場合
+            // ただし、次の直が空でない場合のみ（次の直が空の場合は型替え不要）
+            if (nextSelect && nextSelect.value && nextSelect.value.trim() !== '' && currentItem !== nextSelect.value) {
+                shouldHighlight = true;
             }
-        }
-    });
 
-    // 型替えが不要な直の入力値を0にリセット
-    moldChangeInputCache.forEach((input, key) => {
-        if (input.style.display !== 'none' && !shouldHaveChangeover.has(key)) {
-            // この直は型替え不要なので0に設定
-            const currentValue = parseInt(input.value) || 0;
-            if (currentValue > 0) {
-                input.value = 0;
+            // 日勤の場合、前の夜勤との品番変更もチェック
+            // ただし、前の夜勤が空でない場合のみ（前の夜勤が空の場合は型替え不要）
+            if (shift === 'day' && prevSelect && prevSelect.value && prevSelect.value.trim() !== '' && currentItem !== prevSelect.value) {
+                shouldHighlight = true;
             }
-        }
-    });
+
+            // 6直連続チェック
+            if (is6ConsecutiveShifts(dateIndex, shift, machineIndex, currentItem)) {
+                shouldHighlight = true;
+            }
+
+            // 金型カウントが6の場合、または手動ブロック(赤)の場合もチェック
+            // キャッシュから取得
+            const moldCountDisplay = moldCountDisplayCache[shift]?.[dateIndex]?.[machineIndex];
+            const isManualBlock = moldCountDisplay && moldCountDisplay.getAttribute('data-manual-block') === 'true';
+            const moldCount = moldCountDisplay ? (parseInt(moldCountDisplay.textContent) || 0) : 0;
+
+            if (shouldHighlight || isManualBlock || (moldCount % MOLD_CHANGE_THRESHOLD === 0 && moldCount > 0)) {
+                const container = select.closest('.select-container');
+                if (container) {
+                    container.classList.add('item-changed');
+                }
+
+                // この直は型替えが必要とマーク
+                const key = `${shift}-${dateIndex}-${machineIndex}`;
+                shouldHaveChangeover.add(key);
+
+                // 金型交換時間を設定
+                const moldChangeInput = getInputElement(
+                    `.mold-change-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
+                );
+
+                if (moldChangeInput && moldChangeInput.style.display !== 'none') {
+                    moldChangeInput.value = changeoverTime;
+                }
+            }
+        });
+
+        // 型替えが不要な直の入力値を0にリセット
+        moldChangeInputCache.forEach((input, key) => {
+            if (input.style.display !== 'none' && !shouldHaveChangeover.has(key)) {
+                // この直は型替え不要なので0に設定
+                const currentValue = parseInt(input.value) || 0;
+                if (currentValue > 0) {
+                    input.value = 0;
+                }
+            }
+        });
+
+        // 引き継ぎの矢印も更新
+        drawInheritanceArrows();
+    }
 
     // 全ての日付・シフトの生産数を再計算（金型交換時間が変更されたため）
     const dateCount = domConstantCache.dateCount;
@@ -1417,9 +1464,6 @@ function checkItemChanges() {
         calculateProduction(i, 'day');
         calculateProduction(i, 'night');
     }
-
-    // 引き継ぎの矢印も更新
-    drawInheritanceArrows();
 }
 
 // ========================================
@@ -1431,97 +1475,106 @@ function applyItemChangeHighlights() {
         buildDOMCache();
     }
 
-    // 全てのselect-containerから品番変更クラスを削除
-    selectContainerCache.forEach(container => {
-        container.classList.remove('item-changed');
-    });
+    // 金型交換が必要なライン（ヘッド・カバー）のみ型替えハイライトを実行
+    if (!isBlockLine) {
+        // 全てのselect-containerから品番変更クラスを削除
+        selectContainerCache.forEach(container => {
+            container.classList.remove('item-changed');
+        });
 
-    // 型替えが必要な直をトラッキング
-    const shouldSetChangeover = new Set();
+        // 型替えが必要な直をトラッキング
+        const shouldSetChangeover = new Set();
 
-    // 全ての生産計画selectを走査（キャッシュから）
-    vehicleSelectCache.forEach(select => {
-        const item = select.value;
-        const shift = select.dataset.shift;
-        const dateIndex = parseInt(select.dataset.dateIndex);
-        const machineIndex = parseInt(select.dataset.machineIndex);
-        const key = `${shift}-${dateIndex}-${machineIndex}`;
+        // 全ての生産計画selectを走査（キャッシュから）
+        vehicleSelectCache.forEach(select => {
+            const item = select.value;
+            const shift = select.dataset.shift;
+            const dateIndex = parseInt(select.dataset.dateIndex);
+            const machineIndex = parseInt(select.dataset.machineIndex);
+            const key = `${shift}-${dateIndex}-${machineIndex}`;
 
-        // 空の場合
-        if (!item || item.trim() === '') {
-            // 型替え時間をクリア
-            const moldChangeInput = moldChangeInputCache.get(key);
-            if (moldChangeInput) {
+            // 空の場合
+            if (!item || item.trim() === '') {
+                // 型替え時間をクリア
+                const moldChangeInput = moldChangeInputCache.get(key);
+                if (moldChangeInput) {
+                    moldChangeInput.value = 0;
+                }
+                return;
+            }
+
+            // mold_countを取得
+            // キャッシュから取得
+            const moldCountDisplay = moldCountDisplayCache[shift]?.[dateIndex]?.[machineIndex];
+            const moldCount = moldCountDisplay ? (parseInt(moldCountDisplay.textContent) || 0) : 0;
+
+            // 条件1: mold_count=6の場合は型替え
+            if (moldCount === 6) {
+                shouldSetChangeover.add(key);
+                return;
+            }
+
+            // 条件2: 次の直で品番が異なる場合
+            // ヘルパー関数を使用して次の稼働している直を取得
+            const nextSelect = getNextWorkingShift(dateIndex, shift, machineIndex);
+
+            // 次の直で品番が異なる場合は型替え
+            if (nextSelect && nextSelect.value !== item) {
+                shouldSetChangeover.add(key);
+            }
+        });
+
+        // 全てのセルに対して型替え時間を設定・クリア + ハイライトを適用
+        moldChangeInputCache.forEach((moldChangeInput, key) => {
+            if (shouldSetChangeover.has(key)) {
+                // 型替え時間を設定
+                moldChangeInput.value = changeoverTime;
+
+                // ハイライト
+                const select = vehicleSelectCache.get(key);
+                if (select) {
+                    const container = select.closest('.select-container');
+                    if (container) {
+                        container.classList.add('item-changed');
+                    }
+                }
+
+                // 夜勤の型替えの場合、残業時間を0にしてdisabledにする（ヘッドラインのみ）
+                const [shift, dateIndex, machineIndex] = key.split('-');
+                if (isHeadLine && shift === 'night') {
+                    const overtimeInput = document.querySelector(
+                        `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
+                    );
+                    if (overtimeInput && overtimeInput.style.display !== 'none') {
+                        overtimeInput.value = 0;
+                        overtimeInput.disabled = true;
+                        overtimeInput.style.backgroundColor = '#f0f0f0';
+                    }
+                }
+            } else {
+                // 型替え条件に該当しない場合は型替え時間をクリア
                 moldChangeInput.value = 0;
-            }
-            return;
-        }
 
-        // mold_countを取得
-        // キャッシュから取得
-        const moldCountDisplay = moldCountDisplayCache[shift]?.[dateIndex]?.[machineIndex];
-        const moldCount = moldCountDisplay ? (parseInt(moldCountDisplay.textContent) || 0) : 0;
-
-        // 条件1: mold_count=6の場合は型替え
-        if (moldCount === 6) {
-            shouldSetChangeover.add(key);
-            return;
-        }
-
-        // 条件2: 次の直で品番が異なる場合
-        // ヘルパー関数を使用して次の稼働している直を取得
-        const nextSelect = getNextWorkingShift(dateIndex, shift, machineIndex);
-
-        // 次の直で品番が異なる場合は型替え
-        if (nextSelect && nextSelect.value !== item) {
-            shouldSetChangeover.add(key);
-        }
-    });
-
-    // 全てのセルに対して型替え時間を設定・クリア + ハイライトを適用
-    moldChangeInputCache.forEach((moldChangeInput, key) => {
-        if (shouldSetChangeover.has(key)) {
-            // 型替え時間を設定
-            moldChangeInput.value = changeoverTime;
-
-            // ハイライト
-            const select = vehicleSelectCache.get(key);
-            if (select) {
-                const container = select.closest('.select-container');
-                if (container) {
-                    container.classList.add('item-changed');
+                // 夜勤の残業inputのdisabledを解除（ヘッドラインのみ）
+                const [shift, dateIndex, machineIndex] = key.split('-');
+                if (isHeadLine && shift === 'night') {
+                    const overtimeInput = document.querySelector(
+                        `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
+                    );
+                    if (overtimeInput) {
+                        overtimeInput.disabled = false;
+                        overtimeInput.style.backgroundColor = '';
+                    }
                 }
             }
+        });
 
-            // 夜勤の型替えの場合、残業時間を0にしてdisabledにする
-            const [shift, dateIndex, machineIndex] = key.split('-');
-            if (shift === 'night') {
-                const overtimeInput = document.querySelector(
-                    `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
-                );
-                if (overtimeInput && overtimeInput.style.display !== 'none') {
-                    overtimeInput.value = 0;
-                    overtimeInput.disabled = true;
-                    overtimeInput.style.backgroundColor = '#f0f0f0';
-                }
-            }
-        } else {
-            // 型替え条件に該当しない場合は型替え時間をクリア
-            moldChangeInput.value = 0;
+        // 再利用可能金型を更新
+        updateReusableMolds();
 
-            // 夜勤の残業inputのdisabledを解除
-            const [shift, dateIndex, machineIndex] = key.split('-');
-            if (shift === 'night') {
-                const overtimeInput = document.querySelector(
-                    `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
-                );
-                if (overtimeInput) {
-                    overtimeInput.disabled = false;
-                    overtimeInput.style.backgroundColor = '';
-                }
-            }
-        }
-    });
+        // 引き継ぎの矢印も更新
+        drawInheritanceArrows();
+    }
 
     // 金型交換時間が変更されたため、全日付の生産数を再計算
     const dateCount = domConstantCache.dateCount;
@@ -1531,16 +1584,15 @@ function applyItemChangeHighlights() {
     }
     // 在庫も再計算
     recalculateAllInventory();
-
-    // 再利用可能金型を更新
-    updateReusableMolds();
-
-    // 引き継ぎの矢印も更新
-    drawInheritanceArrows();
 }
 
 // 6直連続チェック関数（6の倍数直目でハイライト）
 function is6ConsecutiveShifts(dateIndex, shift, machineIndex, currentItem) {
+    // ヘッドライン以外は常にfalse
+    if (!isHeadLine) {
+        return false;
+    }
+
     if (!currentItem) return false;
 
     // 前の直から連続して同じ品番を作っている直数をカウント
@@ -1567,6 +1619,11 @@ function getConsecutiveShiftCountWithSource(dateIndex, shift, machineIndex, curr
 // - 引き継ぎは1箇所のみ: すでに他の設備が引き継いでいる場合は引き継ぎ不可
 // 戻り値: { count: 数値, inherited: boolean, source: {dateIndex, shift, machineIndex} or null }
 function getConsecutiveShiftCount(dateIndex, shift, machineIndex, currentItem) {
+    // ヘッドライン以外は常に0を返す
+    if (!isHeadLine) {
+        return { count: 0, inherited: false, source: null };
+    }
+
     if (!currentItem) return { count: 0, inherited: false, source: null };
 
     let count = 1; // デフォルトは1からスタート
@@ -2139,15 +2196,10 @@ function calculateInventory(dateIndex, shift, itemName) {
     const deliveryInput = inventoryElementCache.delivery[deliveryKey];
     const currentDelivery = parseFloat(deliveryInput?.value) || 0;
 
-    // 自身の直の生産数を取得（inputに変更）
+    // 自身の直の良品生産数を取得（設備ごとの良品率が既に適用済み）
     const productionKey = `${shift}-${itemName}-${dateIndex}`;
     const currentProductionInput = inventoryElementCache.production[productionKey];
-    const currentProduction = parseFloat(currentProductionInput?.value) || 0;
-
-    // 在庫に加算する際は不良率を考慮（良品のみ）
-    const data = itemData[itemName] || {};
-    const yieldRate = data.yield_rate || 1.0;
-    const goodProduction = Math.floor(currentProduction * yieldRate);
+    const goodProduction = parseFloat(currentProductionInput?.value) || 0;
 
     // 在庫数 = 前の直の在庫 + 自身の直の良品生産数 - 自身の直の出庫数
     const inventory = previousInventory + goodProduction - currentDelivery;
@@ -2269,7 +2321,9 @@ function calculateProduction(dateIndex, shift) {
                 machineCount: 0,
                 totalStopTime: 0,
                 totalOvertime: 0,
-                totalMoldChange: 0
+                totalMoldChange: 0,
+                totalProduction: 0,
+                totalGoodProduction: 0
             };
         }
 
@@ -2293,12 +2347,12 @@ function calculateProduction(dateIndex, shift) {
         }
 
         // この設備の残業時間を取得（統一された関数を使用）
-        // 夜勤で型替えがある場合は残業時間を含めない
+        // ヘッドラインで夜勤で型替えがある場合は残業時間を含めない
         const overtimeInput = getInputElement(
             `.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
         );
         if (overtimeInput) {
-            const hasMoldChange = shift === 'night' && moldChangeTime > 0;
+            const hasMoldChange = isHeadLine && shift === 'night' && moldChangeTime > 0;
             if (!hasMoldChange) {
                 itemStats[selectedItem].totalOvertime += getInputValue(overtimeInput);
             }
@@ -2315,10 +2369,13 @@ function calculateProduction(dateIndex, shift) {
         const selectedItem = select.value;
         if (!selectedItem) return;
 
-        const data = itemData[selectedItem];
-        if (!data || data.tact === 0) return;
-
         const machineIndex = parseInt(select.dataset.machineIndex);
+        const machineName = getMachineName(machineIndex);
+        if (!machineName) return;
+
+        // 品番と設備の組み合わせでタクト・良品率を取得
+        const data = itemData[selectedItem]?.[machineName];
+        if (!data || data.tact === 0) return;
 
         // この設備の計画停止時間を取得
         const stopTimeInput = getInputElement(
@@ -2333,13 +2390,13 @@ function calculateProduction(dateIndex, shift) {
         const moldChangeTime = moldChangeInput ? getInputValue(moldChangeInput) : 0;
 
         // この設備の残業時間を取得
-        // 夜勤で型替えがある場合は残業時間を含めない
+        // ヘッドラインで夜勤で型替えがある場合は残業時間を含めない
         const overtimeInput = getInputElement(
             `.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-machine-index="${machineIndex}"]`
         );
         let overtime = 0;
         if (overtimeInput) {
-            const hasMoldChange = shift === 'night' && moldChangeTime > 0;
+            const hasMoldChange = isHeadLine && shift === 'night' && moldChangeTime > 0;
             if (!hasMoldChange) {
                 overtime = getInputValue(overtimeInput);
             }
@@ -2351,23 +2408,27 @@ function calculateProduction(dateIndex, shift) {
         // この設備の生産台数 = (稼働時間 / タクト) × 稼働率（不良品も含む数量）
         const production = Math.floor((workingTime / data.tact) * operationRate);
 
+        // この設備の良品生産数 = 生産台数 × 良品率
+        const yieldRate = data.yield_rate || 1.0;
+        const goodProduction = Math.floor(production * yieldRate);
+
         // 品番ごとに合計
-        if (!itemStats[selectedItem].totalProduction) {
-            itemStats[selectedItem].totalProduction = 0;
-        }
         itemStats[selectedItem].totalProduction += production;
+        itemStats[selectedItem].totalGoodProduction += goodProduction;
     });
 
     // 各品番の生産台数をinputに設定
     Object.keys(itemStats).forEach(itemName => {
         const stats = itemStats[itemName];
         const totalProduction = stats.totalProduction || 0;
+        const totalGoodProduction = stats.totalGoodProduction || 0;
 
-        // 生産台数inputに値を設定（キャッシュを使用）
+        // 生産台数inputに良品生産数を設定（キャッシュを使用）
+        // 在庫として扱われるのは良品のみのため
         const productionKey = `${shift}-${itemName}-${dateIndex}`;
         const productionInput = inventoryElementCache?.production[productionKey];
         if (productionInput) {
-            productionInput.value = totalProduction;
+            productionInput.value = totalGoodProduction;
         }
     });
 
@@ -3300,10 +3361,15 @@ async function applyAutoProductionPlan(planData) {
     // 鋳造機名とインデックスのマッピングを作成
     const machineIndexMap = {};
     const machineRows = document.querySelectorAll('.facility-number');
+
+    // 生産計画の行は日勤N台、夜勤N台、型替えN台×2、残業N台×2、停止N台×2の計8セクションあるので、
+    // 全体の1/8が設備数
+    const machineCount = machineRows.length / 8;
+
     machineRows.forEach((row, index) => {
         const machineName = row.textContent.trim();
-        // 残業計画の行は日勤4つ、夜勤4つあるので、最初の4つだけを使う
-        if (index < 4) {
+        // 日勤の生産計画行のみをマッピング（最初のmachineCount個）
+        if (index < machineCount) {
             machineIndexMap[machineName] = index;
         }
     });
@@ -3405,6 +3471,11 @@ async function applyAutoProductionPlan(planData) {
 // 再利用可能金型の管理
 // ========================================
 function updateReusableMolds() {
+    // ヘッドライン以外は処理をスキップ
+    if (!isHeadLine) {
+        return;
+    }
+
     // 【重要】既存の前月金型（dateIndex=-1）を一時保存
     // 品番変更時に追加された前月金型（end_of_month=trueを含む）を保持するため
     const existingPrevMonthMolds = reusableMolds.filter(m => m.dateIndex === -1 && m.shift === 'prev_month');
@@ -3532,6 +3603,11 @@ function updateReusableMolds() {
 // 金型引き継ぎの矢印表示
 // ========================================
 function drawInheritanceArrows() {
+    // ヘッドライン以外は処理をスキップ
+    if (!isHeadLine) {
+        return;
+    }
+
     const svg = document.getElementById('inheritance-arrows');
     if (!svg) {
         console.warn('SVG element not found');
@@ -4295,9 +4371,17 @@ function calculateMoltenMetalPotAndCore() {
     const itemNames = Object.keys(itemData);
 
     // molten_metal_usageを事前にキャッシュ（繰り返しアクセスを削減）
+    // 品番と設備の組み合わせで保存されているため、最初の設備から取得
     const moltenMetalUsageCache = {};
     itemNames.forEach(itemName => {
-        moltenMetalUsageCache[itemName] = itemData[itemName].molten_metal_usage || 0;
+        const machineData = itemData[itemName];
+        if (machineData) {
+            // 最初の設備のmolten_metal_usageを取得（全設備で同じ値）
+            const firstMachine = Object.keys(machineData)[0];
+            moltenMetalUsageCache[itemName] = machineData[firstMachine]?.molten_metal_usage || 0;
+        } else {
+            moltenMetalUsageCache[itemName] = 0;
+        }
     });
 
     // 各直の計算（dayとnightを配列で管理）

@@ -35,6 +35,11 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
         else:
             line = CastingLine.objects.get(name='ヘッド')
 
+        # ライン種別の判定
+        is_head_line = line.name == 'ヘッド'
+        is_block_line = line.name == 'ブロック'
+        is_cover_line = line.name == 'カバー'
+
         # 品番を取得（一覧から重複なし）
         item_names = list(CastingItem.objects.filter(line=line, active=True).values_list('name', flat=True).distinct())
 
@@ -47,6 +52,9 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             date__gte=start_date,
             date__lte=end_date
         ).select_related('machine', 'production_item').order_by('date', 'machine', 'production_item', 'shift')
+
+        # ブロックラインでデータが1件もない場合のフラグ
+        has_no_data = is_block_line and not plans.exists()
 
         # ラインのデフォルト稼働率を取得（パーセント表示用に100倍）
         default_occupancy_rate = (line.occupancy_rate * 100) if line.occupancy_rate else ''
@@ -336,6 +344,12 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         # 既存の計画から取得
                         selected_item = plan.production_item.name
                         mold_count = plan.mold_count if plan.mold_count is not None else 0
+                    elif has_no_data and not is_weekend:
+                        # ブロックラインで対象月にデータが1件もない場合のデフォルト値
+                        if machine_name == '#2':
+                            selected_item = 'VE'
+                        elif machine_name == '#4':
+                            selected_item = 'VE7'
 
                     date_data['shifts'][shift]['machines'][machine_name] = {
                         'machine_id': machine_id,
@@ -353,22 +367,27 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             dates_data.append(date_data)
 
 
-        # 品番ごとのタクトと良品率を取得（計算用）
-        # 品番に対して複数の鋳造機がある場合は、最初のマッピングのタクトと良品率を使用
+        # 品番と設備の組み合わせごとのタクトと良品率を取得（計算用）
+        # データ構造: item_data[品番名][設備名] = {tact, yield_rate, molten_metal_usage}
         item_data = {}
         for item_name in item_names:
-            # 品番名で最初に見つかったマッピングのタクトと良品率を使用
-            item_map = CastingItemMachineMap.objects.filter(
+            item_data[item_name] = {}
+
+            # この品番に対するすべての設備マッピングを取得
+            item_maps = CastingItemMachineMap.objects.filter(
                 line=line,
                 casting_item__name=item_name,
                 active=True
-            ).select_related('casting_item').first()
-            if item_map:
-                item_data[item_name] = {
-                    'tact': item_map.tact if item_map.tact else 0,
-                    'yield_rate': item_map.yield_rate if item_map.yield_rate else 0,
-                    'molten_metal_usage': item_map.casting_item.molten_metal_usage if item_map.casting_item.molten_metal_usage else 0
-                }
+            ).select_related('casting_item', 'machine')
+
+            for item_map in item_maps:
+                if item_map.machine:
+                    machine_name = item_map.machine.name
+                    item_data[item_name][machine_name] = {
+                        'tact': item_map.tact if item_map.tact else 0,
+                        'yield_rate': item_map.yield_rate if item_map.yield_rate else 0,
+                        'molten_metal_usage': item_map.casting_item.molten_metal_usage if item_map.casting_item.molten_metal_usage else 0
+                    }
         lines_list = list(CastingLine.objects.filter(active=True).order_by('name').values('id', 'name'))
 
         # 適正在庫と月末在庫を比較
@@ -432,6 +451,9 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             'item_total_rows': item_total_rows,  # 品番ごとのセクションの総行数
             'machine_total_rows': machine_total_rows,  # 鋳造機ごとのセクションの総行数
             'changeover_time': changeover_time,  # ラインの段取時間（分）
+            'is_head_line': is_head_line,  # ヘッドラインかどうか（全機能有効）
+            'is_block_line': is_block_line,  # ブロックラインかどうか（型替え不要）
+            'is_cover_line': is_cover_line,  # カバーラインかどうか（型替え時間のみ）
         }
 
         return render(request, self.template_file, context)

@@ -486,6 +486,10 @@ function updateProductionQuantity(dateIndex, shift, itemName, forceUpdate = fals
                 return;
             }
         }
+
+        // 出庫数がない場合は生産数を0にする
+        productionInput.value = 0;
+        return;
     }
 
     const quantity = calculateProductionQuantity(dateIndex, shift, itemName, lineIndex);
