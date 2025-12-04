@@ -20,6 +20,7 @@ use context7
   - [overview.md](management_room/production_plan/machining/overview.md): 概要・モデル
   - [backend.md](management_room/production_plan/machining/backend.md): Python
   - [frontend.md](management_room/production_plan/machining/frontend.md): JS
+  - [conrod_special_handling.md](management_room/production_plan/machining/conrod_special_handling.md): コンロッド特別処理
 
 ## 規約
 

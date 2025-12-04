@@ -306,12 +306,38 @@ function calculateProductionQuantity(dateIndex, shift, itemName, lineIndex) {
     // キャッシュから残業時間入力を取得
     const overtimeInput = getCachedInput('overtime', lineIndex, dateIndex, shift) ||
         getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-    const overtime = getInputValue(overtimeInput);
+    let overtime = getInputValue(overtimeInput);
 
     // キャッシュから計画停止入力を取得
     const stopTimeInput = getCachedInput('stopTime', lineIndex, dateIndex, shift) ||
         getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
     const stopTime = getInputValue(stopTimeInput);
+
+    // チェックセル取得（土日・定時判定用）
+    const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+    const isWeekend = checkCell?.getAttribute('data-weekend') === 'true';
+    const isHolidayWork = checkCell?.textContent.trim() === '休出';
+    const isRegularHours = checkCell?.getAttribute('data-regular-hours') === 'true';
+
+    // 残業上限を適用
+    const maxOvertime = shift === 'day' ? OVERTIME_MAX_DAY : OVERTIME_MAX_NIGHT;
+
+    // 土日で休出でない場合は残業0
+    if (isWeekend && !isHolidayWork) {
+        overtime = 0;
+    }
+    // 日勤で定時チェックがある場合は残業0
+    else if (shift === 'day' && isRegularHours) {
+        overtime = 0;
+    }
+    // 土日の休出の場合は残業0
+    else if (isWeekend && isHolidayWork) {
+        overtime = 0;
+    }
+    // 通常時は残業上限を適用
+    else {
+        overtime = Math.min(overtime, maxOvertime);
+    }
 
     const productionTime = regularTime + overtime - stopTime;
     if (productionTime <= 0) return 0;
@@ -324,6 +350,99 @@ function calculateProductionQuantity(dateIndex, shift, itemName, lineIndex) {
     const result = Math.round(baseQuantity * ratio);
 
     return result;
+}
+
+// コンロッドライン用：出庫数の比率から残業時間に応じた生産数を計算
+function calculateConrodProductionByRatio(lineIndex, dateIndex, shift) {
+    const tables = domCache.tables || document.querySelectorAll('table[data-line-index]');
+    const table = tables[lineIndex];
+    const lineName = table?.getAttribute('data-line-name');
+
+    // コンロッドラインでない場合は処理しない
+    if (!lineName || !lineName.includes('コンロッド')) {
+        return false;
+    }
+
+    // 残業時間を取得
+    const overtimeInput = getCachedInput('overtime', lineIndex, dateIndex, shift) ||
+        getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+
+    const overtime = overtimeInput ? (parseInt(overtimeInput.value) || 0) : 0;
+
+    // タクトと稼働率を取得
+    const itemData = linesItemData[lineIndex] || {};
+    const tact = itemData.tact || 0;
+    if (tact === 0) return false;
+
+    const occupancyRateInput = getCachedInput('operationRate', lineIndex, dateIndex) ||
+        getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+    const occupancyRate = occupancyRateInput ? (parseFloat(occupancyRateInput.value) || 0) / 100 : 0;
+    if (occupancyRate === 0) return false;
+
+    // 停止時間を取得
+    const stopTimeInput = getCachedInput('stopTime', lineIndex, dateIndex, shift) ||
+        getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+    const stopTime = getInputValue(stopTimeInput);
+
+    // 定時間を取得
+    const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
+
+    // チェックセル取得（土日・定時判定用）
+    const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+    const isWeekend = checkCell?.getAttribute('data-weekend') === 'true';
+    const isHolidayWork = checkCell?.textContent.trim() === '休出';
+    const isRegularHours = checkCell?.getAttribute('data-regular-hours') === 'true';
+
+    // 残業上限を適用
+    let effectiveOvertime = overtime;
+    const maxOvertime = shift === 'day' ? OVERTIME_MAX_DAY : OVERTIME_MAX_NIGHT;
+
+    // 土日で休出でない場合、日勤で定時チェックがある場合、土日の休出の場合は残業0
+    if ((isWeekend && !isHolidayWork) || (shift === 'day' && isRegularHours) || (isWeekend && isHolidayWork)) {
+        effectiveOvertime = 0;
+    } else {
+        effectiveOvertime = Math.min(effectiveOvertime, maxOvertime);
+    }
+
+    // 総生産可能時間
+    const totalProductionTime = regularTime + effectiveOvertime - stopTime;
+    if (totalProductionTime <= 0) return false;
+
+    // 総生産可能台数
+    const totalProducibleQuantity = Math.ceil(totalProductionTime / tact * occupancyRate);
+
+    // 出庫数から比率を計算
+    const itemNames = getItemNames(lineIndex);
+    const shipmentRatios = {};
+    let totalShipment = 0;
+
+    itemNames.forEach(name => {
+        const shipmentInput = getCachedInput('shipment', lineIndex, dateIndex, shift, name) ||
+            getInputElement(`.shipment-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+
+        const shipmentValue = shipmentInput ? (parseInt(shipmentInput.value) || 0) : 0;
+        shipmentRatios[name] = shipmentValue;
+        totalShipment += shipmentValue;
+    });
+
+    if (totalShipment === 0) {
+        return false;
+    }
+
+    // 比率に応じて生産数を配分
+    itemNames.forEach(name => {
+        const ratio = shipmentRatios[name] / totalShipment;
+        const productionQty = Math.round(totalProducibleQuantity * ratio);
+
+        const productionInput = getCachedInput('production', lineIndex, dateIndex, shift, name) ||
+            getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+
+        if (productionInput && productionInput.style.display !== 'none') {
+            productionInput.value = productionQty;
+        }
+    });
+
+    return true;
 }
 
 // 生産数の入力フィールドを更新
@@ -339,11 +458,24 @@ function updateProductionQuantity(dateIndex, shift, itemName, forceUpdate = fals
     // DBに保存されたデータがある場合はスキップ（data-has-db-value属性で判定）
     const hasDbValue = productionInput.dataset.hasDbValue === 'true';
     if (!forceUpdate && hasDbValue) {
+        // DBに保存された値がある場合はそのまま使用（何もしない）
         return;
     }
 
-    // 生産数データがDBにない場合（初期表示時）は、まず出庫数をチェック
+    // 生産数データがDBにない場合（初期表示時）
     if (!forceUpdate && !hasDbValue) {
+        // コンロッドラインかチェック
+        const tables = domCache.tables || document.querySelectorAll('table[data-line-index]');
+        const table = tables[lineIndex];
+        const lineName = table?.getAttribute('data-line-name');
+
+        // コンロッドラインの場合は出庫数をコピーせず、後でperformInitialCalculationsで計算する
+        if (lineName && lineName.includes('コンロッド')) {
+            // ここでは何もしない（値を設定しない）
+            return;
+        }
+
+        // 通常ライン：出庫数をコピー
         const shipmentInput = getCachedInput('shipment', lineIndex, dateIndex, shift, itemName) ||
             getInputElement(`.shipment-input[data-shift="${shift}"][data-item="${itemName}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
 
@@ -1633,7 +1765,9 @@ async function performInitialCalculations() {
         }
     });
 
-    // 初期表示時にすべての生産数を設定（出庫数からコピー）
+    // 初期表示時にすべての生産数を設定
+    // - 通常ライン: 出庫数をコピー
+    // - コンロッドライン: この時点では何もしない（後で残業時間から計算）
     updateAllProductionQuantities();
 
     // 生産数設定後に比率を保存
@@ -1641,6 +1775,32 @@ async function performInitialCalculations() {
     const dateCount = domCache.dateCount || document.querySelectorAll('.operation-rate-input[data-line-index="0"]').length;
 
     tables.forEach((table, lineIndex) => {
+        const lineName = table?.getAttribute('data-line-name');
+
+        // コンロッドラインの場合、出庫数の比率から残業時間に応じた生産数を計算
+        // 処理の流れ：
+        // 1. 出庫数（3倍済み）から各品番の比率を算出
+        // 2. (定時間+残業時間)/タクト*稼働率 で生産可能台数を算出
+        // 3. 生産可能台数を比率で配分して各品番の生産数を設定
+        if (lineName && lineName.includes('コンロッド')) {
+            for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+                ['day', 'night'].forEach(shift => {
+                    // 生産数がDBに保存されていない場合のみ計算
+                    const itemNames = getItemNames(lineIndex);
+                    const hasAnyDbValue = itemNames.some(name => {
+                        const input = getCachedInput('production', lineIndex, dateIndex, shift, name);
+                        return input && input.dataset.hasDbValue === 'true';
+                    });
+
+                    // DBにデータがない場合のみ計算を実行
+                    if (!hasAnyDbValue) {
+                        calculateConrodProductionByRatio(lineIndex, dateIndex, shift);
+                    }
+                });
+            }
+        }
+
+        // 全ラインの比率を保存（コンロッドは計算後の生産数から比率を保存）
         for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
             ['day', 'night'].forEach(shift => {
                 saveProductionRatios(lineIndex, dateIndex, shift);
@@ -1673,7 +1833,7 @@ function getTotalProductionForShift(lineIndex, dateIndex, shift) {
 }
 
 // 生産数から必要な残業時間を逆算
-function calculateRequiredOvertime(totalProduction, tact, occupancyRate, stopTime, shift) {
+function calculateRequiredOvertime(totalProduction, tact, occupancyRate, stopTime, shift, dateIndex, lineIndex) {
     const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
     const regularProductionTime = regularTime - stopTime;
 
@@ -1686,6 +1846,17 @@ function calculateRequiredOvertime(totalProduction, tact, occupancyRate, stopTim
     const additionalProduction = totalProduction - regularTotalProduction;
 
     if (additionalProduction <= 0) {
+        return 0;
+    }
+
+    // チェックセル取得（土日・定時判定用）
+    const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+    const isWeekend = checkCell?.getAttribute('data-weekend') === 'true';
+    const isHolidayWork = checkCell?.textContent.trim() === '休出';
+    const isRegularHours = checkCell?.getAttribute('data-regular-hours') === 'true';
+
+    // 土日で休出でない場合、または日勤で定時チェックがある場合、または土日の休出の場合は残業0
+    if ((isWeekend && !isHolidayWork) || (shift === 'day' && isRegularHours) || (isWeekend && isHolidayWork)) {
         return 0;
     }
 
@@ -1712,7 +1883,9 @@ function calculateInitialOvertimes() {
                 const overtimeInput = getCachedInput('overtime', lineIndex, dateIndex, shift) ||
                     getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
 
-                if (!overtimeInput || overtimeInput.style.display === 'none' || overtimeInput.dataset.hasDbValue === 'true') {
+                // DBにデータがある場合はスキップ
+                if (!overtimeInput || overtimeInput.style.display === 'none' ||
+                    overtimeInput.dataset.hasDbValue === 'true') {
                     return;
                 }
 
@@ -1739,7 +1912,7 @@ function calculateInitialOvertimes() {
                 const stopTime = getInputValue(stopTimeInput);
 
                 // 残業時間を計算
-                const calculatedOvertime = calculateRequiredOvertime(totalProduction, tact, occupancyRate, stopTime, shift);
+                const calculatedOvertime = calculateRequiredOvertime(totalProduction, tact, occupancyRate, stopTime, shift, dateIndex, lineIndex);
 
                 // プログラマティックな変更を示すフラグを設定（inputイベントを抑制）
                 overtimeInput.dataset.programmaticChange = 'true';

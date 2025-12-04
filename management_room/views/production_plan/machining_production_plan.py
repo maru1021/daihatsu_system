@@ -119,6 +119,35 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                 date__lte=date_list[-1]
             ).select_related('production_item').order_by('date', 'shift', 'production_item')
 
+            # コンロッドラインでデータがない場合、ヘッドラインの残業時間・計画停止・定時休出情報を取得
+            # 注意: 稼働率はコンロッドライン自身のものを使用
+            head_data_map = {}  # {(date, shift): {'overtime': x, 'stop_time': y, 'regular_working_hours': bool}}
+            if line_name == 'コンロッド' and not plans.exists():
+                # ヘッドラインを取得
+                head_lines = MachiningLine.objects.filter(
+                    name='ヘッド',
+                    active=True
+                ).order_by('assembly__order', 'order')
+
+                if head_lines.exists():
+                    # ヘッドラインの最初のラインのデータを取得（日付・シフトベース）
+                    head_line = head_lines.first()
+                    head_plans = DailyMachiningProductionPlan.objects.filter(
+                        line=head_line,
+                        date__gte=date_list[0],
+                        date__lte=date_list[-1]
+                    ).order_by('date', 'shift')
+
+                    # 日付・シフトごとに最初に見つかったデータを使用（品番は無視）
+                    for plan in head_plans:
+                        key = (plan.date, plan.shift)
+                        if key not in head_data_map:
+                            head_data_map[key] = {
+                                'overtime': plan.overtime,
+                                'stop_time': plan.stop_time,
+                                'regular_working_hours': plan.regular_working_hours
+                            }
+
             default_occupancy_rate = (line.occupancy_rate * 100) if line.occupancy_rate else ''
 
             plans_map = {
@@ -155,6 +184,10 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                             allocated_shipment_map, assembly_shipment_map
                         )
 
+                        # コンロッドラインの場合、出庫数を3倍にする
+                        if line_name == 'コンロッド' and allocated_qty is not None:
+                            allocated_qty = allocated_qty * 3
+
                         # 既存の生産計画データから生産数を取得
                         key = (date, shift, item_name)
                         production_qty = None
@@ -178,14 +211,31 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                             'shipment': allocated_qty  # 出庫数は常に組付けから計算
                         }
 
+                    # シフトデータを設定（コンロッドでデータがない場合はヘッドのデータを使用）
                     if first_plan_for_shift:
                         date_info['shifts'][shift]['stop_time'] = first_plan_for_shift.stop_time if first_plan_for_shift.stop_time is not None else 0
                         date_info['shifts'][shift]['overtime'] = first_plan_for_shift.overtime
+                    elif (date, shift) in head_data_map:
+                        # ヘッドラインのデータを使用
+                        head_data = head_data_map[(date, shift)]
+                        date_info['shifts'][shift]['stop_time'] = head_data['stop_time'] if head_data['stop_time'] is not None else 0
+                        date_info['shifts'][shift]['overtime'] = head_data['overtime']
+                        # ヘッドラインからデータを取得した場合もhas_dataをTrueに設定
+                        if head_data['overtime'] is not None or head_data['stop_time']:
+                            date_info['has_data'] = True
 
+                # 共通データを設定
                 if first_plan_for_common:
+                    # DBにデータがある場合はそれを使用
                     if first_plan_for_common.occupancy_rate is not None:
                         date_info['occupancy_rate'] = first_plan_for_common.occupancy_rate * 100
                     date_info['regular_working_hours'] = first_plan_for_common.regular_working_hours
+                elif head_data_map:
+                    # コンロッドでデータがない場合、定時・休出情報のみヘッドラインから取得
+                    # 稼働率はコンロッドライン自身のdefault_occupancy_rateを使用（既に設定済み）
+                    if (date, 'day') in head_data_map:
+                        head_data = head_data_map[(date, 'day')]
+                        date_info['regular_working_hours'] = head_data['regular_working_hours']
 
                 dates_data.append(date_info)
 
