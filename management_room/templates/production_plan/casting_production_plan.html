@@ -418,6 +418,7 @@ td.weekend .overtime-input {
 <td></td>
 </tr>
 <!-- 中子 -->
+{% if is_head_line %}
 {% for item_name in item_names %}
 <tr data-section="core" data-item="{{ item_name }}">
 {% if forloop.first %}
@@ -431,6 +432,7 @@ td.weekend .overtime-input {
 <td></td>
 </tr>
 {% endfor %}
+{% endif %}
 </tbody>
 </table>
 </div>

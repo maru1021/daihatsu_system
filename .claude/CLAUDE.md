@@ -15,6 +15,7 @@ use context7
   - [line_specific_features.md](management_room/production_plan/casting/line_specific_features.md): ライン別機能（ヘッド・ブロック・カバー）
   - [mold_management.md](management_room/production_plan/casting/mold_management.md): 金型管理（ヘッドのみ）
   - [algorithm.md](management_room/production_plan/casting/algorithm.md): アルゴリズム（ヘッドのみ）
+  - [cover_algorithm.md](management_room/production_plan/casting/cover_algorithm.md): カバーラインアルゴリズム
   - [frontend.md](management_room/production_plan/casting/frontend.md): JS
 
 - **加工**: [management_room/production_plan/machining/](management_room/production_plan/machining/)
