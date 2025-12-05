@@ -11,8 +11,12 @@
   <input type="hidden" name="production_data" id="production-data-hidden">
   <div style="display: flex; flex-direction: column; gap: 1em; margin-bottom: 1em;">
     <div class="input-container" style="display: flex; align-items: center; gap: 0.5em;">
-      <label for="target-month">対象月：</label>
+      <label for="target-month">対象月  ：</label>
       <input class="form-control" type="month" id="target-month" style="width: 200px;" value="{{ year }}-{{ month|stringformat:'02d' }}">
+    </div>
+    <div class="input-container" style="display: flex; align-items: center; gap: 0.5em;">
+      <label for="tact">#1タクト：</label>
+      <input class="form-control" type="number" id="tact" style="width: 200px;" value="{{ tact }}" step="0.001" min="0">
     </div>
     <div id="total-ratios" style="display: flex; justify-content: center; gap: 1.5em; padding: 1em; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;">
       {% for line in assembly_lines %}
@@ -154,6 +158,7 @@ function loadMonthData(month) {
   .then(response => response.json())
   .then(result => {
     const data = result.data;
+    const tact = data['tact'] || 0;
 
     // 全ての入力をクリア
     document.querySelectorAll('.planned-volume').forEach(input => {
@@ -189,6 +194,8 @@ function loadMonthData(month) {
             totalQuantity += data[itemName][lineId];
           }
         });
+
+        document.getElementById('tact').value = tact;
       }
 
       // 予定数量に合計を設定
@@ -744,6 +751,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // フォーム送信時にJSON形式でデータを収集
   document.getElementById('production-form').addEventListener('submit', function(e) {
     const productionData = [];
+    const tactValue = parseFloat(document.getElementById('tact').value) || 0;
 
     document.querySelectorAll('.item-row').forEach(row => {
       const itemName = row.dataset.itemName;
@@ -759,7 +767,8 @@ document.addEventListener('DOMContentLoaded', function() {
             item_name: itemName,
             line_name: lineName,
             line_id: lineId,
-            quantity: quantity
+            quantity: quantity,
+            tact: tactValue,
           });
         }
       });

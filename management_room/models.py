@@ -303,6 +303,7 @@ class MonthlyAssemblyProductionPlan(models.Model):
     line = models.ForeignKey('manufacturing.AssemblyLine', on_delete=models.CASCADE, verbose_name="組付ライン", null=True, blank=True, db_index=True)
     production_item = models.ForeignKey(AssemblyItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
     quantity = models.IntegerField(verbose_name="数量", null=True, blank=True, default=0)
+    tact = models.FloatField(verbose_name="タクト", null=True, blank=True, default=0)
 
     class Meta:
         verbose_name = "月別組付生産計画"

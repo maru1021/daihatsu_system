@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.http import JsonResponse
 from management_room.models import AssemblyItem, MonthlyAssemblyProductionPlan
 from manufacturing.models import AssemblyLine
-from datetime import date, datetime
+from datetime import date
 import json
 import pandas as pd
 
@@ -24,18 +24,20 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
                 plans = MonthlyAssemblyProductionPlan.objects.filter(
                     month=month_date
                 ).select_related('production_item', 'line').values(
-                    'production_item__name', 'line_id', 'quantity'
+                    'production_item__name', 'line_id', 'quantity', 'tact'
                 )
 
                 if plans:
+                    tact = plans.filter(line__name="#1")[0]['tact'] if plans.filter(line__name="#1").exists() else AssemblyLine.objects.get(name="#1").tact
                     df = pd.DataFrame(plans)
-                    df.columns = ['item_name', 'line_id', 'quantity']
+                    df.columns = ['item_name', 'line_id', 'quantity', 'tact']
                     # ピボットテーブルで整形
                     data = df.set_index('item_name').groupby('item_name').apply(
                         lambda x: dict(zip(x['line_id'].astype(str), x['quantity']))
                     ).to_dict()
+                    data['tact'] = tact
                 else:
-                    data = {}
+                    data = {"tact": AssemblyLine.objects.get(name="#1").tact}
 
                 return JsonResponse({'data': data})
 
@@ -61,8 +63,9 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
         plans = MonthlyAssemblyProductionPlan.objects.filter(
             month=month_date
         ).select_related('production_item', 'line').values(
-            'production_item__name', 'line_id', 'quantity'
+            'production_item__name', 'line_id', 'quantity', 'tact'
         )
+        tact = plans.filter(line__name="#1")[0]['tact'] if plans.filter(line__name="#1").exists() else AssemblyLine.objects.get(name="#1").tact
         df_plans = pd.DataFrame(plans) if plans else pd.DataFrame(columns=['production_item__name', 'line_id', 'quantity'])
 
         # 品番リストを作成
@@ -111,6 +114,7 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
             'assembly_lines': assembly_lines,
             'year': year,
             'month': month,
+            'tact': tact,
         }
         return render(request, self.template_file, context)
 
@@ -133,12 +137,10 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
                 return redirect('management_room:production_volume_input')
 
             production_data = json.loads(production_data_json)
+            tact_value = production_data[0]['tact']
 
             # 既存のデータを削除
             MonthlyAssemblyProductionPlan.objects.filter(month=month_date).delete()
-
-            # 登録件数
-            created_count = 0
 
             # 各データを処理
             for data in production_data:
@@ -155,20 +157,24 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
                     )
                     assembly_line = AssemblyLine.objects.get(id=line_id)
 
+                    if assembly_line.name == "#1":
+                        tact = tact_value
+                    else:
+                        tact = assembly_line.tact
+
                     MonthlyAssemblyProductionPlan.objects.create(
                         month=month_date,
                         line=assembly_line,
                         production_item=assembly_item,
-                        quantity=quantity
+                        quantity=quantity,
+                        tact=tact
                     )
-                    created_count += 1
 
                 except AssemblyItem.DoesNotExist:
                     continue
                 except AssemblyLine.DoesNotExist:
                     continue
 
-            messages.success(request, f'{target_month}の生産計画を登録しました。（{created_count}件）')
             return redirect('/management_room/production-plan/assembly-production-plan/')
 
         except Exception as e:

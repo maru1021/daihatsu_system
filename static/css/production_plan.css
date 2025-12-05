@@ -29,7 +29,7 @@
     --header-height-1: 20px;
     --header-height-2: 20px;
     --header-height-3: 20px;
-    --min-col-width: 28px;
+    --min-col-width: 20px;
 }
 
 /* ========================================
@@ -45,7 +45,7 @@ body {
 body.assembly-plan {
     background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
     min-height: 100vh;
-    padding: 20px;
+    padding: 10px;
     margin: 0;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
@@ -167,7 +167,7 @@ h1 {
 .table-container {
     overflow-x: auto;
     background-color: white;
-    padding: 10px;
+    padding: 5px;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
@@ -184,7 +184,7 @@ table {
 th,
 td {
     border: 1px solid var(--border-color);
-    padding: 2px 1px;
+    padding: 1px;
     text-align: center;
     font-size: 9px;
 }
@@ -273,22 +273,22 @@ tbody th {
 
 /* カテゴリラベル（在庫数、出庫数など） */
 tbody th.category-label {
-    min-width: 24px;
+    min-width: 20px;
     writing-mode: vertical-rl;
     text-orientation: upright;
-    padding: 8px 3px;
-    font-size: 11px;
+    padding: 6px 2px;
+    font-size: 10px;
     left: 0;
 }
 
 /* シフトラベル（日勤、夜勤） */
 tbody th.shift-label {
-    min-width: 20px;
+    min-width: 18px;
     writing-mode: vertical-rl;
     text-orientation: upright;
-    padding: 8px 2px;
-    font-size: 10px;
-    left: 24px;
+    padding: 6px 2px;
+    font-size: 9px;
+    left: 20px;
 }
 
 /* 溶湯、ポット数、中子のシフトラベルは横書き */
@@ -303,14 +303,14 @@ tr[data-section="core"] th.shift-label {
 
 /* 設備番号 */
 tbody th.facility-number {
-    min-width: 32px;
-    left: 44px;
+    min-width: 28px;
+    left: 38px;
 }
 
 /* 車種ラベル */
 tbody th.vehicle-label {
-    min-width: 48px;
-    left: 24px;
+    min-width: 42px;
+    left: 20px;
     background-color: #dbeafe;
     font-weight: 700;
 }
@@ -318,6 +318,7 @@ tbody th.vehicle-label {
 /* ========================================
    入力フィールド共通スタイル
    ======================================== */
+
 .operation-rate-input,
 .stop-time-input,
 .overtime-input,
@@ -331,7 +332,7 @@ tbody th.vehicle-label {
 
 /* 稼働率入力 */
 .operation-rate-input {
-    width: 42px;
+    width: 38px;
     border-color: var(--primary-blue);
     padding: 2px;
     background-color: var(--light-blue);
@@ -339,17 +340,17 @@ tbody th.vehicle-label {
 
 /* 計画停止時間入力 */
 .stop-time-input {
-    width: 36px;
+    width: 40px;
 }
 
 /* 残業時間入力 */
 .overtime-input {
-    width: 36px;
+    width: 40px;
 }
 
 /* 金型交換入力 */
 .mold-change-input {
-    width: 36px;
+    width: 40px;
     text-align: center;
     border: 1px solid #ccc;
     border-radius: 2px;
@@ -358,7 +359,7 @@ tbody th.vehicle-label {
 
 /* 生産数入力 */
 .production-input {
-    width: 36px;
+    width: 40px;
     text-align: center;
     border: 1px solid #ccc;
     border-radius: 2px;
@@ -368,7 +369,7 @@ tbody th.vehicle-label {
 
 /* 出庫数入力 */
 .shipment-input {
-    width: 36px;
+    width: 40px;
     text-align: center;
     border: 1px solid #ccc;
     border-radius: 2px;
@@ -378,7 +379,7 @@ tbody th.vehicle-label {
 
 /* 在庫数入力 */
 .stock-input {
-    width: 36px;
+    width: 40px;
     text-align: center;
     border: 1px solid #ccc;
     border-radius: 2px;
@@ -388,7 +389,7 @@ tbody th.vehicle-label {
 
 /* 在庫数入力 */
 .inventory-input {
-    width: 42px;
+    width: 40px;
     text-align: center;
     border: 1px solid #ccc;
     border-radius: 2px;
@@ -398,7 +399,7 @@ tbody th.vehicle-label {
 
 /* 出庫数入力 */
 .delivery-input {
-    width: 42px;
+    width: 40px;
     text-align: center;
     border: 1px solid #ccc;
     border-radius: 2px;
@@ -412,41 +413,6 @@ tbody th.vehicle-label {
     align-items: center;
     gap: 2px;
     width: 100%;
-}
-
-/* ドラッグハンドル */
-.drag-handle {
-    display: inline-block;
-    cursor: grab;
-    font-size: 10px;
-    color: #666;
-    user-select: none;
-    padding: 0 2px;
-    line-height: 1;
-}
-
-.drag-handle:active {
-    cursor: grabbing;
-}
-
-/* セクションドラッグハンドル */
-.section-drag-handle {
-    display: inline-block;
-    cursor: grab;
-    font-size: 16px;
-    color: #999;
-    user-select: none;
-    padding: 2px 4px;
-    line-height: 1;
-    vertical-align: middle;
-}
-
-.section-drag-handle:active {
-    cursor: grabbing;
-}
-
-.section-drag-handle:hover {
-    color: #333;
 }
 
 /* 生産計画セレクト */
@@ -466,21 +432,6 @@ tbody th.vehicle-label {
     font-weight: bold;
     color: #666;
     padding-left: 2px;
-}
-
-/* ドラッグ中のスタイル */
-.select-container.dragging {
-    opacity: 0.5;
-}
-
-.select-container.dragging .drag-handle {
-    cursor: grabbing;
-}
-
-.select-container.drag-over {
-    background-color: var(--light-blue);
-    border: 1px dashed var(--primary-blue);
-    border-radius: 2px;
 }
 
 /* ========================================
@@ -592,16 +543,16 @@ span.vehicle-ve7 {
    組付生産計画専用スタイル
    ======================================== */
 .page-container {
-    max-width: 98%;
+    max-width: 99%;
     margin: 0 auto;
     background: white;
     border-radius: 16px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
-    padding: 30px;
+    padding: 20px;
 }
 
 .header-section {
-    margin-bottom: 30px;
+    margin-bottom: 20px;
 }
 
 .page-title {

@@ -633,6 +633,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
         assembly_shipment_map = {}
 
         # AssemblyItemMachiningItemMapから紐づきを取得
+        # 各MachiningLineに対して、そのassemblyに対応するAssemblyItemのみを取得
         machining_items_for_all = MachiningItem.objects.filter(
             line__in=lines,
             active=True,
@@ -641,15 +642,18 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
         assembly_mappings_for_all = AssemblyItemMachiningItemMap.objects.filter(
             machining_item__in=machining_items_for_all,
             active=True
-        ).select_related('assembly_item', 'assembly_item__line', 'machining_item')
+        ).select_related('assembly_item', 'assembly_item__line', 'machining_item', 'machining_item__line', 'machining_item__line__assembly')
 
         for mapping in assembly_mappings_for_all:
-            machining_name = mapping.machining_item.name
-            assembly_name = mapping.assembly_item.name
-            assembly_line_id = mapping.assembly_item.line_id
-            if machining_name not in machining_to_assembly_map:
-                machining_to_assembly_map[machining_name] = []
-            machining_to_assembly_map[machining_name].append((assembly_name, assembly_line_id))
+            # MachiningLineとAssemblyLineの対応関係をチェック
+            # mapping.machining_item.line.assembly が mapping.assembly_item.line と一致する場合のみ追加
+            if mapping.machining_item.line and mapping.machining_item.line.assembly_id == mapping.assembly_item.line_id:
+                machining_name = mapping.machining_item.name
+                assembly_name = mapping.assembly_item.name
+                assembly_line_id = mapping.assembly_item.line_id
+                if machining_name not in machining_to_assembly_map:
+                    machining_to_assembly_map[machining_name] = []
+                machining_to_assembly_map[machining_name].append((assembly_name, assembly_line_id))
 
         # 組付生産計画を取得
         assembly_items_info_for_all = [
@@ -685,6 +689,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
                     if total_assembly_shipment > 0:
                         assembly_shipment_map[(date, shift, item_name)] = total_assembly_shipment
+        print(assembly_shipment_map)
 
         return machining_to_assembly_map, assembly_plans_map_for_all, assembly_shipment_map
 
