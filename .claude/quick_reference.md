@@ -78,6 +78,7 @@ occupancy_rate = line.occupancy_rate / 100.0 if line.occupancy_rate > 1.0 else l
 | 在庫-1 | 小数累積 |
 | 全品番表示 | line_data.item_names |
 | 前月末不正 | order_by('-id') |
+| 加工月計(直)不一致 | 複数ライン時、親テーブル内で夜勤行検索（`table.querySelector()`） |
 | コンロッド初期値 | [conrod_special_handling.md](management_room/production_plan/machining/conrod_special_handling.md) |
 | カバー在庫マイナス | 生産→出荷の順序（出荷→生産だとマイナスになる） |
 | カバー#1空白 | 動的設備数計算（machineCount = machineRows.length / 8） |

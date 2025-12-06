@@ -536,41 +536,87 @@ function calculateSectionTotal(rows, inputClass) {
     });
 }
 
-// 日勤+夜勤の日別合計を計算（生産数と出庫数）
+/**
+ * 日勤+夜勤の月計(直)を計算（生産数と出庫数）
+ *
+ * 重要: 複数のMachiningLineに同じ品番が存在する場合、
+ * 各テーブル内で日勤と夜勤をペアリングする必要がある。
+ * そのため、日勤行の親テーブルを取得し、同じテーブル内で夜勤行を検索する。
+ */
 function updateDailyTotals() {
     const sections = ['production', 'shipment'];
 
     sections.forEach(section => {
+        const inputClass = section === 'production' ? 'production-input' : 'shipment-input';
+
         document.querySelectorAll(`[data-section="${section}"][data-shift="day"]`).forEach(dayRow => {
             const itemName = dayRow.getAttribute('data-item');
             if (!itemName) return;
 
-            const nightRow = document.querySelector(`[data-section="${section}"][data-shift="night"][data-item="${itemName}"]`);
+            // 同じテーブル内の夜勤行を取得
+            const nightRow = getNightRowInSameTable(dayRow, section, itemName);
             if (!nightRow) return;
 
-            const dayInputs = dayRow.querySelectorAll(`.${section === 'production' ? 'production-input' : 'shipment-input'}`);
-            const nightInputs = nightRow.querySelectorAll(`.${section === 'production' ? 'production-input' : 'shipment-input'}`);
+            // 日勤と夜勤の入力要素を取得
+            const dayInputs = dayRow.querySelectorAll(`.${inputClass}`);
+            const nightInputs = nightRow.querySelectorAll(`.${inputClass}`);
 
-            let dailyTotal = 0;
-            dayInputs.forEach((dayInput, index) => {
-                if (dayInput.style.display !== 'none') {
-                    const dayValue = parseInt(dayInput.value) || 0;
-                    const nightValue = nightInputs[index] && nightInputs[index].style.display !== 'none'
-                        ? (parseInt(nightInputs[index].value) || 0)
-                        : 0;
-                    dailyTotal += dayValue + nightValue;
-                }
-            });
+            // 日勤+夜勤の合計を計算
+            const dailyTotal = calculateDayAndNightTotal(dayInputs, nightInputs);
 
-            const dailyTotalCell = dayRow.querySelector('.daily-total');
-            if (dailyTotalCell) {
-                dailyTotalCell.textContent = dailyTotal > 0 ? dailyTotal : '';
-                dailyTotalCell.style.fontWeight = 'bold';
-                dailyTotalCell.style.textAlign = 'center';
-                dailyTotalCell.style.backgroundColor = '#e0f2fe';
-            }
+            // 月計(直)セルに表示
+            updateDailyTotalCell(dayRow, dailyTotal);
         });
     });
+}
+
+/**
+ * 同じテーブル内の夜勤行を取得
+ * 複数テーブルに同じ品番が存在する場合を考慮
+ */
+function getNightRowInSameTable(dayRow, section, itemName) {
+    const table = dayRow.closest('table');
+
+    if (table) {
+        // 同じテーブル内で夜勤行を検索
+        return table.querySelector(`[data-section="${section}"][data-shift="night"][data-item="${itemName}"]`);
+    }
+
+    // フォールバック: グローバル検索
+    return document.querySelector(`[data-section="${section}"][data-shift="night"][data-item="${itemName}"]`);
+}
+
+/**
+ * 日勤と夜勤の入力値を合計
+ */
+function calculateDayAndNightTotal(dayInputs, nightInputs) {
+    let total = 0;
+
+    dayInputs.forEach((dayInput, index) => {
+        if (dayInput.style.display !== 'none') {
+            const dayValue = parseInt(dayInput.value) || 0;
+            const nightValue = nightInputs[index] && nightInputs[index].style.display !== 'none'
+                ? (parseInt(nightInputs[index].value) || 0)
+                : 0;
+            total += dayValue + nightValue;
+        }
+    });
+
+    return total;
+}
+
+/**
+ * 月計(直)セルを更新
+ */
+function updateDailyTotalCell(row, total) {
+    const dailyTotalCell = row.querySelector('.daily-total');
+
+    if (dailyTotalCell) {
+        dailyTotalCell.textContent = total > 0 ? total : '';
+        dailyTotalCell.style.fontWeight = 'bold';
+        dailyTotalCell.style.textAlign = 'center';
+        dailyTotalCell.style.backgroundColor = '#e0f2fe';
+    }
 }
 
 // 在庫数を計算（前日在庫 + 生産数 - 出庫数）

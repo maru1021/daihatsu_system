@@ -646,14 +646,19 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
         for mapping in assembly_mappings_for_all:
             # MachiningLineとAssemblyLineの対応関係をチェック
-            # mapping.machining_item.line.assembly が mapping.assembly_item.line と一致する場合のみ追加
-            if mapping.machining_item.line and mapping.machining_item.line.assembly_id == mapping.assembly_item.line_id:
-                machining_name = mapping.machining_item.name
-                assembly_name = mapping.assembly_item.name
+            # 1. assembly_idがNullの場合（オイルパンなど独立ライン）: 全てのマッピングを追加
+            # 2. assembly_idがある場合: 対応するAssemblyLineのみ追加
+            if mapping.machining_item.line:
+                assembly_id = mapping.machining_item.line.assembly_id
                 assembly_line_id = mapping.assembly_item.line_id
-                if machining_name not in machining_to_assembly_map:
-                    machining_to_assembly_map[machining_name] = []
-                machining_to_assembly_map[machining_name].append((assembly_name, assembly_line_id))
+
+                # assembly_idがNullまたは一致する場合のみ追加
+                if assembly_id is None or assembly_id == assembly_line_id:
+                    machining_name = mapping.machining_item.name
+                    assembly_name = mapping.assembly_item.name
+                    if machining_name not in machining_to_assembly_map:
+                        machining_to_assembly_map[machining_name] = []
+                    machining_to_assembly_map[machining_name].append((assembly_name, assembly_line_id))
 
         # 組付生産計画を取得
         assembly_items_info_for_all = [
@@ -689,7 +694,15 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
                     if total_assembly_shipment > 0:
                         assembly_shipment_map[(date, shift, item_name)] = total_assembly_shipment
-        print(assembly_shipment_map)
+
+        # デバッグ: KF/DNGAの出庫数を確認
+        for item_name in ['KF', 'DNGA']:
+            monthly_total = sum(qty for (_, _, item), qty in assembly_shipment_map.items() if item == item_name)
+            if monthly_total > 0:
+                print(f"{item_name} monthly total in assembly_shipment_map: {monthly_total}")
+            else:
+                print(f"{item_name} has no shipment data")
+                print(f"{item_name} in machining_to_assembly_map: {machining_to_assembly_map.get(item_name, 'Not found')}")
 
         return machining_to_assembly_map, assembly_plans_map_for_all, assembly_shipment_map
 

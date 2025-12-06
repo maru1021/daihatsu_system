@@ -23,6 +23,20 @@
 # 単一ライン: assembly_shipment_map (全量)
 ```
 
+### 組付け-加工マッピング
+
+組付け品番と加工品番は`AssemblyItemMachiningItemMap`で紐付け。**重要**: マッピング時に`MachiningLine.assembly_id == AssemblyItem.line_id`をチェックし、対応する組付けラインの生産数のみを集計。
+
+```python
+# _get_assembly_shipment_data (646-656行目)
+for mapping in assembly_mappings_for_all:
+    if mapping.machining_item.line.assembly_id == mapping.assembly_item.line_id:
+        # 正しい組付けラインの品番のみマッピング
+        machining_to_assembly_map[machining_name].append((assembly_name, assembly_line_id))
+```
+
+**例**: VE5 → VE6 (#1, #2)、S系(VE4S) → S系P/S系VN/A (#1, #2)
+
 ## 残業均等化振り分け
 
 1. `_get_assembly_shipment_data`: 組付けから出庫数取得

@@ -34,6 +34,30 @@ calculatedStock += production * yieldRate - shipment;
 setValue(..., Math.floor(calculatedStock));
 ```
 
+## 月計(直)計算（複数ライン対応）
+
+**問題**: 複数のMachiningLineに同じ品番が存在する場合、夜勤行の取得で最初のテーブルの値を使用してしまう。
+
+**解決策**: 日勤行の親テーブル内で夜勤行を検索し、同じライン内でペアリング。
+
+```javascript
+function updateDailyTotals() {
+    // 各セクション（生産数、出庫数）
+    sections.forEach(section => {
+        document.querySelectorAll(`[data-section="${section}"][data-shift="day"]`).forEach(dayRow => {
+            // 同じテーブル内の夜勤行を取得（重要！）
+            const table = dayRow.closest('table');
+            const nightRow = table.querySelector(`[data-section="${section}"][data-shift="night"][data-item="${itemName}"]`);
+
+            // 日勤+夜勤の合計を計算
+            const dailyTotal = calculateDayAndNightTotal(dayInputs, nightInputs);
+        });
+    });
+}
+```
+
+**影響品番**: VE5（ヘッド#1/#2）、S系(VE4S)（ブロック#1/#2）など、複数ラインで生産される品番。
+
 ## テーブル別設定
 
 ```javascript
