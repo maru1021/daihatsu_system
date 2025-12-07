@@ -392,6 +392,7 @@ class MachiningStock(models.Model):
     date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
     shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
     stock = models.IntegerField(verbose_name="在庫数", null=True, blank=True, default=0)
+    stock_adjustment = models.IntegerField(verbose_name="在庫調整数", null=True, blank=True, default=0)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
 
     class Meta:

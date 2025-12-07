@@ -1355,6 +1355,16 @@ function autoCalculateOvertime() {
 
     // 結果を確認（微調整後）
     setTimeout(() => {
+        // 全ての日付・シフトで計画停止を自動調整
+        for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+            ['day', 'night'].forEach(shift => {
+                adjustStopTimeForUnderProduction(dateIndex, shift);
+            });
+        }
+
+        // 合計を再更新
+        updateRowTotals();
+
         let actualTotal = 0;
         document.querySelectorAll('[data-section="production"][data-shift="day"]').forEach(row => {
             const itemName = row.getAttribute('data-item');
@@ -1368,6 +1378,65 @@ function autoCalculateOvertime() {
 
         showToast('success', '残業時間を自動計算しました');
     }, 300);
+}
+
+// ========================================
+// 生産数が定時より少ない場合に計画停止を調整
+// ========================================
+function adjustStopTimeForUnderProduction(dateIndex, shift) {
+    const tact = itemData.tact || 0;
+    if (tact === 0) return;
+
+    const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
+    if (!occupancyRateInput || occupancyRateInput.style.display === 'none') return;
+    const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
+    if (occupancyRate === 0) return;
+
+    const stopTimeInput = getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
+    if (!stopTimeInput || stopTimeInput.style.display === 'none') return;
+
+    const overtimeInput = getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
+    const overtime = overtimeInput && overtimeInput.style.display !== 'none' ? (parseInt(overtimeInput.value) || 0) : 0;
+
+    const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
+
+    // 全品番の実際の生産数合計を取得
+    const itemNames = getItemNames();
+    let totalActualProduction = 0;
+    itemNames.forEach(name => {
+        const productionInput = getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"]`);
+        if (productionInput && productionInput.style.display !== 'none') {
+            totalActualProduction += parseInt(productionInput.value) || 0;
+        }
+    });
+
+    // 実際の生産数がゼロの場合は計画停止を0に
+    if (totalActualProduction === 0) {
+        stopTimeInput.value = 0;
+        return;
+    }
+
+    // 実際の生産数に必要な時間を逆算（残業含む）
+    const requiredTime = (totalActualProduction * tact) / occupancyRate;
+
+    // 利用可能な総時間（定時 + 残業）
+    const availableTime = regularTime + overtime;
+
+    // 余った時間を計算
+    const excessTime = availableTime - requiredTime;
+
+    if (excessTime > 0) {
+        // 余った時間を計画停止に設定（5分刻みに丸める）
+        const newStopTime = Math.round(excessTime / 5) * 5;
+
+        // 計画停止の上限チェック（480分）
+        const finalStopTime = Math.min(newStopTime, 480);
+
+        stopTimeInput.value = finalStopTime;
+    } else {
+        // 時間が足りない場合は計画停止を0に
+        stopTimeInput.value = 0;
+    }
 }
 
 // ========================================
@@ -1510,7 +1579,10 @@ function setupEventListeners() {
 
             isRecalculating = true;
 
-            // 残業時間を逆算して、上限チェック
+            // 1. まず計画停止を自動調整
+            adjustStopTimeForUnderProduction(dateIndex, shift);
+
+            // 2. その後、残業時間を逆算して上限チェック
             const isValid = recalculateOvertimeFromProduction(dateIndex, shift, itemName);
 
             // 上限を超える場合は元の値に戻す
@@ -1522,7 +1594,7 @@ function setupEventListeners() {
                 previousValue = this.value;
             }
 
-            // 合計を更新
+            // 3. 合計を更新
             updateRowTotals();
 
             isRecalculating = false;
@@ -1571,6 +1643,18 @@ $(document).ready(function () {
 
     // 初期表示時にすべての生産数を計算
     updateAllProductionQuantities();
+
+    // 初期表示時に計画停止を自動調整
+    setTimeout(() => {
+        const dateCount = document.querySelectorAll('.operation-rate-input').length;
+        for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+            ['day', 'night'].forEach(shift => {
+                adjustStopTimeForUnderProduction(dateIndex, shift);
+            });
+        }
+        // 合計を更新
+        updateRowTotals();
+    }, 100);
 });
 
 // ========================================

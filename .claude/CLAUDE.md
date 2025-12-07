@@ -24,6 +24,9 @@ use context7
   - [frontend.md](management_room/production_plan/machining/frontend.md): JS
   - [conrod_special_handling.md](management_room/production_plan/machining/conrod_special_handling.md): コンロッド特別処理
 
+- **組付**: [management_room/production_plan/assembly/](management_room/production_plan/assembly/)
+  - [overview.md](management_room/production_plan/assembly/overview.md): 概要・タクト管理
+
 ## 規約
 
 - Python: PEP 8、`snake_case`、`PascalCase`クラス

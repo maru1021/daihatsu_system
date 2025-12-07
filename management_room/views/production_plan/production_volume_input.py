@@ -9,6 +9,24 @@ from datetime import date
 import json
 import pandas as pd
 
+
+def get_line_tact(plans, line_name="#1"):
+    """
+    月別生産計画からタクトを取得。データがない場合はラインのタクトを返す
+
+    Args:
+        plans: MonthlyAssemblyProductionPlanのクエリセット
+        line_name: ライン名（デフォルト: "#1"）
+
+    Returns:
+        float: タクト値
+    """
+    line_plans = plans.filter(line__name=line_name)
+    if line_plans.exists() and line_plans[0]['tact']:
+        return line_plans[0]['tact']
+    return AssemblyLine.objects.get(name=line_name).tact
+
+
 class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
     template_file = 'production_plan/production_volume_input.html'
 
@@ -28,7 +46,7 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
                 )
 
                 if plans:
-                    tact = plans.filter(line__name="#1")[0]['tact'] if plans.filter(line__name="#1").exists() else AssemblyLine.objects.get(name="#1").tact
+                    tact = get_line_tact(plans)
                     df = pd.DataFrame(plans)
                     df.columns = ['item_name', 'line_id', 'quantity', 'tact']
                     # ピボットテーブルで整形
@@ -65,7 +83,7 @@ class ProductionVolumeInputView(ManagementRoomPermissionMixin, View):
         ).select_related('production_item', 'line').values(
             'production_item__name', 'line_id', 'quantity', 'tact'
         )
-        tact = plans.filter(line__name="#1")[0]['tact'] if plans.filter(line__name="#1").exists() else AssemblyLine.objects.get(name="#1").tact
+        tact = get_line_tact(plans) if plans else AssemblyLine.objects.get(name="#1").tact
         df_plans = pd.DataFrame(plans) if plans else pd.DataFrame(columns=['production_item__name', 'line_id', 'quantity'])
 
         # 品番リストを作成

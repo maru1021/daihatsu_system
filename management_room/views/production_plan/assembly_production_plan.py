@@ -110,11 +110,6 @@ class AssemblyProductionPlanView(ManagementRoomPermissionMixin, View):
 
             dates_data.append(date_info)
 
-        # タクトはライン単位（品番ごとではない）
-        item_data = {
-            'tact': line.tact if line.tact else 0
-        }
-
         lines = AssemblyLine.objects.filter(active=True).order_by('name')
         lines_list = [{'id': l.id, 'name': l.name} for l in lines]
 
@@ -127,6 +122,16 @@ class AssemblyProductionPlanView(ManagementRoomPermissionMixin, View):
             line=line,
             month=month_date
         ).select_related('production_item').order_by('production_item__name')
+
+        # タクトは月別生産計画から取得（同じライン・月では全品番同一）
+        monthly_tact = 0
+        if monthly_plans.exists():
+            first_plan = monthly_plans.first()
+            monthly_tact = first_plan.tact if first_plan.tact else 0
+
+        item_data = {
+            'tact': monthly_tact
+        }
 
         monthly_plans_data = []
         monthly_total = 0
@@ -160,6 +165,7 @@ class AssemblyProductionPlanView(ManagementRoomPermissionMixin, View):
             'lines': lines_list,
             'production_total_rows': production_total_rows,
             'item_data_json': json.dumps(item_data),
+            'monthly_tact': monthly_tact,
             'monthly_plans': monthly_plans_data,
             'monthly_plan_ratios': json.dumps(monthly_plan_ratios),
             'monthly_plan_quantities': json.dumps(monthly_plan_quantities),

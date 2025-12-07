@@ -24,7 +24,7 @@
         <span style="font-size: 0.9em; color: #495057; font-weight: 500;">{{ line.name }}</span>
         <div style="display: flex; flex-direction: column; gap: 0.2em; align-items: center;">
           <div style="font-size: 0.75em; color: #6c757d;">
-            目安: <span class="target-line-ratio" data-line="{{ line.name }}" data-tact="{{ line.tact|default:0 }}">-</span>
+            目安: <span class="target-line-ratio" data-line="{{ line.name }}" data-tact="{% if line.name == '#1' %}{{ tact }}{% else %}{{ line.tact|default:0 }}{% endif %}">-</span>
           </div>
           <span class="total-line-ratio" data-line="{{ line.name }}" style="padding: 0.3em 0.8em; border-radius: 4px; font-weight: 600; font-size: 1em; background-color: #e9ecef; color: #495057; min-width: 60px; text-align: center;">0.0%</span>
         </div>
@@ -160,6 +160,16 @@ function loadMonthData(month) {
     const data = result.data;
     const tact = data['tact'] || 0;
 
+    // #1ラインのタクト入力とdata-tact属性を更新
+    document.getElementById('tact').value = tact;
+    const line1Element = document.querySelector('.target-line-ratio[data-line="#1"]');
+    if (line1Element) {
+      line1Element.dataset.tact = tact;
+    }
+
+    // 目安の割合を再計算
+    updateTargetRatios();
+
     // 全ての入力をクリア
     document.querySelectorAll('.planned-volume').forEach(input => {
       input.value = '';
@@ -194,8 +204,6 @@ function loadMonthData(month) {
             totalQuantity += data[itemName][lineId];
           }
         });
-
-        document.getElementById('tact').value = tact;
       }
 
       // 予定数量に合計を設定
@@ -737,6 +745,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // 初期値を設定
   setInitialValues();
+
+  // タクト変更時に再計算
+  const tactInput = document.getElementById('tact');
+  tactInput.addEventListener('input', function() {
+    // #1のタクトをdata属性に反映
+    const newTact = parseFloat(this.value) || 0;
+    const line1Element = document.querySelector('.target-line-ratio[data-line="#1"]');
+    if (line1Element) {
+      line1Element.dataset.tact = newTact;
+    }
+
+    // 目安の割合を再計算
+    updateTargetRatios();
+
+    // 全体を再配分
+    redistributeAllLines();
+  });
 
   // 対象月の入力値を隠しフィールドに同期
   const targetMonthInput = document.getElementById('target-month');

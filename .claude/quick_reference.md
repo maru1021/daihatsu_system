@@ -3,6 +3,9 @@
 ## JS頻出
 
 ```javascript
+// タクト取得: 月別計画優先
+const tact = itemData.tact || 0;
+
 // 在庫: 小数累積→表示時整数化
 calculatedStock += production * yieldRate - shipment;
 input.value = Math.floor(calculatedStock);
@@ -38,6 +41,13 @@ const machineCount = machineRows.length / 8; // 8セクション（日勤・夜�
 ## Python頻出
 
 ```python
+# タクト取得: 月別計画優先→ライン設定
+def get_line_tact(plans, line_name="#1"):
+    line_plans = plans.filter(line__name=line_name)
+    if line_plans.exists() and line_plans[0]['tact']:
+        return line_plans[0]['tact']
+    return AssemblyLine.objects.get(name=line_name).tact
+
 # 前月末在庫
 .order_by('-id').first()
 

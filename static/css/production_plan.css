@@ -206,6 +206,15 @@ tr.night-shift td.weekend {
     background-color: var(--weekend-bg) !important;
 }
 
+/* 在庫が負の場合の背景色（夜勤・日勤共通、最優先） */
+td.negative-stock {
+    background-color: #ffcccc !important;
+}
+
+tr.night-shift td.negative-stock {
+    background-color: #ffcccc !important;
+}
+
 tr.night-shift th {
     background-color: var(--light-blue);
 }
@@ -358,7 +367,8 @@ tbody th.vehicle-label {
 }
 
 /* 生産数入力 */
-.production-input {
+.production-input,
+.stock-adjustment-input {
     width: 40px;
     text-align: center;
     border: 1px solid #ccc;

@@ -88,6 +88,16 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
         # 在庫データはDBから読み込まず、常にフロントエンドで計算
         # （翌月の前月末在庫として使用するため、保存のみ行う）
+        # ただし、在庫調整データはDBから読み込む
+        stock_adjustments_list = MachiningStock.objects.filter(
+            line_name=line_name,
+            date__in=date_list
+        ).values('date', 'shift', 'item_name', 'stock_adjustment')
+
+        stock_adjustments_map = {
+            (adj['date'], adj['shift'], adj['item_name']): adj['stock_adjustment']
+            for adj in stock_adjustments_list
+        }
 
         # 組付側の出庫数を取得（全line共通）
         has_multiple_lines = len(lines) > 1
@@ -202,13 +212,16 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                             if first_plan_for_shift is None:
                                 first_plan_for_shift = plan
 
-                        # 組付側の出庫数がある場合、has_dataをTrueに設定（土日の休出表示のため）
-                        if allocated_qty is not None and allocated_qty > 0:
-                            date_info['has_data'] = True
+                        # 組付側の出庫数は has_assembly_weekend_work で管理されるため、
+                        # has_data には影響を与えない（has_data は加工側のDBデータの有無のみを示す）
+
+                        # 在庫調整データを取得
+                        stock_adjustment = stock_adjustments_map.get((date, shift, item_name), 0)
 
                         date_info['shifts'][shift]['items'][item_name] = {
                             'production_quantity': production_qty,
-                            'shipment': allocated_qty  # 出庫数は常に組付けから計算
+                            'shipment': allocated_qty,  # 出庫数は常に組付けから計算
+                            'stock_adjustment': stock_adjustment
                         }
 
                     # シフトデータを設定（コンロッドでデータがない場合はヘッドのデータを使用）
@@ -326,7 +339,6 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             # JSONデータを取得
             data = json.loads(request.body)
             lines_data_list = data.get('lines_data', [])
-            dates_to_delete = data.get('dates_to_delete', [])
 
             # 対象期間を取得
             if request.GET.get('year') and request.GET.get('month'):
@@ -355,14 +367,19 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
             # ユーザー名を取得
             username = request.user.username if request.user.is_authenticated else 'system'
 
+            # 全ラインの削除対象日付をマージ（重複を除去）
+            all_dates_to_delete = set()
+            for line_data in lines_data_list:
+                dates_to_delete = line_data.get('dates_to_delete', [])
+                all_dates_to_delete.update(dates_to_delete)
+
             # 削除対象の日付のデータを削除（全MachiningLineから）
-            deleted_count = 0
-            if dates_to_delete:
-                delete_dates = [dates[idx] for idx in dates_to_delete if idx < len(dates)]
-                deleted_count = DailyMachiningProductionPlan.objects.filter(
+            if all_dates_to_delete:
+                delete_dates = [dates[idx] for idx in all_dates_to_delete if idx < len(dates)]
+                DailyMachiningProductionPlan.objects.filter(
                     line__in=lines,
                     date__in=delete_dates
-                ).delete()[0]
+                ).delete()
 
             # 各MachiningLineごとに保存処理
             total_plans_to_update = []
@@ -491,6 +508,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                                 continue
 
                             stock_value = item_data.get('stock') if isinstance(item_data, dict) else None
+                            stock_adjustment_value = item_data.get('stock_adjustment', 0) if isinstance(item_data, dict) else 0
 
                             if stock_value is None:
                                 continue
@@ -500,6 +518,7 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
 
                             if existing_stock:
                                 existing_stock.stock = stock_value
+                                existing_stock.stock_adjustment = stock_adjustment_value
                                 existing_stock.last_updated_user = username
                                 total_stocks_to_update.append(existing_stock)
                             else:
@@ -509,13 +528,14 @@ class MachiningProductionPlanView(ManagementRoomPermissionMixin, View):
                                     date=date_obj,
                                     shift=shift_name,
                                     stock=stock_value,
+                                    stock_adjustment=stock_adjustment_value,
                                     last_updated_user=username
                                 ))
 
                 if total_stocks_to_update:
                     MachiningStock.objects.bulk_update(
                         total_stocks_to_update,
-                        ['stock', 'last_updated_user']
+                        ['stock', 'stock_adjustment', 'last_updated_user']
                     )
 
                 if total_stocks_to_create:
