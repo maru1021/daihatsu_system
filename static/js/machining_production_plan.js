@@ -651,25 +651,41 @@ function allocateShipmentToProduction() {
                 continue;
             }
 
-            // 夜勤と日勤に割り振る
-            // 日勤には出庫数全体を割り振り、夜勤は上限内で割り振る
-            // 夜勤が上限を超える場合は、超過分を日勤に追加
+            // 定時分の生産数を計算
+            const regularNightProductionTime = REGULAR_TIME_NIGHT - nightStopTime;
+            const regularNightProduction = regularNightProductionTime > 0
+                ? Math.ceil(regularNightProductionTime / tact * occupancyRate)
+                : 0;
 
+            const regularDayProductionTime = REGULAR_TIME_DAY - dayStopTime;
+            const regularDayProduction = regularDayProductionTime > 0
+                ? Math.ceil(regularDayProductionTime / tact * occupancyRate)
+                : 0;
+
+            // 夜勤と日勤に割り振る
+            // 出庫数が定時分より少ない場合は、定時分を割り振る
             let nightAllocation = 0;
             let dayAllocation = 0;
-            let nightOverflow = 0;  // 夜勤で溢れた分
 
-            // 夜勤の割り振り（上限まで）
-            if (totalShipment <= maxNightProduction) {
-                // 出庫数全体が夜勤の上限内に収まる場合
+            // 夜勤の割り振り
+            if (totalShipment < regularNightProduction) {
+                // 出庫数が夜勤定時分より少ない場合は、定時分を割り振る
+                nightAllocation = regularNightProduction;
+            } else if (totalShipment <= maxNightProduction) {
+                // 出庫数が夜勤の上限内に収まる場合
                 nightAllocation = totalShipment;
-                dayAllocation = totalShipment;  // 日勤にも全体を割り振る
             } else {
-                // 出庫数が夜勤の上限を超える場合
+                // 出庫数が夜勤の上限を超える場合は上限まで
                 nightAllocation = maxNightProduction;
-                nightOverflow = totalShipment - maxNightProduction;
+            }
 
-                // 日勤には出庫数全体 + 夜勤の溢れ分を割り振る（上限まで）
+            // 日勤の割り振り
+            if (totalShipment < regularDayProduction) {
+                // 出庫数が日勤定時分より少ない場合は、定時分を割り振る
+                dayAllocation = regularDayProduction;
+            } else {
+                // 出庫数が日勤定時分以上の場合
+                const nightOverflow = Math.max(0, totalShipment - maxNightProduction);
                 const totalDayRequired = totalShipment + nightOverflow;
                 dayAllocation = Math.min(totalDayRequired, maxDayProduction);
             }
@@ -763,26 +779,33 @@ function calculateSectionTotal(rows, elementClass, options = {}) {
  */
 function updateStockMonthlyTotals() {
     // 在庫数の日勤月間合計（月末在庫 - 前月末在庫の差分）
-    document.querySelectorAll('[data-section="stock"][data-shift="day"]').forEach(row => {
-        const itemName = row.getAttribute('data-item');
+    document.querySelectorAll('[data-section="stock"][data-shift="day"]').forEach(dayRow => {
+        const itemName = dayRow.getAttribute('data-item');
+        const lineIndex = parseInt(dayRow.getAttribute('data-line-index')) || 0;
         if (!itemName) return;
 
-        // 表示されている在庫を取得
-        const displays = Array.from(row.querySelectorAll('.stock-display')).filter(
-            display => display.style.display !== 'none' && display.textContent.trim() !== ''
-        );
+        // 同じテーブル内の夜勤行を取得
+        const table = dayRow.closest('table');
+        const nightRow = table.querySelector(`[data-section="stock"][data-shift="night"][data-item="${itemName}"]`);
 
-        if (displays.length > 0) {
+        // 夜勤の表示されている在庫を取得（夜勤が最終直）
+        const nightDisplays = nightRow
+            ? Array.from(nightRow.querySelectorAll('.stock-display')).filter(
+                display => display.style.display !== 'none' && display.textContent.trim() !== ''
+              )
+            : [];
+
+        if (nightDisplays.length > 0) {
             // 前月末在庫を取得
             const previousStock = (typeof previousMonthStocks !== 'undefined' && previousMonthStocks[itemName])
                 ? previousMonthStocks[itemName]
                 : 0;
-            // 月末在庫（最後の在庫数）を取得
-            const lastStock = parseInt(displays[displays.length - 1].textContent) || 0;
+            // 月末在庫（夜勤の最後の在庫数）を取得
+            const lastStock = parseInt(nightDisplays[nightDisplays.length - 1].textContent) || 0;
             const difference = lastStock - previousStock;
 
             // stock-differenceセルに表示（月計列）
-            const stockDifferenceCell = row.querySelector('.stock-difference');
+            const stockDifferenceCell = dayRow.querySelector('.stock-difference');
             if (stockDifferenceCell) {
                 stockDifferenceCell.textContent = difference !== 0 ? difference : '';
                 stockDifferenceCell.style.fontWeight = 'bold';
@@ -790,9 +813,30 @@ function updateStockMonthlyTotals() {
                 stockDifferenceCell.style.backgroundColor = '#e0f2fe';
             }
         } else {
-            const stockDifferenceCell = row.querySelector('.stock-difference');
-            if (stockDifferenceCell) {
-                stockDifferenceCell.textContent = '';
+            // 夜勤の在庫がない場合は日勤の最後の在庫を使用（フォールバック）
+            const dayDisplays = Array.from(dayRow.querySelectorAll('.stock-display')).filter(
+                display => display.style.display !== 'none' && display.textContent.trim() !== ''
+            );
+
+            if (dayDisplays.length > 0) {
+                const previousStock = (typeof previousMonthStocks !== 'undefined' && previousMonthStocks[itemName])
+                    ? previousMonthStocks[itemName]
+                    : 0;
+                const lastStock = parseInt(dayDisplays[dayDisplays.length - 1].textContent) || 0;
+                const difference = lastStock - previousStock;
+
+                const stockDifferenceCell = dayRow.querySelector('.stock-difference');
+                if (stockDifferenceCell) {
+                    stockDifferenceCell.textContent = difference !== 0 ? difference : '';
+                    stockDifferenceCell.style.fontWeight = 'bold';
+                    stockDifferenceCell.style.textAlign = 'center';
+                    stockDifferenceCell.style.backgroundColor = '#e0f2fe';
+                }
+            } else {
+                const stockDifferenceCell = dayRow.querySelector('.stock-difference');
+                if (stockDifferenceCell) {
+                    stockDifferenceCell.textContent = '';
+                }
             }
         }
     });
@@ -1321,6 +1365,62 @@ function setOvertimeLimit(dateIndex, shift, max, lineIndex = null) {
     }
 }
 
+// 週末の休出時に定時分の初期値を設定
+function setWeekendRegularTimeProduction(dateIndex, lineIndex) {
+    const itemData = linesItemData[lineIndex] || {};
+    const tact = itemData.tact || 0;
+    if (tact === 0) return;
+
+    const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+    if (!occupancyRateInput || occupancyRateInput.style.display === 'none') return;
+    const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
+    if (occupancyRate === 0) return;
+
+    // 日勤の計画停止を取得
+    const dayStopTimeInput = getInputElement(`.stop-time-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+    const dayStopTime = getInputValue(dayStopTimeInput);
+
+    // 日勤定時分の生産数を計算
+    const regularDayProductionTime = REGULAR_TIME_DAY - dayStopTime;
+    const regularDayProduction = regularDayProductionTime > 0
+        ? Math.ceil(regularDayProductionTime / tact * occupancyRate)
+        : 0;
+
+    if (regularDayProduction === 0) return;
+
+    // 各品番の出庫数を取得して比率を計算
+    const itemNames = getItemNames(lineIndex);
+    let totalShipment = 0;
+    const shipmentByItem = {};
+
+    itemNames.forEach(itemName => {
+        const dayShipmentDisplay = getCachedInput('shipment', lineIndex, dateIndex, 'day', itemName);
+        const shipmentValue = getShipmentValue(dayShipmentDisplay);
+        shipmentByItem[itemName] = shipmentValue;
+        totalShipment += shipmentValue;
+    });
+
+    // 出庫数がある場合は出庫数の比率を使用、ない場合は均等割り
+    itemNames.forEach(itemName => {
+        const dayProductionInput = getCachedInput('production', lineIndex, dateIndex, 'day', itemName);
+        if (!dayProductionInput || dayProductionInput.style.display === 'none') return;
+
+        let productionValue;
+        if (totalShipment > 0) {
+            // 出庫数の比率で定時分を配分
+            const ratio = shipmentByItem[itemName] / totalShipment;
+            productionValue = Math.round(regularDayProduction * ratio);
+        } else {
+            // 出庫数がない場合は均等割り
+            productionValue = Math.round(regularDayProduction / itemNames.length);
+        }
+
+        dayProductionInput.dataset.programmaticChange = 'true';
+        dayProductionInput.value = productionValue;
+        setTimeout(() => delete dayProductionInput.dataset.programmaticChange, 0);
+    });
+}
+
 // 週末の休出状態と平日の定時状態を初期化
 function initializeWeekendWorkingStatus() {
     // 当月データがあるかどうかを判定（全ラインで1つでもhas_dataがあればデータありと判断）
@@ -1354,10 +1454,8 @@ function initializeWeekendWorkingStatus() {
 
                     updateWorkingDayStatus(dateIndex, lineIndex, true);
 
-                    // 生産数を明示的に空にクリア（組付の休出に合わせた初期表示のため）
-                    document.querySelectorAll(`.production-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`).forEach(input => {
-                        input.value = '';
-                    });
+                    // 定時分の初期値を設定
+                    setWeekendRegularTimeProduction(dateIndex, lineIndex);
                 } else {
                     // 当月データがある場合は、出庫数と在庫を表示（ユーザーが休出を消した状態）
                     checkCell.textContent = '';
@@ -1891,6 +1989,7 @@ function setupEventListeners() {
             updateAllItemsProduction(dateIndex, [shift], true, lineIndex);
             debouncedUpdateRowTotals();
             debouncedUpdateStockQuantities();
+            highlightUnderRegularTimeColumns();
         });
     });
 
@@ -1942,6 +2041,7 @@ function setupEventListeners() {
 
             debouncedUpdateRowTotals();
             debouncedUpdateStockQuantities();
+            highlightUnderRegularTimeColumns();
 
             isRecalculating = false;
         });
@@ -1970,6 +2070,71 @@ function setupEventListeners() {
             debouncedUpdateStockQuantities();
         });
     });
+}
+
+// ========================================
+// 定時未満の列をハイライト
+// ========================================
+/**
+ * 生産数・残業時間・計画停止から時間の合計を計算し、
+ * 定時未満の直の全品番のinputを黄色でハイライト
+ */
+function highlightUnderRegularTimeColumns() {
+    const dateCount = domCache.dateCount || document.querySelectorAll('.operation-rate-input[data-line-index="0"]').length;
+    const lineCount = domCache.lineCount || document.querySelectorAll('table[data-line-index]').length;
+
+    for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+        for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
+            ['day', 'night'].forEach(shift => {
+                const itemData = linesItemData[lineIndex] || {};
+                const tact = itemData.tact || 0;
+                if (tact === 0) return;
+
+                const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+                if (!occupancyRateInput || occupancyRateInput.style.display === 'none') return;
+                const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
+                if (occupancyRate === 0) return;
+
+                // 全品番の生産数を合計
+                const itemNames = getItemNames(lineIndex);
+                let totalProduction = 0;
+                itemNames.forEach(name => {
+                    const productionInput = getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+                    if (productionInput && productionInput.style.display !== 'none') {
+                        totalProduction += parseInt(productionInput.value) || 0;
+                    }
+                });
+
+                // 計画停止を取得
+                const stopTimeInput = getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+                const stopTime = stopTimeInput && stopTimeInput.style.display !== 'none' ? (parseInt(stopTimeInput.value) || 0) : 0;
+
+                // 定時時間
+                const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
+
+                // 生産に必要な時間を計算
+                const requiredProductionTime = totalProduction > 0 ? (totalProduction * tact) / occupancyRate : 0;
+
+                // 実際に使用している時間 = 生産時間 + 計画停止
+                const usedTime = requiredProductionTime + stopTime;
+
+                // 定時未満かどうかを判定（使用時間が定時より少ない場合）
+                const isUnderRegularTime = usedTime < regularTime;
+
+                // 該当する直の全品番のinputをハイライト
+                itemNames.forEach(name => {
+                    const productionInput = getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
+                    if (productionInput && productionInput.style.display !== 'none') {
+                        if (isUnderRegularTime) {
+                            productionInput.style.backgroundColor = '#fef9c3'; // 薄い黄色
+                        } else {
+                            productionInput.style.backgroundColor = ''; // デフォルト
+                        }
+                    }
+                });
+            });
+        }
+    }
 }
 
 // ========================================
@@ -2244,6 +2409,9 @@ async function performInitialCalculations() {
 
     // 在庫数計算後に在庫数の月計を更新
     updateRowTotals();
+
+    // 初期表示時に定時未満の列をハイライト
+    highlightUnderRegularTimeColumns();
 }
 
 // シフトの合計生産数を取得
