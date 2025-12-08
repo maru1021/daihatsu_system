@@ -21,7 +21,7 @@ from manufacturing.models import CastingLine, CastingMachine
 from management_room.auth_mixin import ManagementRoomPermissionMixin
 from django.views import View
 from django.http import JsonResponse
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 import json
 import math
@@ -194,9 +194,6 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 month=prev_month_first_date
             ).select_related('machine', 'item_name')
 
-            # デバッグログ: 前月の使用可能金型を読み込み
-            print(f"\n=== 前月の使用可能金型を読み込み（{prev_month_first_date}） ===")
-
             for mold in molds:
                 if mold.end_of_month:
                     # 月末金型（設備に取り付けられている状態）
@@ -207,7 +204,6 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         'used_count': mold.used_count,
                         'end_of_month': mold.end_of_month
                     }
-                    print(f"  月末金型: 設備#{mold.machine.name} {mold.item_name.name} 型数={mold.used_count}")
                 else:
                     # 月の途中で外した使いかけの金型（detached_moldsに追加）
                     # used_count が 1～5 の範囲（6直完了は除外）
@@ -220,9 +216,6 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         # 次回使用時は+1した値から開始する（フロントエンドでは取り外し時のカウントをそのまま保存）
                         next_count = mold.used_count + 1
                         prev_detached_molds[item_name].append(next_count)
-                        print(f"  途中取外: {item_name} DB型数={mold.used_count} → 次回使用時={next_count}")
-
-            print(f"\n前月取外金型の初期状態: {dict(prev_detached_molds)}\n")
 
             # 品番ペアごとの同時生産上限を取得
             prohibited_patterns = {}
@@ -246,6 +239,35 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
             # ライン名に応じて適切な自動生成メソッドを選択
             if line.name == 'カバー':
+                # カバーライン: 前月末の各設備の生産品番を取得
+                prev_machine_items = {}
+                if start_date.day == 1:
+                    # 前月の最終日を取得
+                    prev_month_last_date = start_date - timedelta(days=1)
+
+                    # 前月末の生産計画を取得
+                    prev_month_plans = DailyMachineCastingProductionPlan.objects.filter(
+                        machine__line=line,
+                        date=prev_month_last_date,
+                        shift='night'  # 前月の最終直（夜勤）
+                    ).select_related('machine', 'production_item')
+
+                    for plan in prev_month_plans:
+                        if plan.production_item:
+                            prev_machine_items[plan.machine.id] = plan.production_item.name
+
+                    # 夜勤の計画がない場合は、前月最終日の日勤を確認
+                    if not prev_machine_items:
+                        prev_month_plans = DailyMachineCastingProductionPlan.objects.filter(
+                            machine__line=line,
+                            date=prev_month_last_date,
+                            shift='day'
+                        ).select_related('machine', 'production_item')
+
+                        for plan in prev_month_plans:
+                            if plan.production_item:
+                                prev_machine_items[plan.machine.id] = plan.production_item.name
+
                 # カバーライン用の自動生成（金型管理なし、在庫0-1000管理）
                 result = self._generate_auto_plan_cover(
                     working_days=working_days,
@@ -256,7 +278,8 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     item_data=item_data,
                     stop_time_data=stop_time_data,
                     line=line,
-                    occupancy_rate=occupancy_rate
+                    occupancy_rate=occupancy_rate,
+                    prev_machine_items=prev_machine_items
                 )
             else:
                 # ヘッドライン用の自動生成（既存アルゴリズム）
@@ -348,7 +371,6 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         # 定数
         BASE_TIME = {'day': 490, 'night': 485}  # 基本稼働時間（分）
         OVERTIME_MAX = {'day': 120, 'night': 60}  # 残業上限（分）
-        SAFETY_STOCK = 300  # 安全在庫（この値を下回らないようにする）
         MOLD_CHANGE_THRESHOLD = 6  # 金型交換閾値
         CHANGEOVER_TIME = line.changeover_time or 90  # 型替え時間（分）
 
@@ -1272,7 +1294,8 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         }
 
     def _generate_auto_plan_cover(self, working_days, machines, item_delivery, prev_inventory,
-                                  optimal_inventory, item_data, stop_time_data, line, occupancy_rate):
+                                  optimal_inventory, item_data, stop_time_data, line, occupancy_rate,
+                                  prev_machine_items=None):
         """
         カバーライン用の自動生産計画を生成
 
@@ -1283,11 +1306,14 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         - 各品番の在庫数が1000個を超えないように残業時間を調整
         - 同一品番でも設備が異なればタクトが違う
         - 型替え最小化：前の直と同じ品番を継続する場合を優先
-        - タクト最適化：複数の設備候補がある場合、最もタクトが速い設備を選択
+        - タクト最適化：複数の設備候補がある場合、最もタクトが速い設備を選択(前の直で同じ品案のものがある場合は除外)
+        - 型替えの時間は品番が変わる前側のところで発生
+        - 型替え時間を考慮して生産数を計算
 
         【絶対制約】
         - 在庫数を0にしない
         - 在庫数を1000以上にしない
+        - #1,#2は作成できる品番が同じなので無駄な型替えをしない
 
         Args:
             working_days (list): 稼働日リスト
@@ -1299,6 +1325,7 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
             stop_time_data (list): 計画停止データ [{'date': date, 'shift': str, 'machine_id': int, 'stop_time': int}]
             line: 鋳造ライン
             occupancy_rate (float): 稼働率
+            prev_machine_items (dict): 前月末の各設備の生産品番 {machine_id: item_name}
 
         Returns:
             dict: {
@@ -1306,6 +1333,8 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 'unused_molds': []
             }
         """
+        if prev_machine_items is None:
+            prev_machine_items = {}
         import os
         from datetime import datetime
         import math
@@ -1357,18 +1386,18 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         for key, data in item_data.items():
             all_item_names.add(data['name'])
 
-        # 在庫シミュレーション用の変数を初期化
+        # 在庫シミュレーション用の変数を初期化(前月最終直の在庫)
         inventory = {item: prev_inventory.get(item, 0) for item in all_item_names}
 
         # 各鋳造機の生産計画
         machine_plans = {m.id: [] for m in machines}
 
         # 各鋳造機の現在の品番（品番変更時の型替え時間判定用）
-        machine_current_item = {m.id: None for m in machines}
+        # 前月末の品番を初期値として設定
+        machine_current_item = {m.id: prev_machine_items.get(m.id) for m in machines}
 
         # 型替え回数の統計
         total_changeovers = 0
-        changeovers_by_machine = {m.id: 0 for m in machines}
 
         # ========================================
         # ヘルパー関数定義
@@ -1619,6 +1648,20 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         log_file.write("=" * 80 + "\n\n")
         for item_name in sorted(all_item_names):
             log_file.write(f"  {item_name}: {inventory.get(item_name, 0)} 台\n")
+        log_file.write("\n")
+
+        log_file.write("\n" + "=" * 80 + "\n")
+        log_file.write("【前月末の各設備の生産品番】\n")
+        log_file.write("=" * 80 + "\n\n")
+        if prev_machine_items:
+            for machine in machines:
+                prev_item = prev_machine_items.get(machine.id)
+                if prev_item:
+                    log_file.write(f"  設備#{machine.name}: {prev_item}\n")
+                else:
+                    log_file.write(f"  設備#{machine.name}: データなし\n")
+        else:
+            log_file.write("  前月末のデータなし\n")
         log_file.write("\n")
 
 
@@ -1899,19 +1942,56 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 計画停止時間を取得
                 stop_time = stop_time_dict.get((date, shift, machine.id), 0)
 
-                # 前の直と品番が異なる場合、この直に型替え時間を設定
+                # 前の直と品番が異なる場合、前の直に型替え時間を設定
                 prev_item = machine_current_item.get(machine.id)
                 this_shift_changeover_time = 0
+
                 if prev_item and prev_item != item_name:
-                    this_shift_changeover_time = CHANGEOVER_TIME
-                    # 型替え回数をカウント
-                    total_changeovers += 1
-                    changeovers_by_machine[machine.id] += 1
+                    # 品番が変わる場合、前の直の最後の計画に型替え時間を追加
+                    if machine_plans[machine.id]:
+                        prev_plan = machine_plans[machine.id][-1]
+                        old_changeover = prev_plan['changeover_time']
+
+                        # 型替え時間をまだ設定していない場合のみ追加
+                        if old_changeover == 0:
+                            prev_plan['changeover_time'] = CHANGEOVER_TIME
+
+                            # 前の直の生産数を再計算（型替え時間を考慮）
+                            prev_key = f"{prev_item}_{machine.id}"
+                            prev_data = item_data.get(prev_key)
+                            if prev_data:
+                                # 古い生産数を取得
+                                old_working_time = BASE_TIME[prev_plan['shift']] - prev_plan['stop_time'] - old_changeover + prev_plan['overtime']
+                                old_total_prod = math.floor((old_working_time / prev_data['tact']) * occupancy_rate)
+                                old_good_prod = math.floor(old_total_prod * prev_data['yield_rate'])
+
+                                # 新しい生産数を計算（型替え時間を引く）
+                                new_working_time = BASE_TIME[prev_plan['shift']] - prev_plan['stop_time'] - CHANGEOVER_TIME + prev_plan['overtime']
+                                if new_working_time < 0:
+                                    new_working_time = 0
+                                new_total_prod = math.floor((new_working_time / prev_data['tact']) * occupancy_rate)
+                                new_good_prod = math.floor(new_total_prod * prev_data['yield_rate'])
+
+                                # 在庫の差分を修正
+                                production_diff = new_good_prod - old_good_prod
+                                inventory[prev_item] += production_diff
+
+                                # 前の直の在庫情報を更新
+                                prev_plan['after_stock'] = inventory.get(prev_item, 0)
+
+                                log_file.write(f"      【型替え時間設定】前の直（設備#{machine.name}, {prev_item}）に型替え時間{CHANGEOVER_TIME}分を追加\n")
+                                log_file.write(f"        前の直の生産数: {old_good_prod}台 → {new_good_prod}台（差分: {production_diff}台）\n")
+                                log_file.write(f"        {prev_item}の在庫修正: {inventory.get(prev_item, 0) - production_diff}台 → {inventory.get(prev_item, 0)}台\n")
+
+                            # 型替え回数をカウント
+                            total_changeovers += 1
+
+                    # 現在の直では型替え時間なし（前の直で設定済み）
+                    this_shift_changeover_time = 0
+
                 elif prev_item is None:
-                    # 月初の直は型替え時間を設定
+                    # 前月末のデータがない場合は型替え時間を設定
                     this_shift_changeover_time = CHANGEOVER_TIME
-                    total_changeovers += 1
-                    changeovers_by_machine[machine.id] += 1
 
                 # この直で既に計画されたこの品番の生産数を取得
                 current_shift_planned = planned_production_by_item.get(item_name, 0)
@@ -2035,19 +2115,53 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 計画停止時間を取得
                 stop_time = stop_time_dict.get((date, shift, machine.id), 0)
 
-                # 前の直と品番が異なる場合、この直に型替え時間を設定
+                # 前の直と品番が異なる場合、前の直に型替え時間を設定
                 prev_item = machine_current_item.get(machine.id)
                 this_shift_changeover_time = 0
+
                 if prev_item and prev_item != item_name:
-                    this_shift_changeover_time = CHANGEOVER_TIME
-                    # 型替え回数をカウント
-                    total_changeovers += 1
-                    changeovers_by_machine[machine.id] += 1
+                    # 品番が変わる場合、前の直の最後の計画に型替え時間を追加
+                    if machine_plans[machine.id]:
+                        prev_plan = machine_plans[machine.id][-1]
+                        old_changeover = prev_plan['changeover_time']
+
+                        # 型替え時間をまだ設定していない場合のみ追加
+                        if old_changeover == 0:
+                            prev_plan['changeover_time'] = CHANGEOVER_TIME
+
+                            # 前の直の生産数を再計算（型替え時間を考慮）
+                            prev_key = f"{prev_item}_{machine.id}"
+                            prev_data = item_data.get(prev_key)
+                            if prev_data:
+                                # 古い生産数を取得
+                                old_working_time = BASE_TIME[prev_plan['shift']] - prev_plan['stop_time'] - old_changeover + prev_plan['overtime']
+                                old_total_prod = math.floor((old_working_time / prev_data['tact']) * occupancy_rate)
+                                old_good_prod = math.floor(old_total_prod * prev_data['yield_rate'])
+
+                                # 新しい生産数を計算（型替え時間を引く）
+                                new_working_time = BASE_TIME[prev_plan['shift']] - prev_plan['stop_time'] - CHANGEOVER_TIME + prev_plan['overtime']
+                                if new_working_time < 0:
+                                    new_working_time = 0
+                                new_total_prod = math.floor((new_working_time / prev_data['tact']) * occupancy_rate)
+                                new_good_prod = math.floor(new_total_prod * prev_data['yield_rate'])
+
+                                # 在庫の差分を修正
+                                production_diff = new_good_prod - old_good_prod
+                                inventory[prev_item] += production_diff
+
+                                # 前の直の在庫情報を更新
+                                prev_plan['after_stock'] = inventory.get(prev_item, 0)
+
+                                log_file.write(f"      【型替え時間設定】前の直（設備#{machine.name}, {prev_item}）に型替え時間{CHANGEOVER_TIME}分を追加\n")
+                                log_file.write(f"        前の直の生産数: {old_good_prod}台 → {new_good_prod}台（差分: {production_diff}台）\n")
+                                log_file.write(f"        {prev_item}の在庫修正: {inventory.get(prev_item, 0) - production_diff}台 → {inventory.get(prev_item, 0)}台\n")
+
+                    # 現在の直では型替え時間なし（前の直で設定済み）
+                    this_shift_changeover_time = 0
+
                 elif prev_item is None:
-                    # 月初の直は型替え時間を設定
+                    # 前月末のデータがない場合は型替え時間を設定
                     this_shift_changeover_time = CHANGEOVER_TIME
-                    total_changeovers += 1
-                    changeovers_by_machine[machine.id] += 1
 
                 # この直で既に計画されたこの品番の生産数を取得
                 current_shift_planned = planned_production_by_item.get(item_name, 0)
@@ -2290,13 +2404,66 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 log_file.write(f"    型替え回数: {swapped_changeovers}回\n")
                 log_file.write(f"  → 型替え回数が {current_changeovers - swapped_changeovers}回減少\n")
 
-                # 入れ替え後の型替え時間を計算
-                new_changeover_time_1 = CHANGEOVER_TIME if prev_item_1 and prev_item_1 != item_2 else 0
-                new_changeover_time_2 = CHANGEOVER_TIME if prev_item_2 and prev_item_2 != item_1 else 0
+                # 入れ替え後は、この直の型替え時間は0（型替えは前の直で行われるため）
+                new_changeover_time_1 = 0
+                new_changeover_time_2 = 0
 
                 # 元の型替え時間
                 old_changeover_time_1 = plan_1['changeover_time']
                 old_changeover_time_2 = plan_2['changeover_time']
+
+                # 前の直の型替え時間を更新する必要があるかチェック
+                # 入れ替えによって前の直の型替え時間が変わる可能性がある
+                if shift_idx > 0:
+                    prev_date, prev_shift = all_shifts[shift_idx - 1]
+
+                    # 前の直の#1の計画を取得
+                    prev_plan_1 = None
+                    prev_plan_1_idx = None
+                    for idx, plan in enumerate(machine_plans[machine_650t_1.id]):
+                        if plan['date'] == prev_date and plan['shift'] == prev_shift:
+                            prev_plan_1 = plan
+                            prev_plan_1_idx = idx
+                            break
+
+                    # 前の直の#2の計画を取得
+                    prev_plan_2 = None
+                    prev_plan_2_idx = None
+                    for idx, plan in enumerate(machine_plans[machine_650t_2.id]):
+                        if plan['date'] == prev_date and plan['shift'] == prev_shift:
+                            prev_plan_2 = plan
+                            prev_plan_2_idx = idx
+                            break
+
+                    # 前の直の#1に型替え時間を設定すべきか判定
+                    if prev_plan_1:
+                        prev_prev_item_1 = prev_plan_1['item_name']
+                        # 入れ替え後: #1でitem_2を生産
+                        # 前の直の品番と異なる場合、前の直に型替え時間を設定
+                        if prev_prev_item_1 != item_2:
+                            if prev_plan_1['changeover_time'] == 0:
+                                prev_plan_1['changeover_time'] = CHANGEOVER_TIME
+                                log_file.write(f"  【前の直更新】#1の前の直（{prev_date} {prev_shift}）に型替え時間を追加\n")
+                        else:
+                            # 継続生産なので型替え時間不要
+                            if prev_plan_1['changeover_time'] > 0:
+                                prev_plan_1['changeover_time'] = 0
+                                log_file.write(f"  【前の直更新】#1の前の直（{prev_date} {prev_shift}）の型替え時間を削除（継続生産）\n")
+
+                    # 前の直の#2に型替え時間を設定すべきか判定
+                    if prev_plan_2:
+                        prev_prev_item_2 = prev_plan_2['item_name']
+                        # 入れ替え後: #2でitem_1を生産
+                        # 前の直の品番と異なる場合、前の直に型替え時間を設定
+                        if prev_prev_item_2 != item_1:
+                            if prev_plan_2['changeover_time'] == 0:
+                                prev_plan_2['changeover_time'] = CHANGEOVER_TIME
+                                log_file.write(f"  【前の直更新】#2の前の直（{prev_date} {prev_shift}）に型替え時間を追加\n")
+                        else:
+                            # 継続生産なので型替え時間不要
+                            if prev_plan_2['changeover_time'] > 0:
+                                prev_plan_2['changeover_time'] = 0
+                                log_file.write(f"  【前の直更新】#2の前の直（{prev_date} {prev_shift}）の型替え時間を削除（継続生産）\n")
 
                 # 計画停止時間を取得
                 stop_time_1 = stop_time_dict.get((date, shift, machine_650t_1.id), 0)
@@ -2426,21 +2593,6 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     machine_plans[machine_650t_2.id][plan_2_idx]['overtime'] = best_overtime_2
                     machine_plans[machine_650t_2.id][plan_2_idx]['changeover_time'] = new_changeover_time_2
 
-                    # 型替えカウントを調整
-                    if old_changeover_time_1 > 0:
-                        total_changeovers -= 1
-                        changeovers_by_machine[machine_650t_1.id] -= 1
-                    if old_changeover_time_2 > 0:
-                        total_changeovers -= 1
-                        changeovers_by_machine[machine_650t_2.id] -= 1
-
-                    if new_changeover_time_1 > 0:
-                        total_changeovers += 1
-                        changeovers_by_machine[machine_650t_1.id] += 1
-                    if new_changeover_time_2 > 0:
-                        total_changeovers += 1
-                        changeovers_by_machine[machine_650t_2.id] += 1
-
                     log_file.write(f"  → 入れ替えを実行しました\n")
                     optimization_count += 1
                 else:
@@ -2485,176 +2637,6 @@ class AutoCastingProductionPlanView(ManagementRoomPermissionMixin, View):
         log_file.write("=" * 80 + "\n\n")
         log_file.write(f"  総型替え回数: {total_changeovers}回\n\n")
         log_file.write("  設備別型替え回数:\n")
-        for machine in machines:
-            count = changeovers_by_machine.get(machine.id, 0)
-            log_file.write(f"    {machine.name}: {count}回\n")
-
-        # ========================================
-        # 連続する直間での型替え時間の追加（カバーライン用）
-        # ========================================
-        # 全ての直の計画が確定した後、連続する直間で品番が変更されている場合に
-        # 型替え時間を追加設定する（ヘッドラインと同様のロジック）
-
-        # 【夜勤→日勤の品番変更チェック】
-        for i, (date, shift) in enumerate(all_shifts):
-            if shift != 'night':
-                continue  # 夜勤のみ処理
-
-            # 次の直を取得
-            next_shift_idx = i + 1
-            if next_shift_idx >= len(all_shifts):
-                continue
-
-            next_date, next_shift = all_shifts[next_shift_idx]
-
-            # 次の直が日勤であることを確認（夜勤の次は通常日勤）
-            if next_shift != 'day':
-                continue
-
-            # 各設備について夜勤と次の日勤の品番を比較
-            for machine in machines:
-                night_plans = [p for p in machine_plans[machine.id]
-                             if p['date'] == date and p['shift'] == 'night']
-                day_plans = [p for p in machine_plans[machine.id]
-                           if p['date'] == next_date and p['shift'] == next_shift]
-
-                if night_plans and day_plans:
-                    night_item = night_plans[0]['item_name']
-                    day_item = day_plans[0]['item_name']
-                    night_changeover = night_plans[0].get('changeover_time', 0)
-
-                    # 品番が異なる場合は夜勤で型替え
-                    if night_item != day_item:
-                        # 夜勤で既に型替え時間が設定されている場合は追加不要
-                        if night_changeover == 0:
-                            # 型替え時間を設定（夜勤で型替えが発生）
-                            night_plans[0]['changeover_time'] = CHANGEOVER_TIME
-
-                        # 夜勤で型替えするため、残業禁止
-                        night_plans[0]['overtime'] = 0
-
-                        # 次の日勤の型替え時間はクリア（夜勤で型替え済み）
-                        if day_plans[0].get('changeover_time', 0) > 0:
-                            day_plans[0]['changeover_time'] = 0
-
-        # 【日勤→夜勤の品番変更チェック】
-        for i, (date, shift) in enumerate(all_shifts):
-            if shift != 'day':
-                continue  # 日勤のみ処理
-
-            # 同じ日の夜勤を取得
-            night_shift_idx = i + 1
-            if night_shift_idx >= len(all_shifts):
-                continue
-
-            next_date, next_shift = all_shifts[night_shift_idx]
-
-            # 次の直が夜勤で、同じ日付であることを確認
-            if next_shift != 'night' or next_date != date:
-                continue
-
-            # 各設備について日勤と夜勤の品番を比較
-            for machine in machines:
-                day_plans = [p for p in machine_plans[machine.id]
-                           if p['date'] == date and p['shift'] == 'day']
-                night_plans = [p for p in machine_plans[machine.id]
-                             if p['date'] == next_date and p['shift'] == next_shift]
-
-                if day_plans and night_plans:
-                    day_item = day_plans[0]['item_name']
-                    night_item = night_plans[0]['item_name']
-                    day_changeover = day_plans[0].get('changeover_time', 0)
-
-                    # 品番が異なる場合は日勤で型替え
-                    if day_item != night_item:
-                        # 日勤で既に型替え時間が設定されている場合は追加不要
-                        if day_changeover == 0:
-                            # 型替え時間を設定（日勤で型替えが発生）
-                            day_plans[0]['changeover_time'] = CHANGEOVER_TIME
-
-        # ========================================
-        # 型替え時間追加後の在庫再計算
-        # ========================================
-        log_file.write("\n" + "=" * 80 + "\n")
-        log_file.write("【型替え時間追加後の在庫再計算】\n")
-        log_file.write("=" * 80 + "\n\n")
-
-        # 在庫を初期化
-        inventory = {item: prev_inventory.get(item, 0) for item in all_item_names}
-
-        # 全ての直を順番に処理して在庫を再計算
-        for shift_idx, (date, shift) in enumerate(all_shifts):
-            log_file.write("=" * 80 + "\n")
-            log_file.write(f"【{date} {shift}直】\n")
-            log_file.write("=" * 80 + "\n\n")
-
-            # この直の出荷数を取得
-            shift_deliveries = {}
-            for item_name in all_item_names:
-                delivery = 0
-                for d in item_delivery.get(item_name, []):
-                    if d['date'] == date and d['shift'] == shift:
-                        delivery = d['count']
-                        break
-                shift_deliveries[item_name] = delivery
-
-            # 生産処理（型替え時間を考慮して再計算）
-            log_file.write("--- 生産実行 ---\n")
-            for machine in machines:
-                plan_list = [p for p in machine_plans[machine.id]
-                           if p['date'] == date and p['shift'] == shift]
-
-                if plan_list:
-                    plan = plan_list[0]
-                    item_name = plan['item_name']
-                    key = f"{item_name}_{machine.id}"
-                    data = item_data.get(key)
-
-                    if data and data['tact'] > 0:
-                        # 型替え時間を考慮して生産数を再計算
-                        changeover_time = plan.get('changeover_time', 0)
-                        working_time = BASE_TIME[shift] - plan.get('stop_time', 0) - changeover_time + plan.get('overtime', 0)
-                        if working_time < 0:
-                            working_time = 0
-
-                        total_production = math.floor((working_time / data['tact']) * occupancy_rate)
-                        good_production = math.floor(total_production * data['yield_rate'])
-
-                        # 在庫を更新
-                        before_stock = inventory.get(item_name, 0)
-                        after_stock = before_stock + good_production
-                        inventory[item_name] = after_stock
-
-                        # 詳細ログ出力
-                        log_file.write(f"  設備#{machine.name}: {item_name}\n")
-                        log_file.write(f"    基本時間:{BASE_TIME[shift]}分 - 停止:{plan.get('stop_time', 0)}分 - 型替:{changeover_time}分 + 残業:{plan.get('overtime', 0)}分 = 稼働時間:{working_time}分\n")
-                        log_file.write(f"    タクト:{data['tact']}秒, 良品率:{data['yield_rate']}, 稼働率:{occupancy_rate}\n")
-                        log_file.write(f"    総生産:{total_production}台, 良品:{good_production}台\n")
-                        log_file.write(f"    在庫: {before_stock} → {after_stock}台\n")
-            log_file.write("\n")
-
-            # 出荷処理
-            log_file.write("--- 出荷処理 ---\n")
-            for item_name in all_item_names:
-                delivery = shift_deliveries.get(item_name, 0)
-                if delivery > 0:
-                    before_stock = inventory.get(item_name, 0)
-                    after_stock = before_stock - delivery
-                    inventory[item_name] = after_stock
-                    log_file.write(f"  {item_name}: {before_stock} → {after_stock} (出荷: {delivery}台)\n")
-            log_file.write("\n")
-
-            # 直後の在庫
-            log_file.write("--- 直後の在庫 ---\n")
-            for item_name in sorted(all_item_names):
-                log_file.write(f"  {item_name}: {inventory.get(item_name, 0)} 台\n")
-            log_file.write("\n")
-
-        # 最終在庫をログ出力
-        log_file.write("最終在庫:\n")
-        for item_name in sorted(all_item_names):
-            log_file.write(f"  {item_name}: {inventory.get(item_name, 0)} 台\n")
-        log_file.write("\n")
 
         # ログファイルを閉じる
         log_file.write("\n" + "=" * 80 + "\n")

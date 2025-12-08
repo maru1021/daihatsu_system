@@ -2209,11 +2209,19 @@ function calculateInventory(dateIndex, shift, itemName) {
         const roundedInventory = Math.round(inventory);
         inventoryInput.value = roundedInventory;
 
-        // 在庫が負の場合は赤色にする
+        // 在庫数に応じてスタイルを設定
         if (roundedInventory < 0) {
+            // 負の場合：黒文字・赤背景
             inventoryInput.classList.add('negative-inventory');
-        } else {
+            inventoryInput.classList.remove('high-inventory');
+        } else if (roundedInventory > 1000) {
+            // 1000を超える場合：薄い青背景
+            inventoryInput.classList.add('high-inventory');
             inventoryInput.classList.remove('negative-inventory');
+        } else {
+            // 通常の場合：スタイルをクリア
+            inventoryInput.classList.remove('negative-inventory');
+            inventoryInput.classList.remove('high-inventory');
         }
     }
 

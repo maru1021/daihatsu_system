@@ -540,8 +540,14 @@ span.vehicle-ve7 {
    ======================================== */
 /* 在庫がマイナスのセル */
 .negative-inventory {
-    color: #c62828 !important;
+    color: #000000 !important;
+    background-color: #ff0000 !important;
     font-weight: bold;
+}
+
+/* 在庫が1000を超えるセル */
+.high-inventory {
+    background-color: #e3f2fd !important;
 }
 
 /* 品番が変更されたセル */
