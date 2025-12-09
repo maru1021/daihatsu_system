@@ -27,6 +27,11 @@ use context7
 - **組付**: [management_room/production_plan/assembly/](management_room/production_plan/assembly/)
   - [overview.md](management_room/production_plan/assembly/overview.md): 概要・タクト管理
 
+- **CVT**: [management_room/production_plan/cvt/](management_room/production_plan/cvt/)
+  - [overview.md](management_room/production_plan/cvt/overview.md): 概要・モデル・画面構成
+  - [backend.md](management_room/production_plan/cvt/backend.md): Python（ビュー・保存処理）
+  - [frontend.md](management_room/production_plan/cvt/frontend.md): JavaScript（金型管理なし）
+
 ## 規約
 
 - Python: PEP 8、`snake_case`、`PascalCase`クラス

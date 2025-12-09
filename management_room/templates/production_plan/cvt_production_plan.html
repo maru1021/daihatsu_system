@@ -7,7 +7,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>鋳造生産スケジュール - {{ year }}年{{ month }}月</title>
+<title>CVT生産スケジュール - {{ year }}年{{ month }}月</title>
 <link href="{% static 'css/vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet" />
 <link href="{% static 'css/vendor/select2/select2.min.css' %}" rel="stylesheet" />
 <link href="{% static 'css/vendor/select2/select2-bootstrap-5-theme.min.css' %}" rel="stylesheet" />
@@ -42,7 +42,7 @@ td.weekend .overtime-input {
 <script src="{% static 'js/loading.js' %}"></script>
 <div class="page-container">
     <div class="header-section">
-        <div class="page-title">鋳造生産スケジュール</div>
+        <div class="page-title">CVT生産スケジュール</div>
         <div class="controls-wrapper">
             <div class="left-controls">
                 <div class="control-row">
@@ -85,16 +85,6 @@ td.weekend .overtime-input {
         </div>
     </div>
 <div class="table-container table-initializing" id="schedule-table" style="position: relative;">
-<!-- 金型引き継ぎの矢印表示用SVG（ヘッドラインのみ） -->
-{% if is_head_line %}
-<svg id="inheritance-arrows" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; overflow: visible;">
-    <defs>
-        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
-            <polygon points="0 0, 10 3, 0 6" fill="#4CAF50" opacity="0.5" />
-        </marker>
-    </defs>
-</svg>
-{% endif %}
 <table>
 <thead>
 <tr class="time-check-row">
@@ -254,16 +244,6 @@ td.weekend .overtime-input {
 <th></th>
 <th></th>
 </tr>
-<!-- 再利用可能金型（ヘッドラインのみ） -->
-{% if is_head_line %}
-<tr class="reusable-molds-row">
-<td colspan="100%" style="text-align: center; padding: 8px; background-color: #f8f9fa; border: 1px solid #ddd;">
-    <div class="reusable-molds-inline" id="reusable-molds-list">
-        <!-- JavaScriptで動的に生成 -->
-    </div>
-</td>
-</tr>
-{% endif %}
 {% for machine in machines %}
 <tr data-section="production_plan" data-shift="day" data-machine-index="{{ forloop.counter0 }}">
     {% if forloop.first %}
@@ -282,9 +262,6 @@ td.weekend .overtime-input {
                 <option value="{{ item }}"{% if item == machine_data.selected_item %} selected{% endif %}>{{ item }}</option>
                 {% endfor %}
             </select>
-            {% if is_head_line %}
-            <span class="mold-count-display{% if machine_data.mold_count == -1 %} manual-block{% endif %}" data-shift="day" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-reset="false" data-inherited="false" data-manual-block="{% if machine_data.mold_count == -1 %}true{% else %}false{% endif %}"{% if machine_data.is_prev_month_mold %} data-prev-month-mold="true" data-prev-month-count="{{ machine_data.prev_month_mold_count }}" data-prev-month-item="{{ machine_data.prev_month_item_name }}"{% endif %}>{% if machine_data.mold_count == -1 %}1{% elif machine_data.mold_count %}{{ machine_data.mold_count }}{% endif %}</span>
-            {% endif %}
         </div>
         {% endif %}
     </td>
@@ -311,9 +288,6 @@ td.weekend .overtime-input {
                 <option value="{{ item }}"{% if item == machine_data.selected_item %} selected{% endif %}>{{ item }}</option>
                 {% endfor %}
             </select>
-            {% if is_head_line %}
-            <span class="mold-count-display{% if machine_data.mold_count == -1 %} manual-block{% endif %}" data-shift="night" data-date-index="{{ forloop.counter0 }}" data-machine-index="{{ forloop.parentloop.counter0 }}" data-reset="false" data-inherited="false" data-manual-block="{% if machine_data.mold_count == -1 %}true{% else %}false{% endif %}">{% if machine_data.mold_count == -1 %}1{% elif machine_data.mold_count %}{{ machine_data.mold_count }}{% endif %}</span>
-            {% endif %}
         </div>
         {% endif %}
     </td>
@@ -323,8 +297,7 @@ td.weekend .overtime-input {
     <td></td>
 </tr>
 {% endfor %}
-<!-- 金型交換（ブロックライン以外） -->
-{% if not is_block_line %}
+<!-- 金型交換 -->
 {% for machine in machines %}
 <tr data-section="mold_change" data-shift="day" data-machine-index="{{ forloop.counter0 }}">
 {% if forloop.first %}<th class="category-label" rowspan="{{ machine_total_rows }}">金型交換</th><th class="shift-label" rowspan="{{ machines|length }}">日勤</th>{% endif %}
@@ -355,7 +328,6 @@ td.weekend .overtime-input {
 <td></td>
 </tr>
 {% endfor %}
-{% endif %}
 <!-- 残業時間 -->
 {% for machine in machines %}
 <tr data-section="overtime" data-shift="day" data-machine-index="{{ forloop.counter0 }}">
@@ -454,22 +426,6 @@ td.weekend .overtime-input {
 <td></td>
 <td></td>
 </tr>
-<!-- 中子 -->
-{% if is_head_line %}
-{% for item_name in item_names %}
-<tr data-section="core" data-item="{{ item_name }}">
-{% if forloop.first %}
-<th class="category-label" rowspan="{{ item_names|length }}">中子</th>
-{% endif %}
-<th class="shift-label" colspan="2">{{ item_name }}</th>
-{% for date_data in dates_data %}
-<td{% if date_data.is_weekend %} class="weekend"{% endif %} data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}"></td>
-{% endfor %}
-<td></td>
-<td></td>
-</tr>
-{% endfor %}
-{% endif %}
 </tbody>
 </table>
 </div>
@@ -483,26 +439,11 @@ td.weekend .overtime-input {
 <!-- データをJavaScriptに渡す -->
 <script>
     // 品番データ（タクトと良品率）
-    itemData = {{ item_data_json|safe }};
-    colorMap = {{ color_dict|safe }};
-    {% comment %} console.log('Color Map:', colorMap); {% endcomment %}
+    const itemData = {{ item_data_json|safe }};
+    const colorMap = {{ color_dict|safe }};
 
     // 前月最終在庫
-    previousMonthInventory = {{ previous_month_inventory_json|safe }};
-
-    // 前月の最後の5直分の生産計画（連続生産チェック用）
-    previousMonthProductionPlans = {{ previous_month_production_plans_json|safe }};
-
-    // 前月の使用可能金型数
-    prevUsableMolds = {{ prev_usable_molds_json|safe }};
-
-    // ラインの段取時間（型替え時間）（分）
-    let changeoverTime = {{ changeover_time }};
-
-    // ライン種別の判定
-    isHeadLine = {% if is_head_line %}true{% else %}false{% endif %};
-    isBlockLine = {% if is_block_line %}true{% else %}false{% endif %};
-    isCoverLine = {% if is_cover_line %}true{% else %}false{% endif %};
+    const previousMonthInventory = {{ previous_month_inventory_json|safe }};
 </script>
 
 <!-- 外部JavaScriptファイルを読み込む -->
@@ -512,7 +453,7 @@ td.weekend .overtime-input {
 <script src="{% static 'js/toast.js' %}"></script>
 <script src="{% static 'js/management_room/production_plan/shared/common.js' %}"></script>
 <script src="{% static 'js/management_room/production_plan/shared/casting.js' %}"></script>
-<script src="{% static 'js/management_room/production_plan/casting_production_plan.js' %}"></script>
+<script src="{% static 'js/management_room/production_plan/cvt_production_plan.js' %}"></script>
 
 <script>
 // Excel出力関数

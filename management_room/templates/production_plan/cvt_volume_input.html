@@ -1,14 +1,15 @@
 {% extends 'base.html' %}
 
-{% block title %}生産数量入力{% endblock %}
+{% block title %}CVT生産数量入力{% endblock %}
 
 {% block content %}
-<h1>CVT受注数量入力</h1>
+<h1>CVT生産数量入力</h1>
 
 <form id="production-form" method="post">
   {% csrf_token %}
   <input type="hidden" name="target_month" id="target-month-hidden" value="{{ year }}-{{ month|stringformat:'02d' }}">
   <input type="hidden" name="production_data" id="production-data-hidden">
+
   <div style="display: flex; flex-direction: column; gap: 1em; margin-bottom: 1em;">
     <div class="input-container" style="display: flex; align-items: center; gap: 0.5em;">
       <label for="target-month">対象月：</label>
@@ -20,24 +21,27 @@
     <thead>
       <tr>
         <th style="border-bottom:1px solid; padding:0.5em;">車種</th>
+        <th style="border-bottom:1px solid; padding:0.5em;">ライン</th>
         <th style="border-bottom:1px solid; padding:0.5em;">予定数量</th>
       </tr>
     </thead>
     <tbody>
       {% for item in item_list %}
-      <tr class="item-row" data-item-name="{{ item.name }}"
-          data-available-lines="{{ item.available_lines|join:',' }}"
-          data-available-line-ids="{{ item.available_line_ids|join:',' }}"
-          data-main-line="{{ item.main_line|default:'' }}"
-          data-line-quantities='{{ item.line_quantities|safe }}'>
+      <tr class="item-row"
+          data-item-name="{{ item.name }}"
+          data-line-id="{{ item.line_id }}"
+          data-line-name="{{ item.line_name }}">
         <td style="border-bottom:1px solid; padding:0.5em;">
           {{ item.name }}
+        </td>
+        <td style="border-bottom:1px solid; padding:0.5em;">
+          {{ item.line_name }}
         </td>
         <td style="border-bottom:1px solid; padding:0.5em;">
           <input type="number" class="form-control planned-volume"
                  name="planned_volume_{{ item.name }}"
                  min="0"
-                 style="width:100px;"
+                 style="width:120px;"
                  data-item-name="{{ item.name }}"
                  {% if item.planned_volume %}value="{{ item.planned_volume }}"{% endif %}>
         </td>
@@ -52,698 +56,253 @@
 </form>
 
 <script>
-// 初期値を設定する関数
-function setInitialValues() {
-  // 各行の初期値を設定
-  document.querySelectorAll('.item-row').forEach(row => {
-    const itemName = row.dataset.itemName;
-    const lineQuantitiesStr = row.dataset.lineQuantities;
+(function() {
+  'use strict';
 
-    // JSON形式のデータをパース
-    let lineQuantities = {};
+  // ========================================
+  // 定数
+  // ========================================
+  const SELECTORS = {
+    FORM: '#production-form',
+    TARGET_MONTH_INPUT: '#target-month',
+    TARGET_MONTH_HIDDEN: '#target-month-hidden',
+    PRODUCTION_DATA_HIDDEN: '#production-data-hidden',
+    ITEM_ROW: '.item-row',
+    PLANNED_VOLUME: '.planned-volume'
+  };
+
+  const AJAX_HEADER = 'XMLHttpRequest';
+
+  // ========================================
+  // ユーティリティ関数
+  // ========================================
+
+  /**
+   * 要素を取得（存在しない場合はエラー）
+   * @param {string} selector - セレクター
+   * @returns {HTMLElement}
+   */
+  function getElement(selector) {
+    const element = document.querySelector(selector);
+    if (!element) {
+      throw new Error(`要素が見つかりません: ${selector}`);
+    }
+    return element;
+  }
+
+  /**
+   * すべての要素を取得
+   * @param {string} selector - セレクター
+   * @returns {NodeList}
+   */
+  function getAllElements(selector) {
+    return document.querySelectorAll(selector);
+  }
+
+  // ========================================
+  // データ操作関数
+  // ========================================
+
+  /**
+   * すべての予定数量入力欄をクリア
+   */
+  function clearAllPlannedVolumes() {
+    getAllElements(SELECTORS.PLANNED_VOLUME).forEach(input => {
+      input.value = '';
+    });
+  }
+
+  /**
+   * 行に予定数量を設定
+   * @param {HTMLElement} row - 行要素
+   * @param {Object} data - データオブジェクト
+   */
+  function setPlannedVolumeForRow(row, data) {
+    const itemName = row.dataset.itemName;
+
+    if (data[itemName]) {
+      const plannedVolumeInput = row.querySelector(SELECTORS.PLANNED_VOLUME);
+      if (plannedVolumeInput) {
+        plannedVolumeInput.value = data[itemName];
+      }
+    }
+  }
+
+  /**
+   * すべての行に予定数量を設定
+   * @param {Object} data - データオブジェクト
+   */
+  function setAllPlannedVolumes(data) {
+    getAllElements(SELECTORS.ITEM_ROW).forEach(row => {
+      setPlannedVolumeForRow(row, data);
+    });
+  }
+
+  /**
+   * 行から生産データを抽出
+   * @param {HTMLElement} row - 行要素
+   * @returns {Object|null} - 生産データ（数量が0の場合はnull）
+   */
+  function extractProductionDataFromRow(row) {
+    const itemName = row.dataset.itemName;
+    const lineId = row.dataset.lineId;
+    const lineName = row.dataset.lineName;
+    const quantityInput = row.querySelector(SELECTORS.PLANNED_VOLUME);
+    const quantity = parseInt(quantityInput?.value) || 0;
+
+    if (quantity <= 0) {
+      return null;
+    }
+
+    return {
+      item_name: itemName,
+      line_name: lineName,
+      line_id: lineId,
+      quantity: quantity
+    };
+  }
+
+  /**
+   * すべての行から生産データを収集
+   * @returns {Array} - 生産データの配列
+   */
+  function collectAllProductionData() {
+    const productionData = [];
+
+    getAllElements(SELECTORS.ITEM_ROW).forEach(row => {
+      const data = extractProductionDataFromRow(row);
+      if (data) {
+        productionData.push(data);
+      }
+    });
+
+    return productionData;
+  }
+
+  // ========================================
+  // API通信関数
+  // ========================================
+
+  /**
+   * 指定月のデータを取得
+   * @param {string} month - 対象月（YYYY-MM形式）
+   * @returns {Promise<Object>}
+   */
+  async function fetchMonthData(month) {
     try {
-      if (lineQuantitiesStr && lineQuantitiesStr !== '{}') {
-        lineQuantities = JSON.parse(lineQuantitiesStr);
-      }
-    } catch (e) {
-      console.error('JSON parse error:', e, lineQuantitiesStr);
-    }
-
-    // line-volumeの初期値を設定
-    row.querySelectorAll('.line-volume').forEach(input => {
-      const lineId = input.dataset.lineId;
-      if (lineQuantities[lineId]) {
-        input.value = lineQuantities[lineId];
-      }
-    });
-
-    // line-displayの初期値を設定
-    row.querySelectorAll('.line-display').forEach(display => {
-      const lineId = display.dataset.lineId;
-      if (lineQuantities[lineId]) {
-        display.textContent = lineQuantities[lineId];
-      }
-    });
-
-    // 予定数量がある場合、各ラインのmax属性を設定
-    const plannedVolumeInput = row.querySelector('.planned-volume');
-    const plannedVolume = parseInt(plannedVolumeInput.value) || 0;
-    if (plannedVolume > 0) {
-      row.querySelectorAll('.line-volume').forEach(input => {
-        input.max = plannedVolume;
+      const response = await fetch(`?month=${month}`, {
+        method: 'GET',
+        headers: {
+          'X-Requested-With': AJAX_HEADER
+        }
       });
-    }
-  });
 
-  // 割合を更新
-  updateRatios();
-}
-
-// 月切り替え時にデータを取得
-function loadMonthData(month) {
-  fetch(`?month=${month}`, {
-    method: 'GET',
-    headers: {
-      'X-Requested-With': 'XMLHttpRequest'
-    }
-  })
-  .then(response => response.json())
-  .then(result => {
-    const data = result.data;
-
-    // 全ての入力をクリア
-    document.querySelectorAll('.planned-volume').forEach(input => {
-      input.value = '';
-    });
-    document.querySelectorAll('.line-volume').forEach(input => {
-      input.value = '';
-    });
-    document.querySelectorAll('.line-display').forEach(display => {
-      display.textContent = '-';
-    });
-
-    // データを設定
-    document.querySelectorAll('.item-row').forEach(row => {
-      const itemName = row.dataset.itemName;
-      let totalQuantity = 0;
-
-      if (data[itemName]) {
-        // 各ラインの数量を設定
-        row.querySelectorAll('.line-volume').forEach(input => {
-          const lineId = input.dataset.lineId;
-          if (data[itemName][lineId]) {
-            input.value = data[itemName][lineId];
-            totalQuantity += data[itemName][lineId];
-          }
-        });
-
-        // 1ラインのみの品番
-        row.querySelectorAll('.line-display').forEach(display => {
-          const lineId = display.dataset.lineId;
-          if (data[itemName][lineId]) {
-            display.textContent = data[itemName][lineId];
-            totalQuantity += data[itemName][lineId];
-          }
-        });
+      if (!response.ok) {
+        throw new Error(`HTTPエラー: ${response.status}`);
       }
 
-      // 予定数量に合計を設定
-      const plannedVolumeInput = row.querySelector('.planned-volume');
-      if (totalQuantity > 0) {
-        plannedVolumeInput.value = totalQuantity;
-        // 各ラインのmax属性を設定
-        row.querySelectorAll('.line-volume').forEach(input => {
-          input.max = totalQuantity;
-        });
-      } else {
-        // データがない場合はmaxを0に設定
-        row.querySelectorAll('.line-volume').forEach(input => {
-          input.max = 0;
-        });
-      }
-    });
-
-    // 割合を更新
-    updateRatios();
-  })
-  .catch(error => {
-    console.error('データ取得エラー:', error);
-  });
-}
-
-// 各ラインの生産能力を計算する共通関数
-function calculateCapacities() {
-  const targetRatioElements = document.querySelectorAll('.target-line-ratio');
-  const capacities = {};
-  let totalCapacity = 0;
-
-  targetRatioElements.forEach(el => {
-    const line = el.dataset.line;
-    capacities[line] = capacity;
-    totalCapacity += capacity;
-  });
-
-  return { capacities, totalCapacity };
-}
-
-// タクトをもとに目安の割合を計算
-function updateTargetRatios() {
-  const targetRatioElements = document.querySelectorAll('.target-line-ratio');
-  const { capacities, totalCapacity } = calculateCapacities();
-
-  // 生産能力をもとに目安の割合を計算（タクトが小さいほど割合が高い）
-  if (totalCapacity > 0) {
-    targetRatioElements.forEach(el => {
-      const line = el.dataset.line;
-      const ratio = (capacities[line] / totalCapacity * 100).toFixed(1);
-      el.textContent = ratio + '%';
-    });
-  }
-}
-
-// 全品番の総数での割合が目安に近づくように再配分
-function redistributeAllLines() {
-  const { capacities, totalCapacity } = calculateCapacities();
-
-  if (totalCapacity === 0) return;
-
-  // 目標比率を計算
-  const targetRatios = {};
-  Object.keys(capacities).forEach(line => {
-    targetRatios[line] = capacities[line] / totalCapacity;
-  });
-
-  // 全品番の現在の各ラインの合計を計算
-  const currentLineTotals = {};
-  let grandTotal = 0;
-
-  document.querySelectorAll('.item-row').forEach(row => {
-    const plannedVolumeInput = row.querySelector('.planned-volume');
-    const plannedVolume = parseInt(plannedVolumeInput.value) || 0;
-
-    if (plannedVolume === 0) return;
-
-    grandTotal += plannedVolume;
-
-    const availableLines = (row.dataset.availableLines || '').split(',').filter(l => l);
-
-    if (availableLines.length === 1) {
-      // 1ラインのみの品番：displayから値を取得
-      const displayEl = row.querySelector(`.line-display[data-line="${availableLines[0]}"]`);
-      if (displayEl) {
-        const value = parseInt(displayEl.textContent) || plannedVolume;
-        currentLineTotals[availableLines[0]] = (currentLineTotals[availableLines[0]] || 0) + value;
-      }
-    } else {
-      // 複数ライン対応：inputから値を取得
-      const lineInputs = Array.from(row.querySelectorAll('.line-volume')).filter(input =>
-        availableLines.includes(input.dataset.line)
-      );
-
-      lineInputs.forEach(input => {
-        const line = input.dataset.line;
-        const value = parseInt(input.value) || 0;
-        currentLineTotals[line] = (currentLineTotals[line] || 0) + value;
-      });
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('データ取得エラー:', error);
+      alert('データの取得に失敗しました。ページを再読み込みしてください。');
+      throw error;
     }
-  });
-
-  if (grandTotal === 0) return;
-
-  // 目標値を計算
-  const targetLineTotals = {};
-  Object.keys(targetRatios).forEach(line => {
-    targetLineTotals[line] = Math.floor(grandTotal * targetRatios[line]);
-  });
-
-  // 端数調整（最大容量のラインに割り当て）
-  let allocated = Object.values(targetLineTotals).reduce((sum, val) => sum + val, 0);
-  if (allocated < grandTotal) {
-    const maxCapacityLine = Object.keys(capacities).reduce((a, b) =>
-      capacities[a] > capacities[b] ? a : b
-    );
-    targetLineTotals[maxCapacityLine] += grandTotal - allocated;
   }
 
-  // 1ラインのみの品番で確定している数量を計算
-  const fixedLineTotals = {};
-  document.querySelectorAll('.item-row').forEach(row => {
-    const plannedVolumeInput = row.querySelector('.planned-volume');
-    const plannedVolume = parseInt(plannedVolumeInput.value) || 0;
-    if (plannedVolume === 0) return;
+  /**
+   * 月切り替え時にデータを読み込む
+   * @param {string} month - 対象月（YYYY-MM形式）
+   */
+  async function loadMonthData(month) {
+    try {
+      const data = await fetchMonthData(month);
 
-    const availableLines = (row.dataset.availableLines || '').split(',').filter(l => l);
-    if (availableLines.length === 1) {
-      fixedLineTotals[availableLines[0]] = (fixedLineTotals[availableLines[0]] || 0) + plannedVolume;
+      // 全ての入力をクリア
+      clearAllPlannedVolumes();
+
+      // データを設定
+      setAllPlannedVolumes(data);
+    } catch (error) {
+      // エラーは fetchMonthData 内で処理済み
     }
-  });
-
-  // 複数ライン対応の品番の総数を計算
-  let flexibleTotal = 0;
-  document.querySelectorAll('.item-row').forEach(row => {
-    const plannedVolumeInput = row.querySelector('.planned-volume');
-    const plannedVolume = parseInt(plannedVolumeInput.value) || 0;
-    if (plannedVolume === 0) return;
-
-    const availableLines = (row.dataset.availableLines || '').split(',').filter(l => l);
-    if (availableLines.length > 1) {
-      flexibleTotal += plannedVolume;
-    }
-  });
-
-  // 各ラインの目標値から固定分を引いた残り（複数ライン品番で調整可能な部分）
-  const adjustableTargets = {};
-  Object.keys(targetLineTotals).forEach(line => {
-    const target = targetLineTotals[line] || 0;
-    const fixed = fixedLineTotals[line] || 0;
-    adjustableTargets[line] = Math.max(0, target - fixed);
-  });
-
-  // まず各品番のメインラインを特定
-  const itemMainLines = {};
-  document.querySelectorAll('.item-row').forEach(row => {
-    const plannedVolumeInput = row.querySelector('.planned-volume');
-    const plannedVolume = parseInt(plannedVolumeInput.value) || 0;
-    if (plannedVolume === 0) return;
-
-    const availableLines = (row.dataset.availableLines || '').split(',').filter(l => l);
-    if (availableLines.length === 1) return;
-
-    const itemName = row.dataset.itemName;
-    const mainLineName = row.dataset.mainLine || '';
-
-    const lineInputs = Array.from(row.querySelectorAll('.line-volume')).filter(input =>
-      availableLines.includes(input.dataset.line)
-    ).sort((a, b) => {
-      const idA = parseInt(a.dataset.lineId) || 0;
-      const idB = parseInt(b.dataset.lineId) || 0;
-      return idA - idB;
-    });
-
-    let mainLineInput = null;
-    if (mainLineName) {
-      mainLineInput = lineInputs.find(input => input.dataset.line === mainLineName);
-    }
-    if (!mainLineInput) {
-      mainLineInput = lineInputs[0];
-    }
-
-    itemMainLines[itemName] = mainLineInput.dataset.line;
-  });
-
-  // ラインごとの不足を計算（メインラインとして使われている品番を優先）
-  const lineDeficits = {};
-  Object.keys(adjustableTargets).forEach(line => {
-    lineDeficits[line] = adjustableTargets[line] || 0;
-  });
-
-  // 各品番のメインライン以外の値を、そのメインラインの不足に充てる
-  const itemAllocations = {};
-
-  document.querySelectorAll('.item-row').forEach(row => {
-    const plannedVolumeInput = row.querySelector('.planned-volume');
-    const plannedVolume = parseInt(plannedVolumeInput.value) || 0;
-    if (plannedVolume === 0) return;
-
-    const availableLines = (row.dataset.availableLines || '').split(',').filter(l => l);
-    if (availableLines.length === 1) return;
-
-    const itemName = row.dataset.itemName;
-    const mainLineName = itemMainLines[itemName];
-
-    const lineInputs = Array.from(row.querySelectorAll('.line-volume')).filter(input =>
-      availableLines.includes(input.dataset.line)
-    ).sort((a, b) => {
-      const idA = parseInt(a.dataset.lineId) || 0;
-      const idB = parseInt(b.dataset.lineId) || 0;
-      return idA - idB;
-    });
-
-    if (lineInputs.length === 0) return;
-
-    // この品番の配分を初期化
-    const allocations = {};
-    lineInputs.forEach(input => {
-      allocations[input.dataset.line] = 0;
-    });
-
-    // まずメインラインに全量
-    allocations[mainLineName] = plannedVolume;
-    lineDeficits[mainLineName] -= plannedVolume;
-
-    itemAllocations[itemName] = { allocations, lineInputs };
-  });
-
-  // 不足しているラインに、他の品番から均等に移動
-  Object.keys(lineDeficits).forEach(deficitLine => {
-    let deficit = lineDeficits[deficitLine];
-
-    if (deficit > 0) {
-      // この不足しているラインが利用可能で、メインラインが異なる品番をリストアップ
-      const candidateItems = [];
-
-      Object.keys(itemAllocations).forEach(itemName => {
-        const { allocations, lineInputs } = itemAllocations[itemName];
-        const mainLineName = itemMainLines[itemName];
-
-        // この品番で不足ラインが利用可能かチェック
-        const deficitLineInput = lineInputs.find(input => input.dataset.line === deficitLine);
-        if (!deficitLineInput) return;
-
-        // メインラインが不足ラインと異なる場合
-        if (mainLineName !== deficitLine) {
-          const canMove = allocations[mainLineName] || 0;
-          if (canMove > 0) {
-            candidateItems.push({
-              itemName,
-              allocations,
-              mainLineName,
-              canMove
-            });
-          }
-        }
-      });
-
-      if (candidateItems.length > 0) {
-        // 各品番から移動可能な合計
-        const totalCanMove = candidateItems.reduce((sum, item) => sum + item.canMove, 0);
-
-        // 各品番から比率に応じて移動
-        let movedTotal = 0;
-        candidateItems.forEach((item, index) => {
-          if (deficit <= 0) return;
-
-          let toMove;
-          if (index === candidateItems.length - 1) {
-            // 最後の品番で残り全てを移動
-            toMove = Math.min(item.canMove, deficit);
-          } else {
-            // 比率に応じて移動
-            const ratio = item.canMove / totalCanMove;
-            toMove = Math.min(Math.floor(deficit * ratio), item.canMove);
-          }
-
-          if (toMove > 0) {
-            item.allocations[deficitLine] = (item.allocations[deficitLine] || 0) + toMove;
-            item.allocations[item.mainLineName] -= toMove;
-            deficit -= toMove;
-            movedTotal += toMove;
-          }
-        });
-      }
-
-      lineDeficits[deficitLine] = deficit;
-    }
-  });
-
-  // 各品番に配分を設定
-  Object.keys(itemAllocations).forEach(itemName => {
-    const { allocations, lineInputs } = itemAllocations[itemName];
-
-    lineInputs.forEach(input => {
-      const value = allocations[input.dataset.line] || 0;
-      input.value = value > 0 ? value : '';
-    });
-  });
-
-  updateRatios();
-}
-
-// 割合を計算して表示
-function updateRatios() {
-  const lines = Array.from(document.querySelectorAll('#total-ratios .total-line-ratio')).map(el => el.dataset.line);
-  const lineTotals = {};
-
-  // 各ラインの合計を初期化
-  lines.forEach(line => {
-    lineTotals[line] = 0;
-  });
-
-  document.querySelectorAll('.item-row').forEach(function(row) {
-    const plannedVolumeInput = row.querySelector('.planned-volume');
-    const plannedVolume = parseInt(plannedVolumeInput.value) || 0;
-    const availableLines = (row.dataset.availableLines || '').split(',').filter(l => l);
-
-    if (plannedVolume === 0) {
-      row.querySelectorAll('.line-ratio').forEach(el => {
-        el.textContent = '-';
-      });
-      return;
-    }
-
-    const lineVolumes = {};
-
-    // 1ラインのみの品番の場合
-    if (availableLines.length === 1) {
-      const lineName = availableLines[0];
-      lineVolumes[lineName] = plannedVolume;
-      const displayEl = row.querySelector(`.line-display[data-line="${lineName}"]`);
-      if (displayEl) {
-        displayEl.textContent = plannedVolume;
-      }
-    } else {
-      // 複数ラインで作れる品番
-      lines.forEach(line => {
-        const input = row.querySelector(`.line-volume[data-line="${line}"]`);
-        if (input) {
-          lineVolumes[line] = parseInt(input.value) || 0;
-        } else {
-          lineVolumes[line] = 0;
-        }
-      });
-    }
-
-    // 各ラインの合計に加算
-    Object.keys(lineVolumes).forEach(line => {
-      lineTotals[line] += lineVolumes[line];
-    });
-
-    // 各行の割合を計算
-    lines.forEach(line => {
-      const volume = lineVolumes[line] || 0;
-      const ratio = plannedVolume > 0 ? (volume / plannedVolume * 100).toFixed(1) : 0;
-      const ratioEl = row.querySelector(`.line-ratio[data-line="${line}"]`);
-      if (ratioEl) {
-        ratioEl.textContent = ratio;
-      }
-    });
-  });
-
-  // 全体の割合を計算
-  const totalVolume = Object.values(lineTotals).reduce((sum, val) => sum + val, 0);
-  lines.forEach(line => {
-    const ratio = totalVolume > 0 ? (lineTotals[line] / totalVolume * 100).toFixed(1) : 0;
-    const el = document.querySelector(`.total-line-ratio[data-line="${line}"]`);
-    if (el) {
-      el.textContent = ratio + '%';
-    }
-  });
-}
-
-// 予定数量が入力されたときの処理
-document.addEventListener('DOMContentLoaded', function() {
-  // 目安の割合を計算して表示
-  updateTargetRatios();
-
-  const lines = Array.from(document.querySelectorAll('#total-ratios .total-line-ratio')).map(el => el.dataset.line);
-
-  // 予定数量の入力時は全体を再配分
-  document.querySelectorAll('.planned-volume').forEach(function(input) {
-    input.addEventListener('input', function() {
-      const row = this.closest('.item-row');
-      const plannedVolume = parseInt(this.value) || 0;
-      const availableLines = (row.dataset.availableLines || '').split(',').filter(l => l);
-
-      // 予定数量が0または空欄の場合、この品番のライン割り振りをクリア
-      if (plannedVolume === 0 || this.value === '') {
-        if (availableLines.length === 1) {
-          const displayEl = row.querySelector(`.line-display[data-line="${availableLines[0]}"]`);
-          if (displayEl) {
-            displayEl.textContent = '-';
-          }
-        } else {
-          row.querySelectorAll('.line-volume').forEach(function(lineInput) {
-            lineInput.value = '';
-            lineInput.max = 0;
-          });
-        }
-        updateRatios();
-        return;
-      }
-
-      // 全てのライン入力にmax属性を設定
-      row.querySelectorAll('.line-volume').forEach(function(lineInput) {
-        lineInput.max = plannedVolume;
-      });
-
-      // 1ラインのみの品番は表示を更新
-      if (availableLines.length === 1) {
-        const displayEl = row.querySelector(`.line-display[data-line="${availableLines[0]}"]`);
-        if (displayEl) {
-          displayEl.textContent = plannedVolume;
-        }
-      }
-
-      // 全体を再配分（1ラインのみの品番も考慮される）
-      redistributeAllLines();
-    });
-  });
-
-  // 各ラインの値が変更されたときに他のラインを自動調整
-  document.querySelectorAll('.line-volume').forEach(function(input) {
-    input.addEventListener('input', function() {
-      const row = this.closest('.item-row');
-      const plannedVolumeInput = row.querySelector('.planned-volume');
-      const plannedVolume = parseInt(plannedVolumeInput.value) || 0;
-      const changedLine = this.dataset.line;
-      const availableLines = (row.dataset.availableLines || '').split(',').filter(l => l);
-      const mainLineName = row.dataset.mainLine || '';
-
-      // 全てのライン入力をID順で取得
-      const allLineInputs = Array.from(row.querySelectorAll('.line-volume')).filter(input =>
-        availableLines.includes(input.dataset.line)
-      ).sort((a, b) => {
-        const idA = parseInt(a.dataset.lineId) || 0;
-        const idB = parseInt(b.dataset.lineId) || 0;
-        return idA - idB;
-      });
-
-      if (allLineInputs.length === 0) return;
-
-      // メインラインを探す
-      let mainLineInput = null;
-      let mainLineIndex = -1;
-      if (mainLineName) {
-        mainLineInput = allLineInputs.find(input => input.dataset.line === mainLineName);
-        mainLineIndex = allLineInputs.findIndex(input => input.dataset.line === mainLineName);
-      }
-
-      // メインラインがなければ最初のライン
-      if (!mainLineInput) {
-        mainLineInput = allLineInputs[0];
-        mainLineIndex = 0;
-      }
-
-      // 変更されたラインのインデックスを取得
-      const changedIndex = allLineInputs.findIndex(input => input.dataset.line === changedLine);
-
-      // 全ラインの合計を計算
-      let total = 0;
-      allLineInputs.forEach(input => {
-        total += parseInt(input.value) || 0;
-      });
-
-      // 差分を計算
-      let difference = total - plannedVolume;
-
-      // 差分がない場合は何もしない
-      if (difference === 0) {
-        updateRatios();
-        return;
-      }
-
-      // メインラインが変更された場合
-      if (changedIndex === mainLineIndex) {
-        // メインライン以外のラインをID順で調整
-        for (let i = 0; i < allLineInputs.length && difference !== 0; i++) {
-          if (i === mainLineIndex) continue;
-
-          const currentValue = parseInt(allLineInputs[i].value) || 0;
-
-          if (difference > 0) {
-            // 減らす必要がある
-            const reduction = Math.min(currentValue, difference);
-            allLineInputs[i].value = currentValue - reduction > 0 ? currentValue - reduction : '';
-            difference -= reduction;
-          } else {
-            // 増やす必要がある（マイナス差分）
-            allLineInputs[i].value = currentValue + Math.abs(difference);
-            difference = 0;
-            break;
-          }
-        }
-      } else {
-        // メインライン以外が変更された場合、メインラインで調整
-        const mainLineValue = parseInt(mainLineInput.value) || 0;
-
-        if (difference > 0) {
-          // 減らす必要がある
-          const reduction = Math.min(mainLineValue, difference);
-          mainLineInput.value = mainLineValue - reduction > 0 ? mainLineValue - reduction : '';
-          difference -= reduction;
-        } else {
-          // 増やす必要がある（マイナス差分）
-          mainLineInput.value = mainLineValue + Math.abs(difference);
-          difference = 0;
-        }
-
-        // メインラインだけで調整できない場合、ID順で他のラインも調整
-        if (difference !== 0) {
-          for (let i = 0; i < allLineInputs.length && difference !== 0; i++) {
-            if (i === mainLineIndex || i === changedIndex) continue;
-
-            const currentValue = parseInt(allLineInputs[i].value) || 0;
-
-            if (difference > 0) {
-              // 減らす必要がある
-              const reduction = Math.min(currentValue, difference);
-              allLineInputs[i].value = currentValue - reduction > 0 ? currentValue - reduction : '';
-              difference -= reduction;
-            } else {
-              // 増やす必要がある（マイナス差分）
-              allLineInputs[i].value = currentValue + Math.abs(difference);
-              difference = 0;
-            }
-          }
-        }
-      }
-
-      updateRatios();
-    });
-  });
-
-  // 初期値を設定
-  setInitialValues();
-
-  // 対象月の入力値を隠しフィールドに同期
-  const targetMonthInput = document.getElementById('target-month');
-  targetMonthInput.addEventListener('change', function() {
-    const newMonth = this.value;
-    document.getElementById('target-month-hidden').value = newMonth;
+  }
+
+  // ========================================
+  // イベントハンドラー
+  // ========================================
+
+  /**
+   * 対象月変更時の処理
+   * @param {Event} event - イベント
+   */
+  function handleMonthChange(event) {
+    const newMonth = event.target.value;
+
+    // 隠しフィールドを更新
+    const hiddenInput = getElement(SELECTORS.TARGET_MONTH_HIDDEN);
+    hiddenInput.value = newMonth;
 
     // 選択した月のデータを取得
     loadMonthData(newMonth);
-  });
+  }
 
-  // フォーム送信時にJSON形式でデータを収集
-  document.getElementById('production-form').addEventListener('submit', function(e) {
-    const productionData = [];
-
-    document.querySelectorAll('.item-row').forEach(row => {
-      const itemName = row.dataset.itemName;
-
-      // 各ラインの数量を収集
-      row.querySelectorAll('.line-volume').forEach(input => {
-        const quantity = parseInt(input.value) || 0;
-        if (quantity > 0) {
-          const lineName = input.dataset.line;
-          const lineId = input.dataset.lineId;
-
-          productionData.push({
-            item_name: itemName,
-            line_name: lineName,
-            line_id: lineId,
-            quantity: quantity
-          });
-        }
-      });
-
-      // 1ラインのみの品番（表示専用）
-      row.querySelectorAll('.line-display').forEach(display => {
-        const quantity = parseInt(display.textContent) || 0;
-        if (quantity > 0) {
-          const lineName = display.dataset.line;
-          // 対応するitem_idとline_idを取得
-          const availableLines = row.dataset.availableLines.split(',');
-          const availableLineIds = row.dataset.availableLineIds.split(',');
-          const lineIndex = availableLines.indexOf(lineName);
-
-          if (lineIndex >= 0) {
-            productionData.push({
-              item_name: itemName,
-              line_name: lineName,
-              line_id: availableLineIds[lineIndex],
-              quantity: quantity
-            });
-          }
-        }
-      });
-    });
+  /**
+   * フォーム送信時の処理
+   * @param {Event} event - イベント
+   */
+  function handleFormSubmit(event) {
+    // データを収集
+    const productionData = collectAllProductionData();
 
     // JSON文字列に変換して隠しフィールドにセット
-    document.getElementById('production-data-hidden').value = JSON.stringify(productionData);
-  });
-});
+    const hiddenInput = getElement(SELECTORS.PRODUCTION_DATA_HIDDEN);
+    hiddenInput.value = JSON.stringify(productionData);
+
+    // データが空の場合は警告
+    if (productionData.length === 0) {
+      if (!confirm('登録するデータがありません。このまま送信しますか？')) {
+        event.preventDefault();
+      }
+    }
+  }
+
+  // ========================================
+  // 初期化
+  // ========================================
+
+  /**
+   * イベントリスナーを登録
+   */
+  function initializeEventListeners() {
+    // 対象月の変更イベント
+    const targetMonthInput = getElement(SELECTORS.TARGET_MONTH_INPUT);
+    targetMonthInput.addEventListener('change', handleMonthChange);
+
+    // フォーム送信イベント
+    const form = getElement(SELECTORS.FORM);
+    form.addEventListener('submit', handleFormSubmit);
+  }
+
+  /**
+   * アプリケーション初期化
+   */
+  function initialize() {
+    try {
+      initializeEventListeners();
+    } catch (error) {
+      console.error('初期化エラー:', error);
+      alert('ページの初期化に失敗しました。ページを再読み込みしてください。');
+    }
+  }
+
+  // DOMContentLoaded イベントで初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialize);
+  } else {
+    initialize();
+  }
+})();
 </script>
 
 {% endblock %}

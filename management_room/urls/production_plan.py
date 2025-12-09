@@ -7,6 +7,8 @@ from management_room.views.production_plan.production_volume_input import Produc
 # from management_room.views.production_plan.machining_shipment_adjustment import MachiningShipmentAdjustmentView
 from management_room.views.production_plan.excel_export import ProductionPlanExcelExportView
 from management_room.views.production_plan.cvt_volume_input import CVTVolumeInputView
+from management_room.views.production_plan.cvt_production_plan import CVTProductionPlanView
+from management_room.views.production_plan.auto_cvt_production_plan import AutoCVTProductionPlanView
 
 urlpatterns = [
     path('production-volume-input/', ProductionVolumeInputView.as_view(), name='production_volume_input'),
@@ -17,4 +19,6 @@ urlpatterns = [
     # path('machining-shipment-adjustment/', MachiningShipmentAdjustmentView.as_view(), name='machining_shipment_adjustment'),
     path('excel-export/', ProductionPlanExcelExportView.as_view(), name='production_plan_excel_export'),
     path('cvt-volume-input/', CVTVolumeInputView.as_view(), name='cvt_volume_input'),
+    path('cvt-production-plan/', CVTProductionPlanView.as_view(), name='cvt_production_plan'),
+    path('cvt-production-plan/auto/', AutoCVTProductionPlanView.as_view(), name='auto_cvt_production_plan'),
 ]

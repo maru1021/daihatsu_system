@@ -1,20 +1,17 @@
-from management_room.models import DailyMachineCastingProductionPlan, DailyCastingProductionPlan, CastingItem, CastingItemMachineMap, MachiningItemCastingItemMap, DailyMachiningProductionPlan, UsableMold, CastingItemProhibitedPattern
-from manufacturing.models import CastingLine, CastingMachine
+from management_room.models import DailyMachineCVTProductionPlan, DailyCVTProductionPlan, CVTItem, CVTItemMachineMap
+from manufacturing.models import CVTLine, CVTMachine
 from management_room.auth_mixin import ManagementRoomPermissionMixin
 from django.views import View
 from django.shortcuts import render
 from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.utils.decorators import method_decorator
 from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
 import json
 import calendar
-import math
 from utils.days_in_month_dates import days_in_month_dates
 
-class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
-    template_file = 'production_plan/casting_production_plan.html'
+class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
+    template_file = 'production_plan/cvt_production_plan.html'
 
     def get(self, request, *args, **kwargs):
         if request.GET.get('year') and request.GET.get('month'):
@@ -24,39 +21,33 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             year = datetime.now().year
             month = datetime.now().month
 
-        # 対象月の日付リストを作成（加工生産計画と同じ関数を使用）
+        # 対象月の日付リストを作成
         date_list = days_in_month_dates(year, month)
         start_date = date_list[0]
         end_date = date_list[-1]
 
-        # ヘッドラインを取得
+        # CVTラインを取得
         if request.GET.get('line'):
-            line = CastingLine.objects.get(id=request.GET.get('line'))
+            line = CVTLine.objects.get(id=request.GET.get('line'))
         else:
-            line = CastingLine.objects.get(name='ヘッド')
-
-        # ライン種別の判定
-        is_head_line = line.name == 'ヘッド'
-        is_block_line = line.name == 'ブロック'
-        is_cover_line = line.name == 'カバー'
+            line = CVTLine.objects.filter(active=True).order_by('name').first()
 
         # 品番を取得（一覧から重複なし）
-        casting_item = CastingItem.objects.filter(line=line, active=True)
-        item_names = [ item.name for item in casting_item ]
-        color_dict = {item.name: item.color for item in casting_item}
+        cvt_item = CVTItem.objects.filter(line=line, active=True)
+        item_names = [ item.name for item in cvt_item ]
+        color_dict = {item.name: item.color for item in cvt_item}
 
-        # 鋳造機を取得
-        machine_list = list(CastingMachine.objects.filter(line=line, active=True).order_by('name').values('name', 'id'))
+        item_names = list(CVTItem.objects.filter(line=line, active=True).values_list('name', flat=True).distinct())
+
+        # CVT鋳造機を取得
+        machine_list = list(CVTMachine.objects.filter(line=line, active=True).order_by('name').values('name', 'id'))
 
         # データを取得（当月の全データを1回のクエリで取得）
-        plans = DailyMachineCastingProductionPlan.objects.filter(
+        plans = DailyMachineCVTProductionPlan.objects.filter(
             line=line,
             date__gte=start_date,
             date__lte=end_date
         ).select_related('machine', 'production_item').order_by('date', 'machine', 'production_item', 'shift')
-
-        # ブロックラインでデータが1件もない場合のフラグ
-        has_no_data = is_block_line and not plans.exists()
 
         # ラインのデフォルト稼働率を取得（パーセント表示用に100倍）
         default_occupancy_rate = (line.occupancy_rate * 100) if line.occupancy_rate else ''
@@ -72,71 +63,12 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             if plan.date and plan.regular_working_hours:
                 regular_working_hours_dict[plan.date] = True
 
-        # 鋳造品番と加工品番の紐づけを取得（土日出庫数判定に必要）
-        casting_to_machining_map = {}
-        item_maps = MachiningItemCastingItemMap.objects.filter(
-            casting_line_name=line.name,
-            active=True
-        )
-        for item_map in item_maps:
-            casting_key = item_map.casting_item_name
-            if casting_key not in casting_to_machining_map:
-                casting_to_machining_map[casting_key] = []
-            casting_to_machining_map[casting_key].append({
-                'machining_line_name': item_map.machining_line_name,
-                'machining_item_name': item_map.machining_item_name
-            })
-
-        # 加工生産計画データを取得（出庫数のデフォルト値として使用）
-        machining_plans = DailyMachiningProductionPlan.objects.filter(
-            date__gte=start_date,
-            date__lte=end_date
-        ).select_related('production_item', 'line')
-
-        # 加工生産計画を辞書化: {(machining_line_name, machining_item_name, date, shift): [plans]}
-        machining_plans_dict = {}
-        for plan in machining_plans:
-            if plan.production_item and plan.line:
-                key = (plan.line.name, plan.production_item.name, plan.date, plan.shift)
-                if key not in machining_plans_dict:
-                    machining_plans_dict[key] = []
-                machining_plans_dict[key].append(plan)
-
-        # 土日の出庫数データを取得（DailyCastingProductionPlanから）
-        # 出庫数が0より大きい日付を抽出
-        weekend_delivery_dates = set()
-        weekend_stock_plans = DailyCastingProductionPlan.objects.filter(
-            line=line,
-            date__gte=start_date,
-            date__lte=end_date,
-            shift='day'
-        ).select_related('production_item')
-
-        # 加工生産計画から土日の出庫数をチェック
-        for item_name in item_names:
-            machining_items = casting_to_machining_map.get(item_name, [])
-            for machining_item_info in machining_items:
-                for current_date in date_list:
-                    if current_date.weekday() >= 5:  # 土日のみ
-                        machining_key = (
-                            machining_item_info['machining_line_name'],
-                            machining_item_info['machining_item_name'],
-                            current_date,
-                            'day'
-                        )
-                        machining_plans_list = machining_plans_dict.get(machining_key, [])
-                        for machining_plan in machining_plans_list:
-                            if machining_plan.production_quantity and machining_plan.production_quantity > 0:
-                                weekend_delivery_dates.add(current_date)
-                                break
-
         # 日付リストを生成
         dates = []
         for current_date in date_list:
             is_weekend = current_date.weekday() >= 5
             has_weekend_work = current_date in weekend_work_dates if is_weekend else False
             is_regular_hours = regular_working_hours_dict.get(current_date, False)
-            has_weekend_delivery = current_date in weekend_delivery_dates if is_weekend else False
 
             dates.append({
                 'date': current_date,
@@ -144,33 +76,16 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 'is_weekend': is_weekend,
                 'occupancy_rate': default_occupancy_rate,
                 'has_weekend_work': has_weekend_work,
-                'is_regular_hours': is_regular_hours,
-                'has_weekend_delivery': has_weekend_delivery
+                'is_regular_hours': is_regular_hours
             })
 
-        # 前月データを取得（在庫と生産計画を効率的に取得）
+        # 前月データを取得（在庫のみ）
         first_day_of_month = date(year, month, 1)
         prev_month_last_date = first_day_of_month - relativedelta(days=1)
-        prev_month_first_date = date(prev_month_last_date.year, prev_month_last_date.month, 1)
 
-        # 前月の使用可能金型数を取得
-        prev_usable_molds = UsableMold.objects.filter(
-            line=line,
-            month=prev_month_first_date
-        ).select_related('machine', 'item_name').order_by('machine', 'item_name')
-
-        # 前月の対象日付を計算（最終日から2日前まで）
-        check_dates = [prev_month_last_date - timedelta(days=i) for i in range(3)]
-
-        # 前月の生産計画を1回のクエリで取得（連続生産チェック用）
-        prev_month_plans_all = DailyMachineCastingProductionPlan.objects.filter(
-            line=line,
-            date__in=check_dates
-        ).select_related('machine', 'production_item')
-
-        # 前月最終日の夜勤の在庫数を品番ごとに取得（DailyCastingProductionPlanから）
+        # 前月最終日の夜勤の在庫数を品番ごとに取得（DailyCVTProductionPlanから）
         previous_month_inventory = {}
-        prev_month_stock_plans = DailyCastingProductionPlan.objects.filter(
+        prev_month_stock_plans = DailyCVTProductionPlan.objects.filter(
             line=line,
             date=prev_month_last_date,
             shift='night'
@@ -181,47 +96,9 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 item_name = plan.production_item.name
                 previous_month_inventory[item_name] = plan.stock
 
-        # 辞書化: {(date, shift): [plans]}
-        prev_plans_dict = {}
-        for plan in prev_month_plans_all:
-            key = (plan.date, plan.shift)
-            if key not in prev_plans_dict:
-                prev_plans_dict[key] = []
-            prev_plans_dict[key].append(plan)
-
-        # 必要な形式に整形
-        previous_month_production_plans = []
-        for days_back in range(3):  # 0, 1, 2
-            check_date = prev_month_last_date - timedelta(days=days_back)
-
-            for shift_name in ['day', 'night']:
-                # 3日前（days_back=2）の日勤はスキップ（5直分のみ）
-                if days_back == 2 and shift_name == 'day':
-                    continue
-
-                # 辞書から取得
-                key = (check_date, shift_name)
-                prev_plans = prev_plans_dict.get(key, [])
-
-                shift_plans = {}
-                for plan in prev_plans:
-                    if plan.machine and plan.production_item:
-                        machine_name = plan.machine.name
-                        item_name = plan.production_item.name
-                        shift_plans[machine_name] = item_name
-
-                previous_month_production_plans.append({
-                    'date': check_date.strftime('%Y-%m-%d'),
-                    'shift': shift_name,
-                    'plans': shift_plans
-                })
-
-        # 並び順を逆にする（古い順 -> 新しい順）
-        previous_month_production_plans.reverse()
-
-        # 在庫数・出庫数データを辞書形式で取得
-        # DailyCastingProductionPlanから取得
-        stock_plans = DailyCastingProductionPlan.objects.filter(
+        # 在庫数データを辞書形式で取得
+        # DailyCVTProductionPlanから取得
+        stock_plans = DailyCVTProductionPlan.objects.filter(
             line=line,
             date__gte=start_date,
             date__lte=end_date
@@ -243,27 +120,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 if key not in plans_dict or plan.id > plans_dict[key].id:
                     plans_dict[key] = plan
 
-        # 前月末の金型を辞書化（設備IDをキーとする）
-        prev_month_molds_by_machine = {}
-        for mold in prev_usable_molds:
-            # 1～5の金型のみ
-            if mold.used_count > 0 and mold.used_count < 6 and mold.end_of_month:
-                prev_month_molds_by_machine[mold.machine.id] = {
-                    'item_name': mold.item_name.name,
-                    'used_count': mold.used_count
-                }
-
         # 日付ベースのデータ構造を構築
         dates_data = []
-
-        # 最初の稼働日のインデックスを見つける（平日または休出日）
-        first_working_date_index = -1
-        for idx, date_info in enumerate(dates):
-            is_weekend = date_info['is_weekend']
-            has_weekend_work = date_info['has_weekend_work']
-            if not is_weekend or has_weekend_work:
-                first_working_date_index = idx
-                break
 
         for date_index, date_info in enumerate(dates):
             current_date = date_info['date']
@@ -276,7 +134,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 'occupancy_rate': date_info['occupancy_rate'],
                 'has_weekend_work': date_info['has_weekend_work'],
                 'is_regular_hours': date_info.get('is_regular_hours', False),
-                'has_weekend_delivery': date_info.get('has_weekend_delivery', False),
                 'shifts': {
                     'day': {'items': {}, 'machines': {}},
                     'night': {'items': {}, 'machines': {}}
@@ -289,28 +146,9 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 for item_name in item_names:
                     plan = stock_plans_dict.get((item_name, current_date, shift))
 
-                    # 出庫数は常に加工生産計画から取得
-                    delivery = None
-                    machining_items = casting_to_machining_map.get(item_name, [])
-                    total_production = 0
-                    for machining_item_info in machining_items:
-                        machining_key = (
-                            machining_item_info['machining_line_name'],
-                            machining_item_info['machining_item_name'],
-                            current_date,
-                            shift
-                        )
-                        machining_plans_list = machining_plans_dict.get(machining_key, [])
-                        for machining_plan in machining_plans_list:
-                            if machining_plan.production_quantity:
-                                total_production += machining_plan.production_quantity
-                    if total_production > 0:
-                        delivery = total_production
-
-                    # 品番ごとのデータを設定
+                    # 品番ごとのデータを設定（CVTは出庫数なし、在庫のみ）
                     date_data['shifts'][shift]['items'][item_name] = {
                         'inventory': plan.stock if plan and plan.stock is not None else '',  # 在庫数（計算結果）
-                        'delivery': delivery if delivery and delivery > 0 else '',  # 出庫数（加工生産計画から取得）
                         'production': '',  # 生産台数（フロントエンドで計算）
                         'stock_adjustment': plan.stock_adjustment if plan and plan.stock_adjustment is not None else ''  # 在庫調整（手動入力値）
                     }
@@ -320,8 +158,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     machine_id = machine['id']
                     machine_name = machine['name']
 
-                    # 鋳造機の品番リストを取得
-                    machine_items = list(CastingItemMachineMap.objects.filter(
+                    # CVT鋳造機の品番リストを取得
+                    machine_items = list(CVTItemMachineMap.objects.filter(
                         line=line,
                         machine_id=machine_id,
                         active=True
@@ -329,43 +167,18 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
                     plan = plans_dict.get((machine_id, current_date, shift))
 
-                    # 【修正】最初の稼働日のday直の場合、前月末の金型をselected_itemとして設定
+                    # 品番選択（CVTは金型管理なし、シンプルに既存データから取得）
                     selected_item = ''
-                    mold_count = 0
-                    is_prev_month_mold = False
-                    prev_month_item_name = ''
-                    prev_month_mold_count = 0
-
-                    if date_index == first_working_date_index and shift == 'day' and machine_id in prev_month_molds_by_machine:
-                        # 前月末の金型を設定（引き継ぎなので+1する）
-                        prev_mold = prev_month_molds_by_machine[machine_id]
-                        selected_item = prev_mold['item_name']
-                        mold_count = prev_mold['used_count'] + 1
-                        is_prev_month_mold = True
-                        prev_month_item_name = prev_mold['item_name']
-                        prev_month_mold_count = mold_count
-                    elif plan and plan.production_item:
+                    if plan and plan.production_item:
                         # 既存の計画から取得
                         selected_item = plan.production_item.name
-                        mold_count = plan.mold_count if plan.mold_count is not None else 0
-                    elif has_no_data and not is_weekend:
-                        # ブロックラインで対象月にデータが1件もない場合のデフォルト値
-                        if machine_name == '#2':
-                            selected_item = 'VE'
-                        elif machine_name == '#4':
-                            selected_item = 'VE7'
 
                     date_data['shifts'][shift]['machines'][machine_name] = {
                         'machine_id': machine_id,
                         'items': machine_items,
                         'stop_time': plan.stop_time if plan and plan.stop_time is not None else (0 if not is_weekend else ''),
                         'overtime': plan.overtime if plan and plan.overtime is not None else (0 if not is_weekend else ''),
-                        'mold_change': plan.mold_change if plan and plan.mold_change is not None else (0 if not is_weekend else ''),
-                        'mold_count': mold_count,
-                        'selected_item': selected_item,
-                        'is_prev_month_mold': is_prev_month_mold,
-                        'prev_month_item_name': prev_month_item_name,
-                        'prev_month_mold_count': prev_month_mold_count
+                        'selected_item': selected_item
                     }
 
             dates_data.append(date_data)
@@ -378,7 +191,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             item_data[item_name] = {}
 
             # この品番に対するすべての設備マッピングを取得
-            item_maps = CastingItemMachineMap.objects.filter(
+            item_maps = CVTItemMachineMap.objects.filter(
                 line=line,
                 casting_item__name=item_name,
                 active=True
@@ -392,23 +205,21 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         'yield_rate': item_map.yield_rate if item_map.yield_rate else 0,
                         'molten_metal_usage': item_map.casting_item.molten_metal_usage if item_map.casting_item.molten_metal_usage else 0
                     }
-        lines_list = list(CastingLine.objects.filter(active=True).order_by('name').values('id', 'name'))
+        lines_list = list(CVTLine.objects.filter(active=True).order_by('name').values('id', 'name'))
 
         # 適正在庫と月末在庫を比較
         inventory_comparison = []
         for item_name in item_names:
-            # 鋳造品番の適正在庫を取得
-            casting_item = CastingItem.objects.filter(
+            # CVT品番の適正在庫を取得
+            cvt_item = CVTItem.objects.filter(
                 line=line,
                 name=item_name,
                 active=True
             ).first()
 
-            optimal_inventory = casting_item.optimal_inventory if casting_item and casting_item.optimal_inventory is not None else 0
+            optimal_inventory = cvt_item.optimal_inventory if cvt_item and cvt_item.optimal_inventory is not None else 0
 
-            # 月末在庫を取得（最終在庫入力フィールドの値、またはデータベースから）
-            # 注: 鋳造では最終在庫入力があるため、その値を使用
-            # ページ読み込み時点では0として、JavaScriptで更新
+            # 月末在庫を取得（ページ読み込み時点では0として、JavaScriptで更新）
             end_of_month_inventory = 0
 
             # 差分を計算
@@ -422,22 +233,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             })
 
         # セクションごとの行数を計算（日勤 + 夜勤）
-        item_total_rows = len(item_names) * 2  # 品番ごとのセクション（出庫、生産台数、在庫）
-        machine_total_rows = len(machine_list) * 2  # 鋳造機ごとのセクション（生産計画、残業時間、計画停止）
-
-        # ラインの段取時間を取得
-        changeover_time = line.changeover_time if line.changeover_time is not None else 0
-
-        # 前月の使用可能金型数をJSON形式に変換
-        prev_usable_molds_data = []
-        for mold in prev_usable_molds:
-            prev_usable_molds_data.append({
-                'machine_name': mold.machine.name,
-                'item_name': mold.item_name.name,
-                'used_count': mold.used_count,  # データベースの値（内部処理用）
-                'display_count': mold.used_count + 1,  # 表示用の値（フロントエンド表示用）
-                'end_of_month': mold.end_of_month
-            })
+        item_total_rows = len(item_names) * 2  # 品番ごとのセクション（生産台数、在庫）
+        machine_total_rows = len(machine_list) * 2  # CVT鋳造機ごとのセクション（生産計画、残業時間、計画停止）
 
         context = {
             'year': year,
@@ -449,16 +246,10 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             'machines': machine_list,
             'item_data_json': json.dumps(item_data),
             'previous_month_inventory_json': json.dumps(previous_month_inventory),
-            'previous_month_production_plans_json': json.dumps(previous_month_production_plans),
-            'prev_usable_molds_json': json.dumps(prev_usable_molds_data),
             'lines': lines_list,
             'inventory_comparison': inventory_comparison,
             'item_total_rows': item_total_rows,  # 品番ごとのセクションの総行数
-            'machine_total_rows': machine_total_rows,  # 鋳造機ごとのセクションの総行数
-            'changeover_time': changeover_time,  # ラインの段取時間（分）
-            'is_head_line': is_head_line,  # ヘッドラインかどうか（全機能有効）
-            'is_block_line': is_block_line,  # ブロックラインかどうか（型替え不要）
-            'is_cover_line': is_cover_line,  # カバーラインかどうか（型替え時間のみ）
+            'machine_total_rows': machine_total_rows,  # CVT鋳造機ごとのセクションの総行数
         }
 
         return render(request, self.template_file, context)
@@ -470,7 +261,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             data = json.loads(request.body)
             plan_data = data.get('plan_data', [])
             weekends_to_delete = data.get('weekends_to_delete', [])
-            usable_molds_data = data.get('usable_molds_data', [])
             occupancy_rate_data = data.get('occupancy_rate_data', [])
             regular_working_hours_data = data.get('regular_working_hours_data', [])
 
@@ -485,14 +275,14 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             start_date = datetime(year, month, 1).date()
             end_date = datetime(year, month, calendar.monthrange(year, month)[1]).date()
 
-            # ラインを取得
+            # CVTラインを取得
             if request.GET.get('line'):
-                line = CastingLine.objects.get(id=request.GET.get('line'))
+                line = CVTLine.objects.get(id=request.GET.get('line'))
             else:
-                line = CastingLine.objects.get(name='ヘッド')
+                line = CVTLine.objects.filter(active=True).order_by('name').first()
 
-            # 鋳造機リストを取得
-            machines = list(CastingMachine.objects.filter(line=line, active=True).order_by('name'))
+            # CVT鋳造機リストを取得
+            machines = list(CVTMachine.objects.filter(line=line, active=True).order_by('name'))
 
             # 日付リストを生成
             dates = []
@@ -531,7 +321,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         'shift': shift,
                         'item_name': item_name,
                         'stock': None,
-                        'delivery': None,
                         'stock_adjustment': None
                     }
                 return key
@@ -539,8 +328,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
             for item in plan_data:
                 item_type = item.get('type')
 
-                if item_type in ['inventory', 'delivery', 'stock_adjustment']:
-                    # 在庫数・出庫数・在庫調整データを統合
+                if item_type in ['inventory', 'stock_adjustment']:
+                    # 在庫数・在庫調整データを統合
                     date_index = item.get('date_index')
                     shift = item.get('shift')
                     item_name = item.get('item_name')
@@ -549,8 +338,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
                     if item_type == 'inventory':
                         item_plan_data[key]['stock'] = item.get('stock')
-                    elif item_type == 'delivery':
-                        item_plan_data[key]['delivery'] = item.get('delivery')
                     elif item_type == 'stock_adjustment':
                         item_plan_data[key]['stock_adjustment'] = item.get('stock_adjustment')
                 elif item_type == 'production':
@@ -583,8 +370,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                             'machine_index': machine_index,
                             'stop_time': None,
                             'overtime': None,
-                            'mold_change': None,
-                            'mold_count': None,
                             'item_name': None
                         }
 
@@ -592,11 +377,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         grouped_data[key]['stop_time'] = item.get('stop_time')
                     elif item_type == 'overtime':
                         grouped_data[key]['overtime'] = item.get('overtime')
-                    elif item_type == 'mold_change':
-                        grouped_data[key]['mold_change'] = item.get('mold_change')
                     elif item_type == 'production_plan':
                         grouped_data[key]['item_name'] = item.get('item_name')
-                        grouped_data[key]['mold_count'] = item.get('mold_count')
 
             # データベースに保存
             saved_count = 0
@@ -606,8 +388,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 machine_index = data['machine_index']
                 stop_time = data['stop_time']
                 overtime = data['overtime']
-                mold_change = data['mold_change']
-                mold_count = data['mold_count']
                 item_name = data['item_name']
 
                 # 日付を取得
@@ -615,7 +395,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     continue
                 date = dates[date_index]
 
-                # 鋳造機を取得
+                # CVT鋳造機を取得
                 if machine_index >= len(machines):
                     continue
                 machine = machines[machine_index]
@@ -623,8 +403,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 品番を取得
                 production_item = None
                 if item_name:
-                    # CastingItemMachineMapを通じて品番を取得
-                    item_map = CastingItemMachineMap.objects.filter(
+                    # CVTItemMachineMapを通じて品番を取得
+                    item_map = CVTItemMachineMap.objects.filter(
                         line=line,
                         machine=machine,
                         casting_item__name=item_name,
@@ -635,8 +415,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
                 # production_itemを条件に含めてupdate_or_create
                 if production_item:
-                    # 同じ鋳造機・日付・シフトの他の品番のレコードをすべて削除
-                    DailyMachineCastingProductionPlan.objects.filter(
+                    # 同じCVT鋳造機・日付・シフトの他の品番のレコードをすべて削除
+                    DailyMachineCVTProductionPlan.objects.filter(
                         line=line,
                         machine=machine,
                         date=date,
@@ -653,8 +433,6 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     defaults = {
                         'stop_time': stop_time if stop_time is not None else 0,
                         'overtime': overtime if overtime is not None else 0,
-                        'mold_change': mold_change if mold_change is not None else 0,
-                        'mold_count': mold_count if mold_count is not None else 0,
                         'regular_working_hours': regular_working_hours,
                         'last_updated_user': request.user.username if request.user.is_authenticated else 'system'
                     }
@@ -664,7 +442,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         defaults['occupancy_rate'] = occupancy_rate
 
                     # 選択された品番のレコードを作成または更新
-                    DailyMachineCastingProductionPlan.objects.update_or_create(
+                    DailyMachineCVTProductionPlan.objects.update_or_create(
                         line=line,
                         machine=machine,
                         date=date,
@@ -675,7 +453,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     saved_count += 1
                 elif item_name == '' or item_name is None:
                     # 品番が空の場合、該当する設備・日付・シフトの全てのレコードを削除
-                    deleted = DailyMachineCastingProductionPlan.objects.filter(
+                    deleted = DailyMachineCVTProductionPlan.objects.filter(
                         line=line,
                         machine=machine,
                         date=date,
@@ -683,18 +461,16 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     ).delete()
                     if deleted[0] > 0:
                         saved_count += 1
-                elif stop_time is not None or overtime is not None or mold_change is not None:
-                    # production_itemがない場合でも、stop_time、overtime、mold_changeだけ更新（全レコードに適用）
+                elif stop_time is not None or overtime is not None:
+                    # production_itemがない場合でも、stop_time、overtimeだけ更新（全レコードに適用）
                     update_fields = {}
                     if stop_time is not None:
                         update_fields['stop_time'] = stop_time
                     if overtime is not None:
                         update_fields['overtime'] = overtime
-                    if mold_change is not None:
-                        update_fields['mold_change'] = mold_change
 
                     if update_fields:
-                        updated = DailyMachineCastingProductionPlan.objects.filter(
+                        updated = DailyMachineCVTProductionPlan.objects.filter(
                             line=line,
                             machine=machine,
                             date=date,
@@ -703,14 +479,13 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         if updated > 0:
                             saved_count += updated
 
-            # 在庫数・出庫数・在庫調整を保存（DailyCastingProductionPlanに統合して保存）
-            # 在庫計算式: 在庫数 = 前の直の在庫 + 良品生産数 - 出庫数 + 在庫調整
+            # 在庫数・在庫調整を保存（DailyCVTProductionPlanに統合して保存）
+            # 在庫計算式: 在庫数 = 前の直の在庫 + 良品生産数 + 在庫調整
             for key, plan_item in item_plan_data.items():
                 date_index = plan_item['date_index']
                 shift = plan_item['shift']
                 item_name = plan_item['item_name']
                 stock = plan_item['stock']  # 在庫数（計算結果）
-                delivery = plan_item['delivery']  # 出庫数（加工生産計画から取得、ここでは保存しない）
                 stock_adjustment = plan_item['stock_adjustment']  # 在庫調整（棚卸・不良品などの手動調整）
 
                 # 日付を取得
@@ -719,7 +494,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 date = dates[date_index]
 
                 # 品番を取得
-                production_item = CastingItem.objects.filter(
+                production_item = CVTItem.objects.filter(
                     line=line,
                     name=item_name,
                     active=True
@@ -735,10 +510,9 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         defaults['stock'] = stock
                     # 在庫調整は0も含めて保存（クリア可能にするため）
                     defaults['stock_adjustment'] = stock_adjustment if stock_adjustment is not None else 0
-                    # 出庫数は保存しない（常に加工生産計画から動的に取得）
 
-                    # DailyCastingProductionPlanに在庫数・在庫調整を保存
-                    DailyCastingProductionPlan.objects.update_or_create(
+                    # DailyCVTProductionPlanに在庫数・在庫調整を保存
+                    DailyCVTProductionPlan.objects.update_or_create(
                         line=line,
                         production_item=production_item,
                         date=date,
@@ -759,8 +533,8 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     continue
                 date = dates[date_index]
 
-                # この品番を生産している最初の鋳造機のレコードに生産台数を保存
-                production_item = CastingItem.objects.filter(
+                # この品番を生産している最初のCVT鋳造機のレコードに生産台数を保存
+                production_item = CVTItem.objects.filter(
                     line=line,
                     name=item_name,
                     active=True
@@ -768,7 +542,7 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
                 if production_item:
                     # この品番を持つレコードを更新
-                    updated = DailyMachineCastingProductionPlan.objects.filter(
+                    updated = DailyMachineCVTProductionPlan.objects.filter(
                         line=line,
                         date=date,
                         shift=shift,
@@ -778,15 +552,15 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     if updated > 0:
                         saved_count += 1
 
-            # 休日出勤が消された日付のDailyMachineCastingProductionPlanを削除
+            # 休日出勤が消された日付のDailyMachineCVTProductionPlanを削除
             deleted_count = 0
             for date_index in weekends_to_delete:
                 if date_index >= len(dates):
                     continue
                 date = dates[date_index]
 
-                # 該当日付のDailyMachineCastingProductionPlanを削除（日勤のみ、週末なので）
-                deleted = DailyMachineCastingProductionPlan.objects.filter(
+                # 該当日付のDailyMachineCVTProductionPlanを削除（日勤のみ、週末なので）
+                deleted = DailyMachineCVTProductionPlan.objects.filter(
                     line=line,
                     date=date,
                     shift='day'
@@ -795,42 +569,9 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                 if deleted[0] > 0:
                     deleted_count += deleted[0]
 
-            # 使用可能金型数を保存
-            usable_molds_saved = 0
-            if usable_molds_data:
-                # 当月の既存データを削除
-                UsableMold.objects.filter(
-                    line=line,
-                    month__year=year,
-                    month__month=month
-                ).delete()
-
-                # 新しいデータを保存
-                for mold_data in usable_molds_data:
-                    machine_index = mold_data.get('machine_index')
-                    item_name = mold_data.get('item_name')
-                    used_count = mold_data.get('used_count')
-                    end_of_month = mold_data.get('end_of_month')
-
-                    if machine_index is not None and item_name:
-                        machine = machines[machine_index]
-                        item = CastingItem.objects.filter(name=item_name, line=line, active=True).first()
-
-                        if machine and item:
-                            UsableMold.objects.create(
-                                month=start_date,
-                                line=line,
-                                machine=machine,
-                                item_name=item,
-                                used_count=used_count,
-                                end_of_month=end_of_month,
-                                last_updated_user=request.user.username
-                            )
-                            usable_molds_saved += 1
-
             return JsonResponse({
                 'status': 'success',
-                'message': f'{saved_count}件のデータを保存、{deleted_count}件のデータを削除、{usable_molds_saved}件の使用可能金型を保存しました'
+                'message': f'{saved_count}件のデータを保存、{deleted_count}件のデータを削除しました'
             })
 
         except Exception as e:

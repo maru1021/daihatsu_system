@@ -41,20 +41,7 @@ const OVERTIME_MAX_DAY = 120;     // 日勤の残業上限（分）
 const OVERTIME_MAX_NIGHT = 60;    // 夜勤の残業上限（分）
 const MOLD_CHANGE_THRESHOLD = 6;  // 金型交換が必要な使用回数
 // 品番ごとの背景色を設定
-const colorMap = {
-    'VE': '#D6EAF8',
-    'VE4': '#D6EAF8',
-    'VET2': '#F8BBD0',
-    'VE7': '#87CEEB',
-    'VET': '#90EE90',
-    'VE5': '#FFE4C4',
-    'POL': '#56d9f0ff',
-    'CCH': '#91f48aff',
-    'CCS': '#fdbe92ff',
-    'POL(7)': '#9076faff',
-    'CCL': '#fb50deff',
-    'CCL(7)': '#fb50deff',
-};
+
 
 // ========================================
 // グローバル変数（HTMLから渡される）

@@ -157,9 +157,10 @@ class CastingItem(MasterMethodMixin, models.Model):
     name = models.CharField(verbose_name="品番", max_length=100, null=True, blank=True)
     order = models.IntegerField(verbose_name="表示順", null=True, blank=True, default=0)
     optimal_inventory = models.IntegerField(verbose_name="適正在庫数", null=True, blank=True, default=0)
+    molten_metal_usage = models.FloatField(verbose_name="溶湯使用量", null=True, blank=True, default=0)
+    color = models.CharField(verbose_name="背景色", max_length=7, null=True, blank=True)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
-    molten_metal_usage = models.FloatField(verbose_name="溶湯使用量", null=True, blank=True, default=0)
 
     class Meta:
         verbose_name = "鋳造品番"
@@ -177,9 +178,11 @@ class CVTItem(MasterMethodMixin, models.Model):
     name = models.CharField(verbose_name="品番", max_length=100, null=True, blank=True)
     order = models.IntegerField(verbose_name="表示順", null=True, blank=True, default=0)
     optimal_inventory = models.IntegerField(verbose_name="適正在庫数", null=True, blank=True, default=0)
+    molten_metal_usage = models.FloatField(verbose_name="溶湯使用量", null=True, blank=True, default=0)
+    color = models.CharField(verbose_name="背景色", max_length=7, null=True, blank=True)
     active = models.BooleanField(verbose_name="有効", default=True)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
-    molten_metal_usage = models.FloatField(verbose_name="溶湯使用量", null=True, blank=True, default=0)
+
 
     class Meta:
         verbose_name = "CVT品番"
@@ -479,3 +482,55 @@ class UsableMold(models.Model):
 
     def __str__(self):
         return f"{self.month} - {self.line.name} - {self.machine.name} - {self.item_name.name}"
+
+
+# シフト、品番ごとのモデル
+class DailyCVTProductionPlan(models.Model):
+    line = models.ForeignKey('manufacturing.CVTLine', on_delete=models.CASCADE, verbose_name="CVTライン", null=True, blank=True, db_index=True)
+    production_item = models.ForeignKey(CVTItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
+    date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
+    shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
+    stock = models.IntegerField(verbose_name="在庫数", null=True, blank=True, default=0)
+    stock_adjustment = models.IntegerField(verbose_name="在庫調整数", null=True, blank=True, default=0)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "日別CVT計画"
+        verbose_name_plural = "日別CVT計画"
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['line', 'date','shift']),
+            models.Index(fields=['line', 'date', 'shift', 'production_item']),
+        ]
+
+    def __str__(self):
+        return f"{self.date} - {self.shift} - {self.production_item.name}"
+
+
+# シフト、鋳造機、品番ごとのモデル
+# 鋳造機ごとに作成する品番が異なるためDailyCVTProductionPlantリレーションさせない
+class DailyMachineCVTProductionPlan(models.Model):
+    line = models.ForeignKey('manufacturing.CVTLine', on_delete=models.CASCADE, verbose_name="CVTライン", related_name='daily_machine_cvt_production_plans')
+    machine = models.ForeignKey('manufacturing.CVTMachine', on_delete=models.CASCADE, verbose_name="鋳造機", related_name='daily_machine_cvt_production_plans')
+    date = models.DateField(verbose_name="日付", null=True, blank=True, db_index=True)
+    shift = models.CharField(verbose_name="シフト", max_length=100, null=True, blank=True)
+    production_item = models.ForeignKey(CVTItem, on_delete=models.CASCADE, verbose_name="品番", null=True, blank=True, db_index=True)
+    production_count = models.IntegerField(verbose_name="生産数", null=True, blank=True, default=0)
+    mold_change = models.IntegerField(verbose_name="金型交換", null=True, blank=True, default=0)
+    stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
+    overtime = models.IntegerField(verbose_name="生産残業", null=True, blank=True, default=0)
+    mold_count = models.IntegerField(verbose_name="金型使用数", null=True, blank=True, default=0)
+    last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
+    occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
+    regular_working_hours = models.BooleanField(verbose_name="定時", default=False)
+
+    class Meta:
+        verbose_name = "日別CVT計画品番"
+        verbose_name_plural = "日別CVT計画品番"
+        ordering = ['-date', 'shift', 'machine', 'production_item']
+        indexes = [
+            models.Index(fields=['date', 'shift', 'machine', 'production_item']),
+        ]
+
+    def __str__(self):
+        return f"{self.date} - {self.shift} - {self.line.name if self.line else ''} - {self.machine.name if self.machine else ''} - {self.production_item.name if self.production_item else ''} - {self.production_count}"

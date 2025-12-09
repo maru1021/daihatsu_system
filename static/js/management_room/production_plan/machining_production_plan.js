@@ -40,8 +40,6 @@
 // ========================================
 const REGULAR_TIME_DAY = 455;           // 加工の日勤定時時間（分）
 const REGULAR_TIME_NIGHT = 450;         // 加工の夜勤定時時間（分）
-const OVERTIME_MAX_DAY = 120;           // 日勤の残業上限（分）
-const OVERTIME_MAX_NIGHT = 60;          // 夜勤の残業上限（分）
 const OVERTIME_ROUND_MINUTES = 5;       // 残業時間の丸め単位（分）
 const DEBOUNCE_DELAY = 100;             // デバウンス遅延時間（ミリ秒）
 const STOCK_UPDATE_DELAY = 150;         // 在庫更新遅延時間（ミリ秒）
@@ -2067,67 +2065,6 @@ function highlightUnderRegularTimeColumns() {
 /**
  * カラムホバー機能を設定（日付ヘッダーのみハイライト）
  */
-function setupColumnHover() {
-    const tbody = document.querySelector('tbody');
-    if (!tbody) return;
-
-    let currentHoverDateIndex = -1;
-
-    tbody.addEventListener('mouseover', function (e) {
-        const cell = e.target.closest('td, th');
-        if (!cell || cell.tagName !== 'TD') return;
-
-        const dateIndex = cell.getAttribute('data-date-index');
-        if (dateIndex === null) return;
-
-        const dateIndexNum = parseInt(dateIndex);
-        if (dateIndexNum === currentHoverDateIndex) return;
-
-        if (currentHoverDateIndex >= 0) {
-            removeDateHighlight(currentHoverDateIndex);
-        }
-
-        currentHoverDateIndex = dateIndexNum;
-        addDateHighlight(dateIndexNum);
-    });
-
-    tbody.addEventListener('mouseout', function (e) {
-        if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
-            if (currentHoverDateIndex >= 0) {
-                removeDateHighlight(currentHoverDateIndex);
-                currentHoverDateIndex = -1;
-            }
-        }
-    });
-}
-
-/**
- * 日付ヘッダーにハイライトを追加
- */
-function addDateHighlight(dateIndex) {
-    // 日付行のセルのみ（2行目：日付の行）
-    const dateRow = document.querySelector('thead tr:nth-child(2)');
-    if (dateRow) {
-        const dateCell = dateRow.querySelector(`th[data-date-index="${dateIndex}"]`);
-        if (dateCell) {
-            dateCell.classList.add('date-hover');
-        }
-    }
-}
-
-/**
- * 日付ヘッダーからハイライトを削除
- */
-function removeDateHighlight(dateIndex) {
-    // 日付行のセルのみ（2行目：日付の行）
-    const dateRow = document.querySelector('thead tr:nth-child(2)');
-    if (dateRow) {
-        const dateCell = dateRow.querySelector(`th[data-date-index="${dateIndex}"]`);
-        if (dateCell) {
-            dateCell.classList.remove('date-hover');
-        }
-    }
-}
 
 // ========================================
 // 残業input表示制御

@@ -63,6 +63,13 @@
         CVT生産台数入力
       </a>
       <a
+        class="nav-link {% if 'management_room:cvt_production_plan' in request.resolver_match.url_name %}active{% endif %}"
+        href="{% url 'management_room:cvt_production_plan' %}"
+      >
+        <i class="fas fa-database"></i>
+        CVT生産計画
+      </a>
+      <a
         class="nav-link {% if 'management_room:akashi_order_list' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:akashi_order_list' %}"
         hx-get="{% url 'management_room:akashi_order_list' %}"

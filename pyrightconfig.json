@@ -4,5 +4,8 @@
     "reportAttributeAccessIssue": "none",
     "reportIncompatibleMethodOverride": "none",
     "reportIncompatibleVariableOverride": "none",
-    "reportOptionalMemberAccess": "none"
+    "reportOptionalMemberAccess": "none",
+    "reportOperatorIssue": "none",
+    "reportCallIssue": "none",
+    "reportOptionalOperand": "none"
 }

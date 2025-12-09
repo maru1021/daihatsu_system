@@ -3,8 +3,6 @@
 // ========================================
 const REGULAR_TIME_DAY = 455;
 const REGULAR_TIME_NIGHT = 450;
-const OVERTIME_MAX_DAY = 120;
-const OVERTIME_MAX_NIGHT = 60;
 
 // ========================================
 // ユーティリティ関数
@@ -1660,70 +1658,6 @@ $(document).ready(function () {
 // ========================================
 // 列のホバー処理（日付セルのみ濃い青色）
 // ========================================
-function setupColumnHover() {
-    const tbody = document.querySelector('tbody');
-    if (!tbody) return;
-
-    let currentHoverDateIndex = -1;
-
-    tbody.addEventListener('mouseover', function (e) {
-        const cell = e.target.closest('td, th');
-        if (!cell) return;
-
-        // tdセルのみを対象とする（thは固定列なので除外）
-        if (cell.tagName !== 'TD') return;
-
-        // data-date-indexを使って日付インデックスを取得
-        const dateIndex = cell.getAttribute('data-date-index');
-        if (dateIndex === null) return;
-
-        const dateIndexNum = parseInt(dateIndex);
-
-        // 同じ日付を再度ホバーした場合は何もしない
-        if (dateIndexNum === currentHoverDateIndex) return;
-
-        // 前の日付のハイライトを削除
-        if (currentHoverDateIndex >= 0) {
-            removeDateHighlight(currentHoverDateIndex);
-        }
-
-        // 新しい日付セルをハイライト
-        currentHoverDateIndex = dateIndexNum;
-        addDateHighlight(dateIndexNum);
-    });
-
-    tbody.addEventListener('mouseout', function (e) {
-        // tbodyから完全に出た場合のみハイライトを削除
-        if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
-            if (currentHoverDateIndex >= 0) {
-                removeDateHighlight(currentHoverDateIndex);
-                currentHoverDateIndex = -1;
-            }
-        }
-    });
-}
-
-function addDateHighlight(dateIndex) {
-    // dateIndexは data-date-index の値（0始まりの日付インデックス）
-
-    // 最上部のヘッダー日付（thead内の2行目）
-    // thead 2行目: インデックス0から日付列が始まる（rowspanで固定列は1行目に結合済み）
-    const headerDateRow = document.querySelector('thead tr:nth-child(2)');
-    if (headerDateRow && headerDateRow.children[dateIndex]) {
-        headerDateRow.children[dateIndex].classList.add('date-hover');
-    }
-}
-
-function removeDateHighlight(dateIndex) {
-    // dateIndexは data-date-index の値（0始まりの日付インデックス）
-
-    // 最上部のヘッダー日付（thead内の2行目）
-    // thead 2行目: インデックス0から日付列が始まる（rowspanで固定列は1行目に結合済み）
-    const headerDateRow = document.querySelector('thead tr:nth-child(2)');
-    if (headerDateRow && headerDateRow.children[dateIndex]) {
-        headerDateRow.children[dateIndex].classList.remove('date-hover');
-    }
-}
 
 // ========================================
 // 残業inputの表示/非表示制御

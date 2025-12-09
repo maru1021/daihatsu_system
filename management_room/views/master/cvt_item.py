@@ -37,6 +37,7 @@ class CVTItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     'order': data.order,
                     'optimal_inventory': data.optimal_inventory,
                     'molten_metal_usage': data.molten_metal_usage,
+                    'color': data.color,
                     'active': data.active,
                     'last_updated_user': data.last_updated_user,
                 },
@@ -82,6 +83,7 @@ class CVTItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 line=CVTLine.objects.get(id=data.get('line_id', '').strip()) if data.get('line_id', '').strip() else None,
                 optimal_inventory=data.get('optimal_inventory', '').strip() if data.get('optimal_inventory', '').strip() else 0,
                 molten_metal_usage=data.get('molten_metal_usage', '').strip() if data.get('molten_metal_usage', '').strip() else 0,
+                color=data.get('color').strip() if data.get('color') else '',
                 order=data.get('order') if data.get('order') else 0,
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
@@ -97,6 +99,7 @@ class CVTItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             model.optimal_inventory = data.get('optimal_inventory', '').strip() if data.get('optimal_inventory', '').strip() else 0
             model.molten_metal_usage = data.get('molten_metal_usage', '').strip() if data.get('molten_metal_usage', '').strip() else 0
             model.order = data.get('order') if data.get('order') else 0
+            model.color = data.get('color').strip() if data.get('color') else ''
             model.active = data.get('active') == 'on'
             model.last_updated_user = user.username if user else None
             model.save()

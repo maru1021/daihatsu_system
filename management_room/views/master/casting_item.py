@@ -37,6 +37,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                     'order': data.order,
                     'optimal_inventory': data.optimal_inventory,
                     'molten_metal_usage': data.molten_metal_usage,
+                    'color': data.color,
                     'active': data.active,
                     'last_updated_user': data.last_updated_user,
                 },
@@ -83,6 +84,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
                 optimal_inventory=data.get('optimal_inventory', '').strip() if data.get('optimal_inventory', '').strip() else 0,
                 molten_metal_usage=data.get('molten_metal_usage', '').strip() if data.get('molten_metal_usage', '').strip() else 0,
                 order=data.get('order') if data.get('order') else 0,
+                color=data.get('color').strip() if data.get('color') else '',
                 active=data.get('active') == 'on',
                 last_updated_user=user.username if user else None,
             )
@@ -98,6 +100,7 @@ class CastingItemMasterView(ManagementRoomPermissionMixin, BasicTableView):
             model.molten_metal_usage = data.get('molten_metal_usage', '').strip() if data.get('molten_metal_usage', '').strip() else 0
             model.order = data.get('order') if data.get('order') else 0
             model.active = data.get('active') == 'on'
+            model.color = data.get('color').strip() if data.get('color') else ''
             model.last_updated_user = user.username if user else None
             model.save()
 

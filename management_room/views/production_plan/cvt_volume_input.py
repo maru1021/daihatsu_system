@@ -20,22 +20,15 @@ class CVTVolumeInputView(ManagementRoomPermissionMixin, View):
                 year, month = map(int, target_month.split('-'))
                 month_date = date(year, month, 1)
 
-                # その月の生産計画を取得してDataFrameに変換
+                # その月の生産計画を取得
                 plans = MonthlyCVTProductionPlan.objects.filter(
                     month=month_date
-                ).select_related('production_item', 'line').values(
-                    'production_item__name', 'line_id', 'quantity'
+                ).select_related('production_item').values(
+                    'production_item__name', 'quantity'
                 )
 
-                if plans:
-                    df = pd.DataFrame(plans)
-                    df.columns = ['item_name', 'line_id', 'quantity']
-                    # ピボットテーブルで整形
-                    data = df.set_index('item_name').groupby('item_name').apply(
-                        lambda x: dict(zip(x['line_id'].astype(str), x['quantity']))
-                    ).to_dict()
-                else:
-                    data = {}
+                # 品番ごとの数量をマッピング
+                data = {plan['production_item__name']: plan['quantity'] for plan in plans}
 
                 return JsonResponse({'data': data})
 
@@ -45,10 +38,10 @@ class CVTVolumeInputView(ManagementRoomPermissionMixin, View):
         month = today.month
         month_date = date(year, month, 1)
 
-        # 全てのアクティブなAssemblyLineを取得
+        # 全てのアクティブなCVTLineを取得
         cvt_lines = CVTLine.objects.filter(active=True).order_by('name')
 
-        # 全てのアクティブなAssemblyItemを取得してDataFrameに変換
+        # 全てのアクティブなCVTItemを取得してDataFrameに変換
         cvt_items = CVTItem.objects.filter(active=True).select_related('line').values(
             'id', 'name', 'line__id', 'line__name'
         ).order_by('name')
@@ -65,43 +58,35 @@ class CVTVolumeInputView(ManagementRoomPermissionMixin, View):
         )
         df_plans = pd.DataFrame(plans) if plans else pd.DataFrame(columns=['production_item__name', 'line_id', 'quantity'])
 
-        # 品番リストを作成
+        # 品番リストを作成（各品番は1つのラインのみ）
         item_list = []
         for name, group in df_items.groupby('name'):
-            item_data = {'name': name}
-            available_lines = []
-            available_line_ids = []
-            line_quantities = {}
+            # 各品番は1つのラインのみ
+            first_row = group.iloc[0]
 
-            for _, row in group.iterrows():
-                if pd.notna(row['line_id']):
-                    line_name = row['line_name']
-                    line_id = int(row['line_id'])
+            item_data = {
+                'name': name,
+                'item_id': int(first_row['item_id']),
+                'line_id': int(first_row['line_id']),
+                'line_name': first_row['line_name'],
+            }
 
-                    # ラインごとの情報をフラットに展開
-                    item_data[f'{line_name}_item_id'] = int(row['item_id'])
-                    available_lines.append(line_name)
-                    available_line_ids.append(str(line_id))
+            # 既存の数量を取得
+            planned_volume = None
+            if not df_plans.empty:
+                plan_row = df_plans[
+                    (df_plans['production_item__name'] == name) &
+                    (df_plans['line_id'] == int(first_row['line_id']))
+                ]
+                if not plan_row.empty:
+                    planned_volume = int(plan_row.iloc[0]['quantity'])
 
-                    # 既存の数量を取得
-                    if not df_plans.empty:
-                        plan_row = df_plans[
-                            (df_plans['production_item__name'] == name) &
-                            (df_plans['line_id'] == line_id)
-                        ]
-                        if not plan_row.empty:
-                            line_quantities[str(line_id)] = int(plan_row.iloc[0]['quantity'])
-
-            total_quantity = sum(line_quantities.values())
-            item_data['available_lines'] = available_lines
-            item_data['available_line_ids'] = available_line_ids
-            item_data['planned_volume'] = total_quantity if total_quantity > 0 else None
-            item_data['line_quantities'] = json.dumps(line_quantities)
+            item_data['planned_volume'] = planned_volume
             item_list.append(item_data)
 
         context = {
             'item_list': item_list,
-            'assembly_lines': cvt_lines,
+            'cvt_lines': cvt_lines,
             'year': year,
             'month': month,
         }
@@ -130,24 +115,30 @@ class CVTVolumeInputView(ManagementRoomPermissionMixin, View):
             # 既存のデータを削除
             MonthlyCVTProductionPlan.objects.filter(month=month_date).delete()
 
-            # 登録件数
+            # 登録件数とエラー件数
             created_count = 0
+            error_items = []
 
             # 各データを処理
             for data in production_data:
-                item_name = data['item_name']
-                line_id = data['line_id']
-                quantity = data['quantity']
+                item_name = data.get('item_name')
+                line_id = data.get('line_id')
+                quantity = data.get('quantity')
 
-                # AssemblyItemを取得（品番とラインで特定）
+                # データの妥当性チェック
+                if not item_name or not line_id or not quantity:
+                    continue
+
                 try:
+                    # CVTItemを取得（品番とラインで特定）
                     cvt_item = CVTItem.objects.get(
                         name=item_name,
                         line_id=line_id,
                         active=True
                     )
-                    cvt_line = CVTLine.objects.get(id=line_id)
+                    cvt_line = CVTLine.objects.get(id=line_id, active=True)
 
+                    # 生産計画を作成
                     MonthlyCVTProductionPlan.objects.create(
                         month=month_date,
                         line=cvt_line,
@@ -157,13 +148,29 @@ class CVTVolumeInputView(ManagementRoomPermissionMixin, View):
                     created_count += 1
 
                 except CVTItem.DoesNotExist:
-                    continue
+                    error_items.append(f'{item_name}（品番が見つかりません）')
                 except CVTLine.DoesNotExist:
-                    continue
+                    error_items.append(f'{item_name}（ラインが見つかりません）')
 
-            messages.success(request, f'{target_month}の生産計画を登録しました。（{created_count}件）')
-            return redirect('/management_room/production-plan/assembly-production-plan/')
+            # 結果メッセージ
+            if created_count > 0:
+                success_msg = f'{target_month}の生産計画を登録しました。（{created_count}件）'
+                if error_items:
+                    success_msg += f' ※エラー: {", ".join(error_items[:3])}'
+                    if len(error_items) > 3:
+                        success_msg += f' 他{len(error_items) - 3}件'
+                messages.success(request, success_msg)
+            else:
+                messages.warning(request, '登録できるデータがありませんでした。')
 
+            return redirect('management_room:cvt_volume_input')
+
+        except json.JSONDecodeError:
+            messages.error(request, 'データ形式が不正です。')
+            return redirect('management_room:cvt_volume_input')
+        except ValueError as e:
+            messages.error(request, f'日付形式が不正です: {str(e)}')
+            return redirect('management_room:cvt_volume_input')
         except Exception as e:
             messages.error(request, f'登録に失敗しました: {str(e)}')
-            return redirect('management_room:production_volume_input')
+            return redirect('management_room:cvt_volume_input')
