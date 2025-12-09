@@ -2098,14 +2098,20 @@ function getPrevious5Shifts(dateIndex, shift, machineIndex) {
 // 高速化のため要素をキャッシュ
 let inventoryElementCache = null;
 
+/**
+ * 在庫計算に必要な全入力要素をキャッシュ
+ * パフォーマンス向上のため、繰り返しquerySelectorを実行する代わりにキャッシュを使用
+ * @returns {Object} キャッシュオブジェクト（inventory, delivery, production, stockAdjustment）
+ */
 function buildInventoryElementCache() {
     const cache = {
-        inventory: {},
-        delivery: {},
-        production: {}
+        inventory: {},        // 在庫数（計算結果）
+        delivery: {},         // 出庫数（加工生産計画から取得）
+        production: {},       // 生産台数（良品率適用後）
+        stockAdjustment: {}   // 在庫調整（手動入力）
     };
 
-    // 在庫入力要素をキャッシュ
+    // 在庫入力要素をキャッシュ（計算結果を表示）
     document.querySelectorAll('.inventory-input').forEach(input => {
         const shift = input.dataset.shift;
         const item = input.dataset.item;
@@ -2114,7 +2120,7 @@ function buildInventoryElementCache() {
         cache.inventory[key] = input;
     });
 
-    // 出庫入力要素をキャッシュ
+    // 出庫入力要素をキャッシュ（加工生産計画から読み取り専用）
     document.querySelectorAll('.delivery-input').forEach(input => {
         const shift = input.dataset.shift;
         const item = input.dataset.item;
@@ -2123,13 +2129,22 @@ function buildInventoryElementCache() {
         cache.delivery[key] = input;
     });
 
-    // 生産入力要素をキャッシュ（セルではなくinputに変更）
+    // 生産入力要素をキャッシュ（良品率適用後の生産数）
     document.querySelectorAll('.production-input').forEach(input => {
         const shift = input.dataset.shift;
         const item = input.dataset.item;
         const dateIndex = input.dataset.dateIndex;
         const key = `${shift}-${item}-${dateIndex}`;
         cache.production[key] = input;
+    });
+
+    // 在庫調整入力要素をキャッシュ（棚卸・不良品などの手動調整）
+    document.querySelectorAll('.stock-adjustment-input').forEach(input => {
+        const shift = input.dataset.shift;
+        const item = input.dataset.item;
+        const dateIndex = input.dataset.dateIndex;
+        const key = `${shift}-${item}-${dateIndex}`;
+        cache.stockAdjustment[key] = input;
     });
 
     return cache;
@@ -2201,8 +2216,17 @@ function calculateInventory(dateIndex, shift, itemName) {
     const currentProductionInput = inventoryElementCache.production[productionKey];
     const goodProduction = parseFloat(currentProductionInput?.value) || 0;
 
-    // 在庫数 = 前の直の在庫 + 自身の直の良品生産数 - 自身の直の出庫数
-    const inventory = previousInventory + goodProduction - currentDelivery;
+    // 自身の直の在庫調整を取得（手動で調整した在庫数）
+    const stockAdjustmentKey = `${shift}-${itemName}-${dateIndex}`;
+    const stockAdjustmentInput = inventoryElementCache.stockAdjustment[stockAdjustmentKey];
+    const stockAdjustment = parseFloat(stockAdjustmentInput?.value) || 0;
+
+    // 在庫計算式: 在庫数 = 前の直の在庫 + 良品生産数 - 出庫数 + 在庫調整
+    // - 前の直の在庫: 前日夜勤または当日日勤の在庫残
+    // - 良品生産数: 生産台数 × 良品率
+    // - 出庫数: 加工ラインへの出庫（加工生産計画から取得）
+    // - 在庫調整: 棚卸や不良品などによる手動調整
+    const inventory = previousInventory + goodProduction - currentDelivery + stockAdjustment;
 
     // 在庫数inputに値を設定
     if (inventoryInput) {
@@ -2727,6 +2751,19 @@ function setupEventListeners() {
             debouncedCalculateRowTotals();
         });
     });
+
+    // 在庫調整入力の変更を監視（デバウンス適用）
+    // 在庫調整が変更されると、在庫数が自動的に再計算される
+    document.querySelectorAll('.stock-adjustment-input').forEach(input => {
+        input.addEventListener('input', function () {
+            // キャッシュを無効化して最新の在庫調整値を反映
+            inventoryElementCache = null;
+            // 全品番・全直の在庫を再計算
+            debouncedRecalculateInventory();
+            // 月末在庫カードと行合計を更新
+            debouncedCalculateRowTotals();
+        });
+    });
 }
 
 // ========================================
@@ -3066,6 +3103,27 @@ function saveProductionPlan() {
             item_name: itemName,
             delivery: delivery,
             type: 'delivery'
+        });
+    });
+
+    // 在庫調整データを収集（棚卸や不良品などによる手動調整）
+    const stockAdjustmentInputs = document.querySelectorAll('.stock-adjustment-input');
+    stockAdjustmentInputs.forEach(input => {
+        // 非表示のフィールド（週末の夜勤など）はスキップ
+        if (input.style.display === 'none') return;
+
+        const dateIndex = parseInt(input.dataset.dateIndex);
+        const shift = input.dataset.shift;
+        const itemName = input.dataset.item;
+        const stockAdjustment = parseInt(input.value) || 0;
+
+        // 在庫調整はすべて保存（0でも保存して既存の調整をクリア可能に）
+        planData.push({
+            date_index: dateIndex,
+            shift: shift,
+            item_name: itemName,
+            stock_adjustment: stockAdjustment,
+            type: 'stock_adjustment'
         });
     });
 

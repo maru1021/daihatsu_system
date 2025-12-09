@@ -305,10 +305,12 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     if total_production > 0:
                         delivery = total_production
 
+                    # 品番ごとのデータを設定
                     date_data['shifts'][shift]['items'][item_name] = {
-                        'inventory': plan.stock if plan and plan.stock is not None else '',
-                        'delivery': delivery if delivery and delivery > 0 else '',
-                        'production': ''  # フロントエンドで計算
+                        'inventory': plan.stock if plan and plan.stock is not None else '',  # 在庫数（計算結果）
+                        'delivery': delivery if delivery and delivery > 0 else '',  # 出庫数（加工生産計画から取得）
+                        'production': '',  # 生産台数（フロントエンドで計算）
+                        'stock_adjustment': plan.stock_adjustment if plan and plan.stock_adjustment is not None else ''  # 在庫調整（手動入力値）
                     }
 
                 # 機械データを処理
@@ -514,47 +516,40 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
             # データをグループ化（残業時間、計画停止、生産計画を同じレコードに保存）
             grouped_data = {}
-            item_plan_data = {}  # 品番ごとの計画データ（在庫数・出庫数を統合）
+            item_plan_data = {}  # 品番ごとの計画データ（在庫数・出庫数・在庫調整を統合）
             production_data = {}  # 生産台数データ（品番×シフト×日付）
+
+            # ヘルパー関数: item_plan_dataのエントリを初期化
+            def ensure_item_plan_entry(date_index, shift, item_name):
+                key = f"{date_index}_{shift}_{item_name}"
+                if key not in item_plan_data:
+                    item_plan_data[key] = {
+                        'date_index': date_index,
+                        'shift': shift,
+                        'item_name': item_name,
+                        'stock': None,
+                        'delivery': None,
+                        'stock_adjustment': None
+                    }
+                return key
 
             for item in plan_data:
                 item_type = item.get('type')
 
-                if item_type == 'inventory':
-                    # 在庫数データを統合
+                if item_type in ['inventory', 'delivery', 'stock_adjustment']:
+                    # 在庫数・出庫数・在庫調整データを統合
                     date_index = item.get('date_index')
                     shift = item.get('shift')
                     item_name = item.get('item_name')
-                    stock = item.get('stock')
 
-                    key = f"{date_index}_{shift}_{item_name}"
-                    if key not in item_plan_data:
-                        item_plan_data[key] = {
-                            'date_index': date_index,
-                            'shift': shift,
-                            'item_name': item_name,
-                            'stock': None,
-                            'delivery': None
-                        }
-                    item_plan_data[key]['stock'] = stock
+                    key = ensure_item_plan_entry(date_index, shift, item_name)
 
-                elif item_type == 'delivery':
-                    # 出庫数データを統合
-                    date_index = item.get('date_index')
-                    shift = item.get('shift')
-                    item_name = item.get('item_name')
-                    delivery = item.get('delivery')
-
-                    key = f"{date_index}_{shift}_{item_name}"
-                    if key not in item_plan_data:
-                        item_plan_data[key] = {
-                            'date_index': date_index,
-                            'shift': shift,
-                            'item_name': item_name,
-                            'stock': None,
-                            'delivery': None
-                        }
-                    item_plan_data[key]['delivery'] = delivery
+                    if item_type == 'inventory':
+                        item_plan_data[key]['stock'] = item.get('stock')
+                    elif item_type == 'delivery':
+                        item_plan_data[key]['delivery'] = item.get('delivery')
+                    elif item_type == 'stock_adjustment':
+                        item_plan_data[key]['stock_adjustment'] = item.get('stock_adjustment')
                 elif item_type == 'production':
                     # 生産台数データは別に保存
                     date_index = item.get('date_index')
@@ -705,13 +700,15 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                         if updated > 0:
                             saved_count += updated
 
-            # 在庫数・出庫数を保存（DailyCastingProductionPlanに統合して保存）
+            # 在庫数・出庫数・在庫調整を保存（DailyCastingProductionPlanに統合して保存）
+            # 在庫計算式: 在庫数 = 前の直の在庫 + 良品生産数 - 出庫数 + 在庫調整
             for key, plan_item in item_plan_data.items():
                 date_index = plan_item['date_index']
                 shift = plan_item['shift']
                 item_name = plan_item['item_name']
-                stock = plan_item['stock']
-                delivery = plan_item['delivery']
+                stock = plan_item['stock']  # 在庫数（計算結果）
+                delivery = plan_item['delivery']  # 出庫数（加工生産計画から取得、ここでは保存しない）
+                stock_adjustment = plan_item['stock_adjustment']  # 在庫調整（棚卸・不良品などの手動調整）
 
                 # 日付を取得
                 if date_index >= len(dates):
@@ -730,11 +727,14 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
                     defaults = {
                         'last_updated_user': request.user.username if request.user.is_authenticated else 'system'
                     }
+                    # 在庫数を保存（計算結果）
                     if stock is not None:
                         defaults['stock'] = stock
-                    # 出庫数は保存しない（常に加工生産計画から取得）
+                    # 在庫調整は0も含めて保存（クリア可能にするため）
+                    defaults['stock_adjustment'] = stock_adjustment if stock_adjustment is not None else 0
+                    # 出庫数は保存しない（常に加工生産計画から動的に取得）
 
-                    # DailyCastingProductionPlanに在庫数を保存
+                    # DailyCastingProductionPlanに在庫数・在庫調整を保存
                     DailyCastingProductionPlan.objects.update_or_create(
                         line=line,
                         production_item=production_item,
