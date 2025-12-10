@@ -32,7 +32,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-building"></i>
+        <i class="fas fa-box-open"></i>
         実績品目管理
       </a>
       <a
@@ -60,7 +60,7 @@
       class="nav-link {% if 'actual_production:attendance_input' in request.resolver_match.url_name %}active{% endif %}"
       href="{% url 'actual_production:attendance_input' %}"
     >
-      <i class="fas fa-edit"></i>
+      <i class="fas fa-user-clock"></i>
       勤怠入力
     </a>
     <a
@@ -80,7 +80,7 @@
       hx-target=".main-content"
       hx-push-url="true"
     >
-      <i class="fas fa-building"></i>
+      <i class="fas fa-keyboard"></i>
       Company入力用
     </a>
     <a

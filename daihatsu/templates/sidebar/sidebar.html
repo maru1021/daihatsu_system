@@ -101,35 +101,35 @@
         class="nav-link {% if 'in_room:in_room_input' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'in_room:in_room_input' %}"
       >
-        <i class="fas fa-edit"></i>
+        <i class="fas fa-user-check"></i>
         在籍管理入力用
       </a>
       <a
         class="nav-link {% if 'in_room:in_room_status' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'in_room:in_room_status' %}"
       >
-        <i class="fas fa-edit"></i>
+        <i class="fas fa-users"></i>
         在籍管理
       </a>
       <a
         class="nav-link {% if 'graph_maker' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'graph_maker' %}"
       >
-        <i class="fas fa-edit"></i>
+        <i class="fas fa-chart-bar"></i>
         グラフツクール君2号
       </a>
       <a
         class="nav-link {% if 'graph_maker_with_type' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'graph_maker_with_type' 'machine' %}"
       >
-        <i class="fas fa-edit"></i>
+        <i class="fas fa-chart-area"></i>
         グラフツクール君(堀井さんカスタム)
       </a>
       <a
         class="nav-link {% if 'audio_anomaly_detection' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'audio_anomaly_detection' %}"
       >
-        <i class="fas fa-edit"></i>
+        <i class="fas fa-wave-square"></i>
         フーリエさん
       </a>
       <a

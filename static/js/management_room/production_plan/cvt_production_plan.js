@@ -1,14 +1,18 @@
 // ========================================
 // CVT生産計画JavaScript
 // ========================================
-// 共通関数は shared/common.js, shared/casting.js に定義されています
+// 共通モジュール: ./shared/casting/ に定義（鋳造・CVT共通）
+// - utils.js: ユーティリティ関数（debounce, getMachineName, getInputElement等）
+// - cache.js: キャッシュ構築（buildDOMCache, buildInventoryElementCache等）
+// - inventory.js: 在庫計算（recalculateAllInventory, calculateInventory等）
+// - calculation.js: 集計計算（calculateRowTotals, calculateMoltenMetalPotAndCore等）
+// - control.js: UI制御（updateSelectColor, toggleCheck, updateWorkingDayStatus等）
+// - initialization.js: 初期化（buildAllCaches, initializeSelectColors, performInitialCalculations）
 //
-// CVTラインの生産計画管理システム
-// 主な特徴:
+// CVTライン固有の特徴:
 // - 定時時間: 日勤 455分、夜勤 450分
-// - 設備選択: CVT機ごとに品番を選択
-// - 在庫計算: 設備ベースで自動計算
-// - 金型管理: 金型カウント管理なし（金型交換時間の入力のみ）
+// - 金型管理: 金型カウント管理なし（金型交換時間の手動入力のみ）
+// - シンプルな生産計算: calculateProduction（金型管理不要）
 //
 // ========================================
 // パフォーマンス最適化の要点
@@ -28,6 +32,33 @@
 //    - 不要なDOM操作を削減（現在の状態をチェックしてから変更）
 
 // ========================================
+// モジュールインポート
+// ========================================
+import {
+    debounce,
+    buildDOMCache,
+    buildInventoryElementCache,
+    buildInventoryCardCache,
+    buildOvertimeInputCache,
+    buildMoltenMetalElementCache,
+    recalculateAllInventory,
+    calculateRowTotals,
+    calculateMoltenMetalPotAndCore,
+    updateSelectColor,
+    updateWorkingDayStatus,
+    updateOvertimeInputVisibility,
+    initializeWeekendWorkingStatus,
+    getMachineName,
+    getInputElement,
+    getInputValue,
+    getCookie,
+    toggleCheck,
+    buildAllCaches as buildAllCachesShared,
+    initializeSelectColors as initializeSelectColorsShared,
+    performInitialCalculations as performInitialCalculationsShared
+} from './shared/casting/index.js';
+
+// ========================================
 // 定数
 // ========================================
 // CVTラインの定時時間（分）
@@ -38,16 +69,27 @@ const REGULAR_TIME_NIGHT = 450;   // 夜勤定時時間（分）
 // ========================================
 // グローバル変数（HTMLから渡される）
 // ========================================
-/* global itemData, previousMonthInventory */
+/* global itemData, previousMonthInventory, colorMap, setupColumnHover */
 
 // 初期化フラグ（ページ読み込み時はtrue、その後はfalse）
 let isInitializing = true;
+
+// ========================================
+// グローバルスコープに公開（HTMLから直接呼び出されるため）
+// ========================================
+window.toggleCheck = function(element) {
+    toggleCheck(element, () => updateWorkingDayStatusWrapper());
+};
 
 // ========================================
 // グローバルキャッシュ（パフォーマンス最適化用）
 // ========================================
 let vehicleSelectCache = null;
 let selectContainerCache = null;
+let inventoryElementCache = null;
+let inventoryCardCache = null;
+let overtimeInputCache = null;
+let moltenMetalElementCache = null;
 
 // 頻繁にアクセスされる定数値のキャッシュ
 let domConstantCache = {
@@ -64,83 +106,95 @@ let selectElementCache = {
     night: []
 };
 
-function buildDOMCache() {
-    // 定数値をキャッシュ（DOM検索を削減）
-    domConstantCache.dateCount = document.querySelectorAll('thead tr:nth-child(2) th').length;
-    domConstantCache.facilityNumbers = document.querySelectorAll('.facility-number');
-    domConstantCache.totalMachines = domConstantCache.facilityNumbers.length / 4;
-    domConstantCache.checkCells = document.querySelectorAll('.check-cell');
+// ========================================
+// ラッパー関数（モジュール関数をローカルキャッシュで呼び出す）
+// ========================================
+function getCaches() {
+    return {
+        domConstantCache,
+        selectElementCache,
+        inventoryElementCache,
+        inventoryCardCache,
+        overtimeInputCache,
+        moltenMetalElementCache,
+        vehicleSelectCache,
+        selectContainerCache
+    };
+}
 
-    // select要素を二次元配列でキャッシュ
-    const dateCount = domConstantCache.dateCount;
-    const totalMachines = domConstantCache.totalMachines;
+function buildDOMCacheWrapper(options = {}) {
+    const caches = getCaches();
+    const result = buildDOMCache(options, caches);
+    // 結果をローカルキャッシュに反映
+    vehicleSelectCache = result.vehicleSelectCache;
+    selectContainerCache = result.selectContainerCache;
+}
 
-    selectElementCache.day = [];
-    selectElementCache.night = [];
+function recalculateAllInventoryWrapper() {
+    const state = { isInitializing };
+    const caches = getCaches();
+    const result = recalculateAllInventory(state, caches, itemData, previousMonthInventory);
 
-    for (let d = 0; d < dateCount; d++) {
-        selectElementCache.day[d] = [];
-        selectElementCache.night[d] = [];
-
-        for (let m = 0; m < totalMachines; m++) {
-            // select要素をキャッシュ
-            selectElementCache.day[d][m] = document.querySelector(
-                `.vehicle-select[data-shift="day"][data-date-index="${d}"][data-machine-index="${m}"]`
-            );
-            selectElementCache.night[d][m] = document.querySelector(
-                `.vehicle-select[data-shift="night"][data-date-index="${d}"][data-machine-index="${m}"]`
-            );
-        }
+    // 行合計と溶湯計算を非同期で更新
+    if (result && typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => {
+            calculateRowTotalsWrapper();
+            calculateMoltenMetalPotAndCoreWrapper();
+        }, { timeout: 100 });
+    } else if (result) {
+        setTimeout(() => {
+            calculateRowTotalsWrapper();
+            calculateMoltenMetalPotAndCoreWrapper();
+        }, 50);
     }
+}
 
-    // 旧形式のMapキャッシュも互換性のため維持（既存コードで使用されている可能性あり）
-    vehicleSelectCache = new Map();
-    document.querySelectorAll('.vehicle-select').forEach(select => {
-        const key = `${select.dataset.shift}-${select.dataset.dateIndex}-${select.dataset.machineIndex}`;
-        vehicleSelectCache.set(key, select);
-    });
+function calculateRowTotalsWrapper() {
+    const caches = getCaches();
+    calculateRowTotals(caches);
+}
 
-    // 金型交換のinputをキャッシュ
-    moldChangeInputCache = new Map();
-    document.querySelectorAll('.mold-change-input').forEach(input => {
-        const key = `${input.dataset.shift}-${input.dataset.dateIndex}-${input.dataset.machineIndex}`;
-        moldChangeInputCache.set(key, input);
-    });
+function calculateMoltenMetalPotAndCoreWrapper() {
+    const caches = getCaches();
+    calculateMoltenMetalPotAndCore(caches, itemData);
+}
 
-    // select-containerをキャッシュ
-    // 型替えの色の制御に使用
-    selectContainerCache = Array.from(document.querySelectorAll('.select-container'));
+function updateSelectColorWrapper(select) {
+    updateSelectColor(select, colorMap);
+}
+
+function updateWorkingDayStatusWrapper(recalculate = true) {
+    const caches = getCaches();
+    updateWorkingDayStatus(
+        recalculate,
+        caches,
+        calculateProduction,
+        recalculateAllInventoryWrapper,
+        updateOvertimeInputVisibilityWrapper
+    );
+}
+
+function updateOvertimeInputVisibilityWrapper() {
+    const caches = getCaches();
+    updateOvertimeInputVisibility(caches);
+}
+
+function getMachineNameWrapper(machineIndex) {
+    return getMachineName(machineIndex, domConstantCache);
 }
 
 // ========================================
-// 定時チェック機能
-// ========================================
-// デバウンスされたupdateWorkingDayStatus関数
-const debouncedUpdateWorkingDayStatus = debounce(function (dateIndex) {
-    updateWorkingDayStatus(dateIndex);
-}, 100);
-
-// ========================================
-// 生産計画セレクト色管理
+// 生産計画セレクト色管理（共通モジュール使用）
 // ========================================
 function initializeSelectColors() {
-    // デバウンスされた品番変更チェック関数（200ms遅延）
-    const debouncedApplyHighlights = debounce(applyItemChangeHighlights, 200);
-
-    document.querySelectorAll('.vehicle-select').forEach(select => {
-        updateSelectColor(select);
-
-        select.addEventListener('change', function () {
-            const dateIndex = parseInt(this.dataset.dateIndex);
-            const shift = this.dataset.shift;
-
-            updateSelectColor(this);  // ここで data-vehicle が新しい値に更新される
-
+    initializeSelectColorsShared({
+        updateSelectColorWrapper,
+        applyItemChangeHighlights,
+        onSelectChange: (select, dateIndex, shift, machineIndex) => {
             // CVTラインは金型カウント管理なし - 生産台数と在庫を直接計算
             calculateProduction(dateIndex, shift);
-            recalculateAllInventory();
-            debouncedApplyHighlights();  // ハイライトのみ更新
-        });
+            recalculateAllInventoryWrapper();
+        }
     });
 }
 // ========================================
@@ -149,7 +203,7 @@ function initializeSelectColors() {
 function applyItemChangeHighlights() {
     // キャッシュが未構築の場合は構築
     if (!vehicleSelectCache || !selectContainerCache) {
-        buildDOMCache();
+        buildDOMCacheWrapper();
     }
 
     // CVTラインは金型交換・型替えハイライト処理をスキップ
@@ -160,53 +214,10 @@ function applyItemChangeHighlights() {
         calculateProduction(i, 'night');
     }
     // 在庫も再計算
-    recalculateAllInventory();
+    recalculateAllInventoryWrapper();
 }
 
-function recalculateAllInventory() {
-    // 初期化中は在庫再計算をスキップ
-    if (isInitializing) {
-        return;
-    }
-
-    // キャッシュが未作成の場合は作成
-    if (!inventoryElementCache) {
-        inventoryElementCache = buildInventoryElementCache();
-    }
-
-    // 全日付数を取得（ヘッダー行の列数）
-    const dateCount = domConstantCache.dateCount;
-
-    // itemDataとpreviousMonthInventoryの品番を統合（高速化：配列で管理）
-    const itemDataKeys = Object.keys(itemData);
-    const prevKeys = Object.keys(previousMonthInventory);
-    const allItemNamesArray = [...new Set([...itemDataKeys, ...prevKeys])];
-
-    // 日勤→夜勤の順で計算（前の直の在庫に依存するため）
-    for (let i = 0; i < dateCount; i++) {
-        for (let j = 0; j < allItemNamesArray.length; j++) {
-            const itemName = allItemNamesArray[j];
-            calculateInventory(i, 'day', itemName);
-            calculateInventory(i, 'night', itemName);
-        }
-    }
-
-    // 在庫計算後に月末在庫カードをリアルタイムで更新（品番リストを渡して重複計算を削減）
-    updateInventoryComparisonCard(allItemNamesArray, dateCount);
-
-    // 行合計と溶湯計算を非同期で更新（パフォーマンス改善）
-    if (typeof requestIdleCallback !== 'undefined') {
-        requestIdleCallback(() => {
-            calculateRowTotals();
-            calculateMoltenMetalPotAndCore();
-        }, { timeout: 100 });
-    } else {
-        setTimeout(() => {
-            calculateRowTotals();
-            calculateMoltenMetalPotAndCore();
-        }, 50);
-    }
-}
+// recalculateAllInventory関数は shared/casting.js に移動しました
 
 // ========================================
 // 生産台数計算
@@ -310,7 +321,7 @@ function calculateProduction(dateIndex, shift) {
         if (!selectedItem) return;
 
         const machineIndex = parseInt(select.dataset.machineIndex);
-        const machineName = getMachineName(machineIndex);
+        const machineName = getMachineNameWrapper(machineIndex);
         if (!machineName) return;
 
         // 品番と設備の組み合わせでタクト・良品率を取得
@@ -382,7 +393,7 @@ function calculateProduction(dateIndex, shift) {
 
     // 初期化中でない場合のみ在庫数を再計算
     if (!isInitializing) {
-        recalculateAllInventory();
+        recalculateAllInventoryWrapper();
     }
 }
 // ========================================
@@ -390,7 +401,7 @@ function calculateProduction(dateIndex, shift) {
 // ========================================
 function setupEventListeners() {
     // デバウンスされた再計算関数を作成
-    const debouncedRecalculateInventory = debounce(recalculateAllInventory, 300);
+    const debouncedRecalculateInventory = debounce(recalculateAllInventoryWrapper, 300);
     const debouncedCalculateProduction = debounce(function (dateIndex, shift) {
         calculateProduction(dateIndex, shift);
     }, 200);
@@ -410,7 +421,6 @@ function setupEventListeners() {
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
             debouncedCalculateProduction(dateIndex, shift);
-            debouncedCalculateRowTotals();
         });
     });
 
@@ -420,7 +430,6 @@ function setupEventListeners() {
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
             debouncedCalculateProduction(dateIndex, shift);
-            debouncedCalculateRowTotals();
         });
     });
 
@@ -430,7 +439,6 @@ function setupEventListeners() {
             const dateIndex = parseInt(this.dataset.dateIndex);
             const shift = this.dataset.shift;
             debouncedCalculateProduction(dateIndex, shift);
-            debouncedCalculateRowTotals();
         });
     });
 
@@ -438,7 +446,6 @@ function setupEventListeners() {
     document.querySelectorAll('.production-input').forEach(input => {
         input.addEventListener('input', function () {
             debouncedRecalculateInventory();
-            debouncedCalculateRowTotals();
         });
     });
 
@@ -446,7 +453,6 @@ function setupEventListeners() {
     document.querySelectorAll('.delivery-input').forEach(input => {
         input.addEventListener('input', function () {
             debouncedRecalculateInventory();
-            debouncedCalculateRowTotals();
         });
     });
 
@@ -455,7 +461,6 @@ function setupEventListeners() {
         input.addEventListener('input', function () {
             // 手動修正フラグを設定（自動計算での上書きを防ぐ）
             this.dataset.manualEdit = 'true';
-            debouncedCalculateRowTotals();
         });
     });
 
@@ -463,58 +468,36 @@ function setupEventListeners() {
     // 在庫調整が変更されると、在庫数が自動的に再計算される
     document.querySelectorAll('.stock-adjustment-input').forEach(input => {
         input.addEventListener('input', function () {
-            // キャッシュを無効化して最新の在庫調整値を反映
-            inventoryElementCache = null;
+            // キャッシュを再構築して最新の在庫調整値を反映
+            inventoryElementCache = buildInventoryElementCache();
             // 全品番・全直の在庫を再計算
             debouncedRecalculateInventory();
-            // 月末在庫カードと行合計を更新
-            debouncedCalculateRowTotals();
         });
     });
 }
 
 // ========================================
-// キャッシュ一括構築
+// キャッシュ一括構築（共通モジュール使用）
 // ========================================
 function buildAllCaches() {
-    // 同期キャッシュ（即座に必要）
-    inventoryElementCache = buildInventoryElementCache();
-    inventoryCardCache = buildInventoryCardCache();
-    overtimeInputCache = buildOvertimeInputCache();
-
-    // 非同期キャッシュ（遅延可能）
-    setTimeout(() => {
-        moltenMetalElementCache = buildMoltenMetalElementCache();
-    }, 100);
+    buildAllCachesShared({
+        setInventoryElementCache: (cache) => { inventoryElementCache = cache; },
+        setInventoryCardCache: (cache) => { inventoryCardCache = cache; },
+        setOvertimeInputCache: (cache) => { overtimeInputCache = cache; },
+        setMoltenMetalElementCache: (cache) => { moltenMetalElementCache = cache; }
+    });
 }
 
 // ========================================
-// 初期計算実行
+// 初期計算実行（共通モジュール使用）
 // ========================================
 function performInitialCalculations() {
-    return new Promise((resolve) => {
-        const dateCount = domConstantCache.dateCount;
-
-        // 初期化完了フラグを先に設定（在庫計算が動作するように）
-        isInitializing = false;
-
-        // 段階的に計算を実行（ページの応答性を向上）
-        requestAnimationFrame(() => {
-            // ステップ2: 生産台数を計算
-            requestAnimationFrame(() => {
-                for (let i = 0; i < dateCount; i++) {
-                    calculateProduction(i, 'day');
-                    calculateProduction(i, 'night');
-                }
-
-                // ステップ3: 在庫を再計算（月末在庫カードも自動更新される）
-                // 行合計と溶湯計算はrecalculateAllInventory内で非同期実行される
-                requestAnimationFrame(() => {
-                    recalculateAllInventory();
-                    resolve();
-                });
-            });
-        });
+    return performInitialCalculationsShared({
+        domConstantCache,
+        setInitializing: (value) => { isInitializing = value; },
+        calculateProduction,
+        recalculateAllInventoryWrapper
+        // beforeCalculation: CVTは前月金型処理なし
     });
 }
 // ========================================
@@ -769,7 +752,7 @@ function saveProductionPlan() {
             }
         })
         .catch(error => {
-            showToast('errror', '保存に失敗しました: ' + error.message);
+            showToast('error', '保存に失敗しました: ' + error.message);
         })
         .finally(() => {
             saveBtn.disabled = false;
@@ -994,7 +977,7 @@ async function applyAutoProductionPlan(planData) {
 
         if (planSelect) {
             planSelect.value = plan.item_name;
-            updateSelectColor(planSelect);
+            updateSelectColorWrapper(planSelect);
             updatedCount++;
         } else {
             notFoundCount++;
@@ -1031,7 +1014,7 @@ async function applyAutoProductionPlan(planData) {
     });
 
     // 在庫を再計算
-    recalculateAllInventory();
+    recalculateAllInventoryWrapper();
 
     // 品番変更をチェック（バックエンドで型替え時間を設定済みなので、ハイライトのみ適用）
     applyItemChangeHighlights();
@@ -1070,15 +1053,15 @@ async function initialize() {
     // ========================================
     // ステップ2: DOMキャッシュとデータキャッシュの構築
     // ========================================
-    buildDOMCache();                    // DOM要素をキャッシュ（最優先）
-    buildAllCaches();                   // 計算用キャッシュを一括構築
+    buildDOMCacheWrapper({ includeMoldCount: false });  // DOM要素をキャッシュ（CVTは金型カウントなし）
+    buildAllCaches();                                    // 計算用キャッシュを一括構築
 
     // ========================================
     // ステップ3: 即座に表示が必要な初期化処理
     // ========================================
-    initializeSelectColors();           // セレクトボックスの色を初期化
-    updateOvertimeInputVisibility();    // 残業inputの表示/非表示を初期化（チラつき防止）
-    initializeWeekendWorkingStatus();   // 休出・定時状態を初期化
+    initializeSelectColors();                // セレクトボックスの色を初期化
+    updateOvertimeInputVisibilityWrapper();  // 残業inputの表示/非表示を初期化（チラつき防止）
+    initializeWeekendWorkingStatus();        // 休出・定時状態を初期化
 
     // ========================================
     // ステップ4: イベントリスナーとインタラクション
@@ -1096,8 +1079,8 @@ async function initialize() {
     // ========================================
     await new Promise(resolve => {
         setTimeout(() => {
-            updateWorkingDayStatus(false);   // 稼働日状態を初期化（再計算なし）
-            applyItemChangeHighlights();     // 型替えハイライトと残業制御を適用
+            updateWorkingDayStatusWrapper(false);   // 稼働日状態を初期化（再計算なし）
+            applyItemChangeHighlights();            // 型替えハイライトと残業制御を適用
 
             // ========================================
             // ステップ7: ページ初期化完了
@@ -1161,301 +1144,17 @@ async function initialize() {
 // ========================================
 // 月末在庫カード更新機能
 // ========================================
-// 月末在庫カード要素のキャッシュ
-let inventoryCardCache = null;
-
-function buildInventoryCardCache() {
-    const cache = {};
-    document.querySelectorAll('.monthly-plan-item').forEach(card => {
-        const itemName = card.dataset.itemName;
-        if (itemName) {
-            cache[itemName] = {
-                card: card,
-                inventorySpan: card.querySelector('.end-of-month-inventory'),
-                diffSpan: card.querySelector('.monthly-plan-diff'),
-                optimalInventory: parseInt(card.dataset.optimalInventory) || 0
-            };
-        }
-    });
-    return cache;
-}
-
-function updateInventoryComparisonCard(allItemNamesArray = null, dateCount = null) {
-    // キャッシュが未作成の場合は作成
-    if (!inventoryCardCache) {
-        inventoryCardCache = buildInventoryCardCache();
-    }
-    if (!inventoryElementCache) {
-        inventoryElementCache = buildInventoryElementCache();
-    }
-
-    // パラメータが渡されていない場合は自分で計算
-    if (!dateCount) {
-        dateCount = domConstantCache.dateCount;
-    }
-    if (!allItemNamesArray) {
-        const itemDataKeys = Object.keys(itemData);
-        const prevKeys = Object.keys(previousMonthInventory);
-        allItemNamesArray = [...new Set([...itemDataKeys, ...prevKeys])];
-    }
-
-    // 最終日付のインデックス（高速化：ループの外で計算）
-    const lastDateIndex = dateCount - 1;
-
-    for (let i = 0; i < allItemNamesArray.length; i++) {
-        const itemName = allItemNamesArray[i];
-        let endOfMonthInventory = 0;
-
-        // 最後の日付から逆順に検索して、最初に見つかった在庫値を使用（shared/casting.jsの構造に対応）
-        // 高速化：最も一般的なケース（最終日の夜勤）を最初にチェック
-        for (let dateIndex = lastDateIndex; dateIndex >= 0; dateIndex--) {
-            const nightInventoryInput = inventoryElementCache.inventory[itemName]?.night?.[dateIndex];
-
-            if (nightInventoryInput && nightInventoryInput.style.display !== 'none') {
-                endOfMonthInventory = parseInt(nightInventoryInput.value) || 0;
-                break;
-            }
-
-            const dayInventoryInput = inventoryElementCache.inventory[itemName]?.day?.[dateIndex];
-
-            if (dayInventoryInput && dayInventoryInput.style.display !== 'none') {
-                endOfMonthInventory = parseInt(dayInventoryInput.value) || 0;
-                break;
-            }
-        }
-
-        // キャッシュから対応するカード要素を取得
-        const cardData = inventoryCardCache[itemName];
-        if (!cardData || !cardData.inventorySpan) continue;
-
-        // マイナスの場合は"-"付きで表示
-        cardData.inventorySpan.textContent = endOfMonthInventory < 0
-            ? '-' + Math.abs(endOfMonthInventory)
-            : endOfMonthInventory;
-
-        // 差分を計算
-        const difference = endOfMonthInventory - cardData.optimalInventory;
-
-        // カードの背景色を変更（高速化：必要な場合のみDOM操作）
-        const currentHasShortage = cardData.card.classList.contains('shortage');
-        const currentHasExcess = cardData.card.classList.contains('excess');
-
-        if (difference < 0) {
-            if (!currentHasShortage) {
-                cardData.card.classList.remove('excess');
-                cardData.card.classList.add('shortage');
-            }
-        } else if (difference > 0) {
-            if (!currentHasExcess) {
-                cardData.card.classList.remove('shortage');
-                cardData.card.classList.add('excess');
-            }
-        } else {
-            if (currentHasShortage || currentHasExcess) {
-                cardData.card.classList.remove('shortage', 'excess');
-            }
-        }
-
-        // 差分を更新
-        if (cardData.diffSpan) {
-            const sign = difference > 0 ? '+' : (difference < 0 ? '-' : '');
-            const absDifference = Math.abs(difference);
-            cardData.diffSpan.textContent = '(' + sign + absDifference + ')';
-        }
-    }
-}
+// buildInventoryCardCache, updateInventoryComparisonCard 関数は shared/casting.js に移動しました
 
 // ========================================
 // 行合計の計算と更新
 // ========================================
-function calculateRowTotals() {
-    // 出庫数の合計（日勤・夜勤別）
-    calculateShiftTotalByItem('delivery-total', 'delivery-input', 'item');
-
-    // 出庫数の合計（日勤+夜勤）
-    calculateCombinedTotalByItem('delivery-combined-total', 'delivery-input', 'item');
-
-    // 生産台数の合計（日勤・夜勤別）
-    calculateShiftTotalByItem('production-total', 'production-input', 'item');
-
-    // 生産台数の合計（日勤+夜勤）
-    calculateCombinedTotalByItem('production-combined-total', 'production-input', 'item');
-
-    // 在庫の増減（生産台数合計 - 出庫数合計）
-    // inventoryElementCacheを使用して高速化（shared/casting.jsの構造に対応）
-    document.querySelectorAll('.inventory-difference-total').forEach(totalCell => {
-        const itemName = totalCell.dataset.item;
-        let productionTotal = 0;
-        let deliveryTotal = 0;
-
-        // キャッシュから直接値を取得
-        if (inventoryElementCache) {
-            const dateCount = domConstantCache.dateCount;
-            for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
-                // 日勤
-                const productionDayInput = inventoryElementCache.production[itemName]?.day?.[dateIndex];
-                const deliveryDayInput = inventoryElementCache.delivery[itemName]?.day?.[dateIndex];
-
-                if (productionDayInput) productionTotal += parseFloat(productionDayInput.value) || 0;
-                if (deliveryDayInput) deliveryTotal += parseFloat(deliveryDayInput.value) || 0;
-
-                // 夜勤
-                const productionNightInput = inventoryElementCache.production[itemName]?.night?.[dateIndex];
-                const deliveryNightInput = inventoryElementCache.delivery[itemName]?.night?.[dateIndex];
-
-                if (productionNightInput) productionTotal += parseFloat(productionNightInput.value) || 0;
-                if (deliveryNightInput) deliveryTotal += parseFloat(deliveryNightInput.value) || 0;
-            }
-        }
-
-        const difference = productionTotal - deliveryTotal;
-        totalCell.textContent = difference >= 0 ? `+${difference}` : difference;
-    });
-
-    // 金型交換の合計（日勤・夜勤別）
-    calculateShiftTotalByMachine('mold-change-total', 'mold-change-input');
-
-    // 金型交換の合計（日勤+夜勤）
-    calculateCombinedTotalByMachine('mold-change-combined-total', 'mold-change-input');
-
-    // 残業計画の合計（日勤・夜勤別）
-    calculateShiftTotalByMachine('overtime-total', 'overtime-input');
-
-    // 残業計画の合計（日勤+夜勤）
-    calculateCombinedTotalByMachine('overtime-combined-total', 'overtime-input');
-
-    // 計画停止の合計（日勤・夜勤別）
-    calculateShiftTotalByMachine('stop-time-total', 'stop-time-input');
-
-    // 計画停止の合計（日勤+夜勤）
-    calculateCombinedTotalByMachine('stop-time-combined-total', 'stop-time-input');
-}
+// calculateRowTotals関数は shared/casting.js に移動しました
 
 // ========================================
 // 溶湯、ポット数、中子の計算
 // ========================================
-// 高速化のため要素をキャッシュ
-let moltenMetalElementCache = null;
-
-function buildMoltenMetalElementCache() {
-    const cache = {
-        moltenMetal: {},
-        potCount: {},
-        core: {}
-    };
-
-    // 溶湯セルをキャッシュ
-    document.querySelectorAll('tr[data-section="molten_metal"] td[data-date-index]').forEach(cell => {
-        const shift = cell.closest('tr').dataset.shift;
-        const dateIndex = cell.dataset.dateIndex;
-        const key = `${shift}-${dateIndex}`;
-        cache.moltenMetal[key] = cell;
-    });
-
-    // ポット数セルをキャッシュ
-    document.querySelectorAll('tr[data-section="pot_count"] td[data-date-index]').forEach(cell => {
-        const shift = cell.closest('tr').dataset.shift;
-        const dateIndex = cell.dataset.dateIndex;
-        const key = `${shift}-${dateIndex}`;
-        cache.potCount[key] = cell;
-    });
-
-    // 中子セルをキャッシュ
-    document.querySelectorAll('tr[data-section="core"] td[data-date-index]').forEach(cell => {
-        const itemName = cell.closest('tr').dataset.item;
-        const dateIndex = cell.dataset.dateIndex;
-        const key = `${itemName}-${dateIndex}`;
-        cache.core[key] = cell;
-    });
-
-    return cache;
-}
-
-function calculateMoltenMetalPotAndCore() {
-    // キャッシュが未作成の場合は作成
-    if (!moltenMetalElementCache) {
-        moltenMetalElementCache = buildMoltenMetalElementCache();
-    }
-
-    const dateCount = domConstantCache.dateCount;
-    const itemNames = Object.keys(itemData);
-
-    // molten_metal_usageを事前にキャッシュ（繰り返しアクセスを削減）
-    // 品番と設備の組み合わせで保存されているため、最初の設備から取得
-    const moltenMetalUsageCache = {};
-    itemNames.forEach(itemName => {
-        const machineData = itemData[itemName];
-        if (machineData) {
-            // 最初の設備のmolten_metal_usageを取得（全設備で同じ値）
-            const firstMachine = Object.keys(machineData)[0];
-            moltenMetalUsageCache[itemName] = machineData[firstMachine]?.molten_metal_usage || 0;
-        } else {
-            moltenMetalUsageCache[itemName] = 0;
-        }
-    });
-
-    // 各直の計算（dayとnightを配列で管理）
-    const shifts = ['day', 'night'];
-
-    // 各日付・各直の計算
-    for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
-        for (let s = 0; s < 2; s++) {
-            const shift = shifts[s];
-            let moltenMetalTotal = 0;
-
-            // 品番ごとの計算を1ループで実施
-            for (let i = 0; i < itemNames.length; i++) {
-                const itemName = itemNames[i];
-                const productionInput = inventoryElementCache?.production[itemName]?.[shift]?.[dateIndex];
-
-                if (productionInput) {
-                    const productionValue = parseFloat(productionInput.value) || 0;
-
-                    if (productionValue > 0) {
-                        // 溶湯: 生産数 × 溶湯使用量
-                        moltenMetalTotal += productionValue * moltenMetalUsageCache[itemName];
-
-                        // 中子: 24の倍数に丸める（直接DOM更新）
-                        const coreCount = Math.round(productionValue / 24) * 24;
-                        const coreKey = `${itemName}-${dateIndex}`;
-                        const coreCell = moltenMetalElementCache.core[coreKey];
-                        if (coreCell) {
-                            coreCell.textContent = coreCount;
-                        }
-                    } else {
-                        // 生産数が0の場合は中子をクリア
-                        const coreKey = `${itemName}-${dateIndex}`;
-                        const coreCell = moltenMetalElementCache.core[coreKey];
-                        if (coreCell) {
-                            coreCell.textContent = '';
-                        }
-                    }
-                }
-            }
-
-            // 溶湯を表示（キャッシュから取得）
-            const moltenMetalKey = `${shift}-${dateIndex}`;
-            const moltenMetalCell = moltenMetalElementCache.moltenMetal[moltenMetalKey];
-            if (moltenMetalCell) {
-                moltenMetalCell.textContent = moltenMetalTotal > 0 ? Math.round(moltenMetalTotal) : '';
-            }
-
-            // ポット数を表示: 溶湯 / 1200 を小数点第1位で切り上げ（キャッシュから取得）
-            const potCountCell = moltenMetalElementCache.potCount[moltenMetalKey];
-            if (potCountCell) {
-                if (moltenMetalTotal > 0) {
-                    const potCount = Math.ceil(moltenMetalTotal / 1200 * 10) / 10;
-                    potCountCell.textContent = potCount.toFixed(1);
-                } else {
-                    potCountCell.textContent = '';
-                }
-            }
-        }
-    }
-}
-
-// デバウンス版の合計計算
-const debouncedCalculateRowTotals = debounce(calculateRowTotals, 100);
+// buildMoltenMetalElementCache, calculateMoltenMetalPotAndCore 関数は shared/casting.js に移動しました
 
 // DOMContentLoadedイベントで初期化
 if (document.readyState === 'loading') {

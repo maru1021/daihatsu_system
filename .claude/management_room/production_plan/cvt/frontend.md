@@ -1,10 +1,17 @@
 # CVT生産計画 フロントエンド仕様
 
+## ドキュメント構成
+
+- **共通モジュール**: [../common/shared_modules.md](../common/shared_modules.md) - 鋳造・CVT共通のJavaScriptモジュール
+- **バックエンド**: [backend.md](backend.md) - Python実装
+- **概要**: [overview.md](overview.md) - モデル・画面構成
+
 ## ファイル構成
 
-- **JavaScript**: `static/js/cvt_production_plan.js` (~2,240行)
+- **JavaScript**: `static/js/cvt_production_plan.js` (~1,200行、モジュール化後)
 - **HTML**: `management_room/templates/production_plan/cvt_production_plan.html`
 - **CSS**: `static/css/production_plan.css` (共通)
+- **共通モジュール**: `static/js/shared/casting/` (詳細は [shared_modules.md](../common/shared_modules.md))
 
 ## 主要な特徴
 

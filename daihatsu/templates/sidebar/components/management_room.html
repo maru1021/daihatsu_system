@@ -31,42 +31,42 @@
         class="nav-link {% if 'management_room:production_volume_input' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:production_volume_input' %}"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-keyboard"></i>
         完成品番別生産台数入力
       </a>
       <a
         class="nav-link {% if 'management_room:assembly_production_plan' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:assembly_production_plan' %}"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-project-diagram"></i>
         組付生産計画
       </a>
       <a
         class="nav-link {% if 'management_room:machining_production_plan' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:machining_production_plan' %}"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-cogs"></i>
         加工生産計画
       </a>
       <a
         class="nav-link {% if 'management_room:casting_production_plan' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:casting_production_plan' %}"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-fire-alt"></i>
         鋳造生産計画
       </a>
       <a
         class="nav-link {% if 'management_room:cvt_volume_input' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:cvt_volume_input' %}"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-keyboard"></i>
         CVT生産台数入力
       </a>
       <a
         class="nav-link {% if 'management_room:cvt_production_plan' in request.resolver_match.url_name %}active{% endif %}"
         href="{% url 'management_room:cvt_production_plan' %}"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-calendar-alt"></i>
         CVT生産計画
       </a>
       <a
@@ -135,7 +135,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-box"></i>
         完成品番管理
       </a>
       <a
@@ -145,7 +145,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-cube"></i>
         加工品番管理
       </a>
       <a
@@ -155,7 +155,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-cubes"></i>
         鋳造品番管理
       </a>
       <a
@@ -165,7 +165,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-boxes"></i>
         CVT品番管理
       </a>
       <a
@@ -175,7 +175,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-link"></i>
         鋳造品番-設備紐づけ
       </a>
       <a
@@ -185,7 +185,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-link"></i>
         CVT品番-設備紐づけ
       </a>
       <a
@@ -195,7 +195,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-ban"></i>
         鋳造品番同時生産禁止パターン
       </a>
       <a
@@ -205,7 +205,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-project-diagram"></i>
         完成品番-加工品番紐づけ
       </a>
       <a
@@ -215,7 +215,7 @@
         hx-target=".main-content"
         hx-push-url="true"
       >
-        <i class="fas fa-database"></i>
+        <i class="fas fa-sitemap"></i>
         加工品番-鋳造品番紐づけ
       </a>
       {% endif %}
