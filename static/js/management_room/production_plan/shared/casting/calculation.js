@@ -3,18 +3,18 @@
 // ========================================
 // 溶湯・ポット数・中子の計算、行合計の計算
 
-import { getInputValue } from './utils.js';
+import { getElementValue } from './utils.js';
 import { buildMoltenMetalElementCache } from './cache.js';
 
 /**
- * input要素の合計を計算
- * @param {NodeList} inputs - input要素のリスト
+ * 要素の合計を計算（input、span等あらゆる要素に対応）
+ * @param {NodeList} elements - 要素のリスト
  * @returns {number} 合計値
  */
-export function sumInputValues(inputs) {
+export function sumValues(elements) {
     let sum = 0;
-    inputs.forEach(input => {
-        sum += getInputValue(input);
+    elements.forEach(element => {
+        sum += getElementValue(element);
     });
     return sum;
 }
@@ -22,56 +22,56 @@ export function sumInputValues(inputs) {
 /**
  * 品番ごとの直別合計を計算（出庫、生産）
  * @param {string} className - 合計セルのクラス名
- * @param {string} inputClass - input要素のクラス名
+ * @param {string} elementClass - 要素のクラス名（input、span等）
  * @param {string} dataKey - data属性のキー名
  */
-export function calculateShiftTotalByItem(className, inputClass, dataKey) {
+export function calculateShiftTotalByItem(className, elementClass, dataKey) {
     document.querySelectorAll(`.${className}`).forEach(cell => {
         const shift = cell.dataset.shift;
         const itemValue = cell.dataset[dataKey];
-        const inputs = document.querySelectorAll(`.${inputClass}[data-shift="${shift}"][data-${dataKey}="${itemValue}"]`);
-        cell.textContent = sumInputValues(inputs);
+        const elements = document.querySelectorAll(`.${elementClass}[data-shift="${shift}"][data-${dataKey}="${itemValue}"]`);
+        cell.textContent = sumValues(elements);
     });
 }
 
 /**
  * 設備ごとの直別合計を計算（金型交換、残業、計画停止）
  * @param {string} className - 合計セルのクラス名
- * @param {string} inputClass - input要素のクラス名
+ * @param {string} elementClass - 要素のクラス名（input、span等）
  */
-export function calculateShiftTotalByMachine(className, inputClass) {
+export function calculateShiftTotalByMachine(className, elementClass) {
     document.querySelectorAll(`.${className}`).forEach(cell => {
         const shift = cell.dataset.shift;
         const machineIndex = cell.dataset.machineIndex;
-        const inputs = document.querySelectorAll(`.${inputClass}[data-shift="${shift}"][data-machine-index="${machineIndex}"]`);
-        cell.textContent = sumInputValues(inputs);
+        const elements = document.querySelectorAll(`.${elementClass}[data-shift="${shift}"][data-machine-index="${machineIndex}"]`);
+        cell.textContent = sumValues(elements);
     });
 }
 
 /**
  * 品番ごとの日勤+夜勤合計を計算
  * @param {string} className - 合計セルのクラス名
- * @param {string} inputClass - input要素のクラス名
+ * @param {string} elementClass - 要素のクラス名（input、span等）
  * @param {string} dataKey - data属性のキー名
  */
-export function calculateCombinedTotalByItem(className, inputClass, dataKey) {
+export function calculateCombinedTotalByItem(className, elementClass, dataKey) {
     document.querySelectorAll(`.${className}`).forEach(cell => {
         const itemValue = cell.dataset[dataKey];
-        const inputs = document.querySelectorAll(`.${inputClass}[data-${dataKey}="${itemValue}"]`);
-        cell.textContent = sumInputValues(inputs);
+        const elements = document.querySelectorAll(`.${elementClass}[data-${dataKey}="${itemValue}"]`);
+        cell.textContent = sumValues(elements);
     });
 }
 
 /**
  * 設備ごとの日勤+夜勤合計を計算
  * @param {string} className - 合計セルのクラス名
- * @param {string} inputClass - input要素のクラス名
+ * @param {string} elementClass - 要素のクラス名（input、span等）
  */
-export function calculateCombinedTotalByMachine(className, inputClass) {
+export function calculateCombinedTotalByMachine(className, elementClass) {
     document.querySelectorAll(`.${className}`).forEach(cell => {
         const machineIndex = cell.dataset.machineIndex;
-        const inputs = document.querySelectorAll(`.${inputClass}[data-machine-index="${machineIndex}"]`);
-        cell.textContent = sumInputValues(inputs);
+        const elements = document.querySelectorAll(`.${elementClass}[data-machine-index="${machineIndex}"]`);
+        cell.textContent = sumValues(elements);
     });
 }
 
@@ -117,10 +117,10 @@ export function calculateMoltenMetalPotAndCore(caches, itemData) {
             // 品番ごとの計算を1ループで実施
             for (let i = 0; i < itemNames.length; i++) {
                 const itemName = itemNames[i];
-                const productionInput = inventoryElementCache?.production[itemName]?.[shift]?.[dateIndex];
+                const productionElement = inventoryElementCache?.production[itemName]?.[shift]?.[dateIndex];
 
-                if (productionInput) {
-                    const productionValue = parseFloat(productionInput.value) || 0;
+                if (productionElement) {
+                    const productionValue = getElementValue(productionElement);
 
                     if (productionValue > 0) {
                         // 溶湯: 生産数 × 溶湯使用量
@@ -173,16 +173,16 @@ export function calculateRowTotals(caches) {
     const { inventoryElementCache, domConstantCache } = caches;
 
     // 出庫数の合計（日勤・夜勤別）
-    calculateShiftTotalByItem('delivery-total', 'delivery-input', 'item');
+    calculateShiftTotalByItem('delivery-total', 'delivery-display', 'item');
 
     // 出庫数の合計（日勤+夜勤）
-    calculateCombinedTotalByItem('delivery-combined-total', 'delivery-input', 'item');
+    calculateCombinedTotalByItem('delivery-combined-total', 'delivery-display', 'item');
 
     // 生産台数の合計（日勤・夜勤別）
-    calculateShiftTotalByItem('production-total', 'production-input', 'item');
+    calculateShiftTotalByItem('production-total', 'production-display', 'item');
 
     // 生産台数の合計（日勤+夜勤）
-    calculateCombinedTotalByItem('production-combined-total', 'production-input', 'item');
+    calculateCombinedTotalByItem('production-combined-total', 'production-display', 'item');
 
     // 在庫の増減（生産台数合計 - 出庫数合計）
     // inventoryElementCacheを使用して高速化
@@ -196,18 +196,18 @@ export function calculateRowTotals(caches) {
             const dateCount = domConstantCache.dateCount;
             for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
                 // 日勤
-                const productionDayInput = inventoryElementCache.production[itemName]?.day?.[dateIndex];
-                const deliveryDayInput = inventoryElementCache.delivery[itemName]?.day?.[dateIndex];
+                const productionDayElement = inventoryElementCache.production[itemName]?.day?.[dateIndex];
+                const deliveryDayElement = inventoryElementCache.delivery[itemName]?.day?.[dateIndex];
 
-                if (productionDayInput) productionTotal += parseFloat(productionDayInput.value) || 0;
-                if (deliveryDayInput) deliveryTotal += parseFloat(deliveryDayInput.value) || 0;
+                if (productionDayElement) productionTotal += getElementValue(productionDayElement);
+                if (deliveryDayElement) deliveryTotal += getElementValue(deliveryDayElement);
 
                 // 夜勤
-                const productionNightInput = inventoryElementCache.production[itemName]?.night?.[dateIndex];
-                const deliveryNightInput = inventoryElementCache.delivery[itemName]?.night?.[dateIndex];
+                const productionNightElement = inventoryElementCache.production[itemName]?.night?.[dateIndex];
+                const deliveryNightElement = inventoryElementCache.delivery[itemName]?.night?.[dateIndex];
 
-                if (productionNightInput) productionTotal += parseFloat(productionNightInput.value) || 0;
-                if (deliveryNightInput) deliveryTotal += parseFloat(deliveryNightInput.value) || 0;
+                if (productionNightElement) productionTotal += getElementValue(productionNightElement);
+                if (deliveryNightElement) deliveryTotal += getElementValue(deliveryNightElement);
             }
         }
 

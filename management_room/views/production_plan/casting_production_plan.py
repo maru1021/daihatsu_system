@@ -329,25 +329,25 @@ class CastingProductionPlanView(ManagementRoomPermissionMixin, View):
 
                     plan = plans_dict.get((machine_id, current_date, shift))
 
-                    # 【修正】最初の稼働日のday直の場合、前月末の金型をselected_itemとして設定
+                    # 【修正】保存されたデータを優先し、ない場合のみ前月末の金型を設定
                     selected_item = ''
                     mold_count = 0
                     is_prev_month_mold = False
                     prev_month_item_name = ''
                     prev_month_mold_count = 0
 
-                    if date_index == first_working_date_index and shift == 'day' and machine_id in prev_month_molds_by_machine:
-                        # 前月末の金型を設定（引き継ぎなので+1する）
+                    if plan and plan.production_item:
+                        # 既存の計画から取得（保存されたデータを優先）
+                        selected_item = plan.production_item.name
+                        mold_count = plan.mold_count if plan.mold_count is not None else 0
+                    elif date_index == first_working_date_index and shift == 'day' and machine_id in prev_month_molds_by_machine:
+                        # 保存されたデータがない場合のみ、前月末の金型を設定（引き継ぎなので+1する）
                         prev_mold = prev_month_molds_by_machine[machine_id]
                         selected_item = prev_mold['item_name']
                         mold_count = prev_mold['used_count'] + 1
                         is_prev_month_mold = True
                         prev_month_item_name = prev_mold['item_name']
                         prev_month_mold_count = mold_count
-                    elif plan and plan.production_item:
-                        # 既存の計画から取得
-                        selected_item = plan.production_item.name
-                        mold_count = plan.mold_count if plan.mold_count is not None else 0
                     elif has_no_data and not is_weekend:
                         # ブロックラインで対象月にデータが1件もない場合のデフォルト値
                         if machine_name == '#2':

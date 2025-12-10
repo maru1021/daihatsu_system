@@ -114,7 +114,7 @@ td.weekend .overtime-input {
     <th class="vehicle-label">{{ item_name }}</th>
     {% for date_data in dates_data %}
     <td class="delivery-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-        <input type="number" class="delivery-input" value="{{ date_data.shifts.day.items|get_item:item_name|get_item:'delivery' }}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0" readonly/>
+        <span class="delivery-display" data-value="{{ date_data.shifts.day.items|get_item:item_name|get_item:'delivery' }}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">{{ date_data.shifts.day.items|get_item:item_name|get_item:'delivery' }}</span>
     </td>
     {% endfor %}
     <td class="total-cell delivery-total" data-shift="day" data-item="{{ item_name }}">0</td>
@@ -129,7 +129,7 @@ td.weekend .overtime-input {
     <th class="vehicle-label">{{ item_name }}</th>
     {% for date_data in dates_data %}
     <td class="delivery-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-        <input type="number" class="delivery-input" value="{{ date_data.shifts.night.items|get_item:item_name|get_item:'delivery' }}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_data.is_weekend %} style="display:none;"{% endif %} readonly/>
+        <span class="delivery-display" data-value="{{ date_data.shifts.night.items|get_item:item_name|get_item:'delivery' }}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}"{% if date_data.is_weekend %} style="display:none;"{% endif %}>{{ date_data.shifts.night.items|get_item:item_name|get_item:'delivery' }}</span>
     </td>
     {% endfor %}
     <td class="total-cell delivery-total" data-shift="night" data-item="{{ item_name }}">0</td>
@@ -146,7 +146,7 @@ td.weekend .overtime-input {
     <th class="vehicle-label">{{ item_name }}</th>
     {% for date_data in dates_data %}
     <td class="production-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-        <input type="number" class="production-input" value="{{ date_data.shifts.day.items|get_item:item_name|get_item:'production' }}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0" readonly/>
+        <span class="production-display" data-value="{{ date_data.shifts.day.items|get_item:item_name|get_item:'production' }}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">{{ date_data.shifts.day.items|get_item:item_name|get_item:'production' }}</span>
     </td>
     {% endfor %}
     <td class="total-cell production-total" data-shift="day" data-item="{{ item_name }}">0</td>
@@ -161,7 +161,7 @@ td.weekend .overtime-input {
     <th class="vehicle-label">{{ item_name }}</th>
     {% for date_data in dates_data %}
     <td class="production-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-        <input type="number" class="production-input" value="{{ date_data.shifts.night.items|get_item:item_name|get_item:'production' }}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_data.is_weekend %} style="display:none;"{% endif %} readonly/>
+        <span class="production-display" data-value="{{ date_data.shifts.night.items|get_item:item_name|get_item:'production' }}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}"{% if date_data.is_weekend %} style="display:none;"{% endif %}>{{ date_data.shifts.night.items|get_item:item_name|get_item:'production' }}</span>
     </td>
     {% endfor %}
     <td class="total-cell production-total" data-shift="night" data-item="{{ item_name }}">0</td>
@@ -178,7 +178,7 @@ td.weekend .overtime-input {
     <th class="vehicle-label">{{ item_name }}</th>
     {% for date_data in dates_data %}
     <td class="inventory-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-        <input type="number" class="inventory-input" value="{{ date_data.shifts.day.items|get_item:item_name|get_item:'inventory' }}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"/>
+        <span class="inventory-display" data-value="{{ date_data.shifts.day.items|get_item:item_name|get_item:'inventory' }}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">{{ date_data.shifts.day.items|get_item:item_name|get_item:'inventory' }}</span>
     </td>
     {% endfor %}
     <td></td>
@@ -193,7 +193,7 @@ td.weekend .overtime-input {
     <th class="vehicle-label">{{ item_name }}</th>
     {% for date_data in dates_data %}
     <td class="inventory-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-        <input type="number" class="inventory-input" value="{{ date_data.shifts.night.items|get_item:item_name|get_item:'inventory' }}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}" step="1" min="0"{% if date_data.is_weekend %} style="display:none;"{% endif %}/>
+        <span class="inventory-display" data-value="{{ date_data.shifts.night.items|get_item:item_name|get_item:'inventory' }}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}"{% if date_data.is_weekend %} style="display:none;"{% endif %}>{{ date_data.shifts.night.items|get_item:item_name|get_item:'inventory' }}</span>
     </td>
     {% endfor %}
     <td></td>
@@ -444,6 +444,9 @@ td.weekend .overtime-input {
 
     // 前月最終在庫
     const previousMonthInventory = {{ previous_month_inventory_json|safe }};
+
+    // ラインの段取時間（型替え時間）（分）
+    const changeoverTime = {{ changeover_time }};
 </script>
 
 <!-- 外部JavaScriptファイルを読み込む -->

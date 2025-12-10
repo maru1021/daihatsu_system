@@ -111,22 +111,22 @@ export function buildInventoryElementCache() {
         cache.production[itemName] = { day: {}, night: {} };
         cache.stockAdjustment[itemName] = { day: {}, night: {} };
 
-        document.querySelectorAll(`.inventory-input[data-item="${itemName}"]`).forEach(input => {
-            const shift = input.dataset.shift;
-            const dateIndex = parseInt(input.dataset.dateIndex);
-            cache.inventory[itemName][shift][dateIndex] = input;
+        document.querySelectorAll(`.inventory-display[data-item="${itemName}"]`).forEach(element => {
+            const shift = element.dataset.shift;
+            const dateIndex = parseInt(element.dataset.dateIndex);
+            cache.inventory[itemName][shift][dateIndex] = element;
         });
 
-        document.querySelectorAll(`.delivery-input[data-item="${itemName}"]`).forEach(input => {
-            const shift = input.dataset.shift;
-            const dateIndex = parseInt(input.dataset.dateIndex);
-            cache.delivery[itemName][shift][dateIndex] = input;
+        document.querySelectorAll(`.delivery-display[data-item="${itemName}"]`).forEach(element => {
+            const shift = element.dataset.shift;
+            const dateIndex = parseInt(element.dataset.dateIndex);
+            cache.delivery[itemName][shift][dateIndex] = element;
         });
 
-        document.querySelectorAll(`.production-input[data-item="${itemName}"]`).forEach(input => {
-            const shift = input.dataset.shift;
-            const dateIndex = parseInt(input.dataset.dateIndex);
-            cache.production[itemName][shift][dateIndex] = input;
+        document.querySelectorAll(`.production-display[data-item="${itemName}"]`).forEach(element => {
+            const shift = element.dataset.shift;
+            const dateIndex = parseInt(element.dataset.dateIndex);
+            cache.production[itemName][shift][dateIndex] = element;
         });
 
         document.querySelectorAll(`.stock-adjustment-input[data-item="${itemName}"]`).forEach(input => {

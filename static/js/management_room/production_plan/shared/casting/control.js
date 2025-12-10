@@ -99,12 +99,12 @@ export function updateWorkingDayStatus(recalculate, caches, calculateProductionF
                 if (isWorking) {
                     input.style.display = '';
                     input.disabled = false;
-                } else if (hasWeekendDelivery && input.classList.contains('delivery-input')) {
+                } else if (hasWeekendDelivery && input.classList.contains('delivery-display')) {
                     input.style.display = '';
                     input.disabled = false;
                 } else {
                     input.style.display = 'none';
-                    input.value = input.classList.contains('delivery-input') ? input.value : 0;
+                    input.value = input.classList.contains('delivery-display') ? input.value : 0;
                     input.disabled = true;
                 }
             });

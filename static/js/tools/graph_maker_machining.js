@@ -3092,18 +3092,16 @@ function calculateStatistics(parsedData, fileDataToOriginalName) {
             // 移動平均からの差分の平均値を計算
             const average = deviations.length > 0 ? deviations.reduce((a, b) => a + b, 0) / deviations.length : 0;
 
-            // 移動平均からの差分で絶対値が最大のものを取得（符号を保持）
+            // 移動平均からの差分で絶対値が最大のものを取得
             let max = 0;
             if (deviations.length > 0) {
-                let maxAbsIndex = 0;
                 let maxAbsValue = 0;
                 absDeviations.forEach((absVal, idx) => {
                     if (absVal > maxAbsValue) {
                         maxAbsValue = absVal;
-                        maxAbsIndex = idx;
                     }
                 });
-                max = deviations[maxAbsIndex]; // 元の符号を保持した値
+                max = maxAbsValue; // 絶対値の最大値
             }
 
             // フィールドごとにデータを格納

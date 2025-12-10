@@ -1,23 +1,9 @@
 """
-鋳造生産計画の自動生成ビュー
-
-【金型管理の重要ルール】
-1. 型数の範囲: 1→2→3→4→5→6のサイクル（型数0は一時的な内部状態）
-2. 6直完了後: 金型メンテナンス後、新しい金型を型数=1で開始
-3. 途中で品番変更: 使いかけの金型（型数1～5）はdetached_moldsに記録し、次に同じ品番を生産する時に引き継ぐ
-4. 金型カウントの保存・引継ぎ:
-   - 保存: この直で使用後の型数（shift_count + 1）を保存
-   - 引継: 保存された型数をそのまま使用（既に+1済みのため）
-5. end_of_month=Falseの金型: 前月の途中で取り外された金型は、次月でused_count+1から開始
-
-【型替えイベント駆動アプローチ】
-- 各設備の次の型替えタイミングを管理し、最も早いタイミングで品番を決定
-- 型数に応じた生産直数を計算（型数2から開始なら5直分生産して型数6で完了）
-- 前月から継続する設備は、残り直数を計算して型替えタイミングを設定
+CVT生産計画の自動生成ビュー
 """
 
-from management_room.models import DailyMachineCastingProductionPlan, DailyCastingProductionPlan, CastingItem, CastingItemMachineMap, MachiningItemCastingItemMap, DailyMachiningProductionPlan, UsableMold, CastingItemProhibitedPattern
-from manufacturing.models import CastingLine, CastingMachine
+from management_room.models import DailyMachineCVTProductionPlan, DailyCVTProductionPlan, CVTItem, CVTItemMachineMap, MonthlyCVTProductionPlan
+from manufacturing.models import CVTLine, CVTMachine
 from management_room.auth_mixin import ManagementRoomPermissionMixin
 from django.views import View
 from django.http import JsonResponse
@@ -30,10 +16,10 @@ from collections import defaultdict
 
 class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
     """
-    鋳造生産計画の自動生成
+    CVT生産計画の自動生成
 
-    型替えイベント駆動アプローチを使用し、在庫切れを防ぎながら
-    型替え回数を最小化する生産計画を生成する。
+    在庫切れを防ぎながら型替え回数を最小化する生産計画を生成する。
+    カバーラインと同様のロジックを使用（金型管理なし、在庫0-1000管理）
     """
 
     def post(self, request, *args, **kwargs):
@@ -53,8 +39,8 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                     'message': '必要なパラメータが不足しています'
                 }, status=400)
 
-            line = CastingLine.objects.get(id=line_id)
-            machines = list(CastingMachine.objects.filter(line=line, active=True).order_by('name'))
+            line = CVTLine.objects.get(id=line_id)
+            machines = list(CVTMachine.objects.filter(line=line, active=True).order_by('name'))
 
             # 対象期間を計算（days_in_month_dates関数を使用）
             date_list = days_in_month_dates(year, month)
@@ -70,87 +56,79 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                 if is_weekday or is_weekend_work:
                     working_days.append(d)
 
-            # 品番リストと出庫数を取得（DailyCastingProductionPlanから）
-            delivery_plans = DailyCastingProductionPlan.objects.filter(
+            # 月間計画データを取得
+            target_month_date = date(year, month, 1)
+            monthly_plans = MonthlyCVTProductionPlan.objects.filter(
                 line=line,
-                date__gte=start_date,
-                date__lte=end_date
+                month=target_month_date
             ).select_related('production_item')
 
-            # 鋳造品番と加工品番の紐づけを取得
-            casting_to_machining_map = {}
-            item_maps = MachiningItemCastingItemMap.objects.filter(
-                casting_line_name=line.name,
-                active=True
-            )
-            for item_map in item_maps:
-                casting_key = item_map.casting_item_name
-                if casting_key not in casting_to_machining_map:
-                    casting_to_machining_map[casting_key] = []
-                casting_to_machining_map[casting_key].append({
-                    'machining_line_name': item_map.machining_line_name,
-                    'machining_item_name': item_map.machining_item_name
-                })
+            # 月間計画を品番ごとに辞書化
+            monthly_plan_dict = {}
+            for plan in monthly_plans:
+                if plan.production_item:
+                    monthly_plan_dict[plan.production_item.name] = plan.quantity or 0
 
-            # 加工生産計画データを取得（出庫数のデフォルト値として使用）
-            machining_plans = DailyMachiningProductionPlan.objects.filter(
-                date__gte=start_date,
-                date__lte=end_date
-            ).select_related('production_item', 'line')
+            # 平日の数を計算（土日を除く）
+            weekday_count = sum(1 for d in date_list if d.weekday() < 5)
 
-            # 加工生産計画を辞書化
-            machining_plans_dict = {}
-            for plan in machining_plans:
-                if plan.production_item and plan.line:
-                    key = (plan.line.name, plan.production_item.name, plan.date, plan.shift)
-                    if key not in machining_plans_dict:
-                        machining_plans_dict[key] = []
-                    machining_plans_dict[key].append(plan)
-
-            # 品番ごとの出庫数を集計（日付・シフト別）
+            # 各品番の出庫数を平日の日勤・夜勤で均等配分（整数）
+            # item_delivery: {品番: [{'date': date, 'shift': str, 'count': int}]}
             item_delivery = {}
 
-            # 出庫数は常に加工生産計画から取得（holding_out_countフィールドは削除済み）
-
-            # 全品番、全日付、全シフトをループ
-            casting_items = CastingItem.objects.filter(line=line, active=True)
-            for item in casting_items:
+            cvt_items = CVTItem.objects.filter(line=line, active=True)
+            for item in cvt_items:
                 item_name = item.name
                 item_delivery[item_name] = []
 
-                for current_date in date_list:
-                    for shift in ['day', 'night']:
-                        # 加工生産計画から出庫数を取得
-                        delivery = 0
-                        machining_items = casting_to_machining_map.get(item_name, [])
-                        total_production = 0
-                        for machining_item_info in machining_items:
-                            machining_key = (
-                                machining_item_info['machining_line_name'],
-                                machining_item_info['machining_item_name'],
-                                current_date,
-                                shift
-                            )
-                            machining_plans_list = machining_plans_dict.get(machining_key, [])
-                            for machining_plan in machining_plans_list:
-                                if machining_plan.production_quantity:
-                                    total_production += machining_plan.production_quantity
-                        if total_production > 0:
-                            delivery = total_production
+                monthly_quantity = monthly_plan_dict.get(item_name, 0)
 
-                        if delivery > 0:
-                            item_delivery[item_name].append({
-                                'date': current_date,
-                                'shift': shift,
-                                'count': delivery
-                            })
+                if weekday_count > 0 and monthly_quantity > 0:
+                    # 総シフト数（日勤+夜勤）
+                    total_shifts = weekday_count * 2
 
-            # 前月最終在庫を取得（DailyCastingProductionPlanから）
+                    # 基本的な1シフトあたりの数（切り捨て）
+                    base_per_shift = monthly_quantity // total_shifts
+                    # 余り
+                    remainder = monthly_quantity % total_shifts
+
+                    # 配分: 余りを最初のシフトから順に+1ずつ配る
+                    shift_counter = 0
+                    for current_date in date_list:
+                        # 平日のみ処理
+                        if current_date.weekday() < 5:
+                            # 日勤
+                            day_delivery = base_per_shift
+                            if shift_counter < remainder:
+                                day_delivery += 1
+                            shift_counter += 1
+
+                            if day_delivery > 0:
+                                item_delivery[item_name].append({
+                                    'date': current_date,
+                                    'shift': 'day',
+                                    'count': day_delivery
+                                })
+
+                            # 夜勤
+                            night_delivery = base_per_shift
+                            if shift_counter < remainder:
+                                night_delivery += 1
+                            shift_counter += 1
+
+                            if night_delivery > 0:
+                                item_delivery[item_name].append({
+                                    'date': current_date,
+                                    'shift': 'night',
+                                    'count': night_delivery
+                                })
+
+            # 前月最終在庫を取得（DailyCVTProductionPlanから）
             first_day_of_month = date(year, month, 1)
             prev_month_last_date = first_day_of_month - relativedelta(days=1)
 
             prev_inventory = {}
-            prev_stock_plans = DailyCastingProductionPlan.objects.filter(
+            prev_stock_plans = DailyCVTProductionPlan.objects.filter(
                 line=line,
                 date=prev_month_last_date,
                 shift='night'
@@ -163,18 +141,18 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
 
             # 適正在庫を取得
             optimal_inventory = {}
-            casting_items = CastingItem.objects.filter(line=line, active=True)
-            for item in casting_items:
+            cvt_items = CVTItem.objects.filter(line=line, active=True)
+            for item in cvt_items:
                 optimal_inventory[item.name] = item.optimal_inventory or 0
 
-            # 品番マスタデータを取得（品番×鋳造機のペア）
+            # 品番マスタデータを取得（品番×CVT鋳造機のペア）
             item_data = {}
-            item_maps = CastingItemMachineMap.objects.filter(
+            item_maps = CVTItemMachineMap.objects.filter(
                 line=line,
                 active=True
             ).select_related('casting_item', 'machine')
             for item_map in item_maps:
-                # 品番と鋳造機のペアをキーにする
+                # 品番とCVT鋳造機のペアをキーにする
                 key = f"{item_map.casting_item.name}_{item_map.machine.id}"
                 item_data[key] = {
                     'name': item_map.casting_item.name,
@@ -184,52 +162,7 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                     'machine_id': item_map.machine.id
                 }
 
-            # 前月の使用可能金型数を取得
-            prev_usable_molds = {}
-            prev_detached_molds = {}  # 前月の途中で外した使いかけ金型
-            prev_month_first_date = date(prev_month_last_date.year, prev_month_last_date.month, 1)
-
-            molds = UsableMold.objects.filter(
-                line=line,
-                month=prev_month_first_date
-            ).select_related('machine', 'item_name')
-
-            for mold in molds:
-                if mold.end_of_month:
-                    # 月末金型（設備に取り付けられている状態）
-                    key = f"{mold.machine.id}_{mold.item_name.name}"
-                    prev_usable_molds[key] = {
-                        'machine_id': mold.machine.id,
-                        'item_name': mold.item_name.name,
-                        'used_count': mold.used_count,
-                        'end_of_month': mold.end_of_month
-                    }
-                else:
-                    # 月の途中で外した使いかけの金型（detached_moldsに追加）
-                    # used_count が 1～5 の範囲（6直完了は除外）
-                    if 0 < mold.used_count < 6:
-                        item_name = mold.item_name.name
-                        if item_name not in prev_detached_molds:
-                            prev_detached_molds[item_name] = []
-
-                        # 【重要】DBに保存されているused_countは取り外し時の値
-                        # 次回使用時は+1した値から開始する（フロントエンドでは取り外し時のカウントをそのまま保存）
-                        next_count = mold.used_count + 1
-                        prev_detached_molds[item_name].append(next_count)
-
-            # 品番ペアごとの同時生産上限を取得
-            prohibited_patterns = {}
-            patterns = CastingItemProhibitedPattern.objects.filter(
-                line=line,
-                active=True
-            ).select_related('item_name1', 'item_name2')
-
-            for pattern in patterns:
-                item1 = pattern.item_name1.name
-                item2 = pattern.item_name2.name
-                # 両方向のキーで登録（順序に依存しないように）
-                prohibited_patterns[f"{item1}_{item2}"] = pattern.count or 2
-                prohibited_patterns[f"{item2}_{item1}"] = pattern.count or 2
+            # CVTでは金型管理なし（カバーラインと同様）
 
             # 稼働率の処理: 1より大きければ%表記（93 = 93%）として100で割る
             if line.occupancy_rate:
@@ -237,67 +170,49 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
             else:
                 occupancy_rate = 1.0
 
-            # ライン名に応じて適切な自動生成メソッドを選択
-            if line.name == 'カバー':
-                # カバーライン: 前月末の各設備の生産品番を取得
-                prev_machine_items = {}
-                if start_date.day == 1:
-                    # 前月の最終日を取得
-                    prev_month_last_date = start_date - timedelta(days=1)
+            # CVT: 前月末の各設備の生産品番を取得
+            prev_machine_items = {}
+            if start_date.day == 1:
+                # 前月の最終日を取得
+                prev_month_last_date_for_machine = start_date - timedelta(days=1)
 
-                    # 前月末の生産計画を取得
-                    prev_month_plans = DailyMachineCastingProductionPlan.objects.filter(
+                # 前月末の生産計画を取得
+                prev_month_plans = DailyMachineCVTProductionPlan.objects.filter(
+                    machine__line=line,
+                    date=prev_month_last_date_for_machine,
+                    shift='night'  # 前月の最終直（夜勤）
+                ).select_related('machine', 'production_item')
+
+                for plan in prev_month_plans:
+                    if plan.production_item:
+                        prev_machine_items[plan.machine.id] = plan.production_item.name
+
+                # 夜勤の計画がない場合は、前月最終日の日勤を確認
+                if not prev_machine_items:
+                    prev_month_plans = DailyMachineCVTProductionPlan.objects.filter(
                         machine__line=line,
-                        date=prev_month_last_date,
-                        shift='night'  # 前月の最終直（夜勤）
+                        date=prev_month_last_date_for_machine,
+                        shift='day'
                     ).select_related('machine', 'production_item')
 
                     for plan in prev_month_plans:
                         if plan.production_item:
                             prev_machine_items[plan.machine.id] = plan.production_item.name
 
-                    # 夜勤の計画がない場合は、前月最終日の日勤を確認
-                    if not prev_machine_items:
-                        prev_month_plans = DailyMachineCastingProductionPlan.objects.filter(
-                            machine__line=line,
-                            date=prev_month_last_date,
-                            shift='day'
-                        ).select_related('machine', 'production_item')
-
-                        for plan in prev_month_plans:
-                            if plan.production_item:
-                                prev_machine_items[plan.machine.id] = plan.production_item.name
-
-                # カバーライン用の自動生成（金型管理なし、在庫0-1000管理）
-                result = self._generate_auto_plan_cover(
-                    date_list=date_list,
-                    working_days=working_days,
-                    machines=machines,
-                    item_delivery=item_delivery,
-                    prev_inventory=prev_inventory,
-                    optimal_inventory=optimal_inventory,
-                    item_data=item_data,
-                    stop_time_data=stop_time_data,
-                    line=line,
-                    occupancy_rate=occupancy_rate,
-                    prev_machine_items=prev_machine_items
-                )
-            else:
-                # ヘッドライン用の自動生成（既存アルゴリズム）
-                result = self._generate_auto_plan(
-                    working_days=working_days,
-                    machines=machines,
-                    item_delivery=item_delivery,
-                    prev_inventory=prev_inventory,
-                    optimal_inventory=optimal_inventory,
-                    item_data=item_data,
-                    stop_time_data=stop_time_data,
-                    prev_usable_molds=prev_usable_molds,
-                    prev_detached_molds=prev_detached_molds,
-                    prohibited_patterns=prohibited_patterns,
-                    line=line,
-                    occupancy_rate=occupancy_rate
-                )
+            # CVT用の自動生成（金型管理なし、在庫0-1000管理、カバーラインと同じロジック）
+            result = self._generate_auto_plan_cover(
+                date_list=date_list,
+                working_days=working_days,
+                machines=machines,
+                item_delivery=item_delivery,
+                prev_inventory=prev_inventory,
+                optimal_inventory=optimal_inventory,
+                item_data=item_data,
+                stop_time_data=stop_time_data,
+                line=line,
+                occupancy_rate=occupancy_rate,
+                prev_machine_items=prev_machine_items
+            )
 
             return JsonResponse({
                 'status': 'success',
@@ -1298,15 +1213,13 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                                   optimal_inventory, item_data, stop_time_data, line, occupancy_rate,
                                   prev_machine_items=None):
         """
-        カバーライン用の自動生産計画を生成
+        CVT用の自動生産計画を生成
 
-        【カバーラインの特徴】
-        - 金型管理なし（ヘッドラインのような6直制約がない）
+        【CVTラインの特徴】
+        - 金型管理なし
         - 在庫範囲: 0台（下限）～ 1000台（上限）
-        - 設備構成: #1(650t), #2(650t), #3(800t)
-          - #1と#2は同じ品番を製造可能（POL, POL(7), CCS, CCH）
-          - #3は異なる品番を製造（CCL, CCL(7), CCS）
         - 同一品番でも設備によりタクトが異なる
+        - 出庫数は月間計画から平日の日勤・夜勤で均等配分
 
         【アルゴリズム】
         1. 品番割り当て（2フェーズ）
@@ -1314,27 +1227,27 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
            - フェーズ2: 緊急度順に処理（継続生産を優先して型替え削減）
         2. 残業時間調整
            - 在庫が0にならず、1000を超えないように調整
-        3. 650t#1と#2の入れ替え最適化
+        3. 設備の入れ替え最適化
            - 前の直と比較して型替え回数が減る場合は入れ替え
            - 在庫制約を考慮せず型替え削減を優先
 
         Args:
             date_list (list): 月内の全日付リスト（土日含む）
             working_days (list): 稼働日リスト（平日+休出日のみ）
-            machines (list): 設備リスト（650t#1, 650t#2, 800t#3）
+            machines (list): CVT鋳造機リスト
             item_delivery (dict): 出庫計画 {品番: [{'date': date, 'shift': str, 'count': int}]}
             prev_inventory (dict): 前月末在庫 {品番: 個数}
             optimal_inventory (dict): 適正在庫 {品番: 個数}（未使用）
             item_data (dict): 品番-設備マスタデータ {key: {'name': str, 'tact': float, 'yield_rate': float, 'machine_id': int}}
             stop_time_data (list): 計画停止データ
-            line: 鋳造ライン
+            line: CVTライン
             occupancy_rate (float): 稼働率
             prev_machine_items (dict): 前月末の各設備の生産品番 {machine_id: item_name}
 
         Returns:
             dict: {
                 'plans': [plan_dict, ...],
-                'unused_molds': []  # カバーラインでは常に空
+                'unused_molds': []  # CVTでは金型管理なし（常に空）
             }
         """
         if prev_machine_items is None:
@@ -1358,7 +1271,7 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
 
         # ログファイルの設定
         log_dir = os.path.dirname(os.path.abspath(__file__))
-        log_file_path = os.path.join(log_dir, 'inventory_simulation_log_cover.txt')
+        log_file_path = os.path.join(log_dir, 'inventory_simulation_log_cvt.txt')
 
         # 既存のログファイルを削除
         if os.path.exists(log_file_path):
@@ -1367,7 +1280,7 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
         # ログファイルを開く
         log_file = open(log_file_path, 'w', encoding='utf-8')
         log_file.write("=" * 80 + "\n")
-        log_file.write("カバーライン 鋳造生産計画 在庫シミュレーションログ\n")
+        log_file.write("CVTライン 生産計画 在庫シミュレーションログ\n")
         log_file.write(f"生成日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         log_file.write("=" * 80 + "\n\n")
 

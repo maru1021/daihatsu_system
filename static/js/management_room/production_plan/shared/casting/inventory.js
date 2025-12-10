@@ -3,7 +3,7 @@
 // ========================================
 // 在庫の計算と月末在庫カードの更新
 
-import { moveToPrevShift, getInputValue } from './utils.js';
+import { moveToPrevShift, getInputValue, getElementValue, setElementValue } from './utils.js';
 import { buildInventoryElementCache, buildInventoryCardCache } from './cache.js';
 
 /**
@@ -21,24 +21,36 @@ export function calculateInventory(dateIndex, shift, itemName, inventoryCache, p
         previousInventory = previousMonthInventory[itemName] || 0;
     } else {
         const prev = moveToPrevShift(dateIndex, shift);
-        const prevInput = inventoryCache.inventory[itemName]?.[prev.shift]?.[prev.dateIndex];
-        previousInventory = getInputValue(prevInput);
+        const prevElement = inventoryCache.inventory[itemName]?.[prev.shift]?.[prev.dateIndex];
+        previousInventory = getElementValue(prevElement);
     }
 
-    const deliveryInput = inventoryCache.delivery[itemName]?.[shift]?.[dateIndex];
-    const delivery = getInputValue(deliveryInput);
+    const deliveryElement = inventoryCache.delivery[itemName]?.[shift]?.[dateIndex];
+    const delivery = getElementValue(deliveryElement);
 
-    const productionInput = inventoryCache.production[itemName]?.[shift]?.[dateIndex];
-    const production = getInputValue(productionInput);
+    const productionElement = inventoryCache.production[itemName]?.[shift]?.[dateIndex];
+    const production = getElementValue(productionElement);
 
     const stockAdjustmentInput = inventoryCache.stockAdjustment[itemName]?.[shift]?.[dateIndex];
     const stockAdjustment = getInputValue(stockAdjustmentInput);
 
     const inventory = previousInventory - delivery + production + stockAdjustment;
 
-    const inventoryInput = inventoryCache.inventory[itemName]?.[shift]?.[dateIndex];
-    if (inventoryInput) {
-        inventoryInput.value = inventory;
+    const inventoryElement = inventoryCache.inventory[itemName]?.[shift]?.[dateIndex];
+    if (inventoryElement) {
+        setElementValue(inventoryElement, inventory);
+
+        // 在庫数に応じて背景色を設定
+        if (inventory < 0) {
+            // 在庫が負の場合は赤い背景色
+            inventoryElement.style.backgroundColor = '#ffcccc';
+        } else if (inventory > 1000) {
+            // 在庫が1000を超える場合は薄い青い背景色
+            inventoryElement.style.backgroundColor = '#cce5ff';
+        } else {
+            // それ以外は背景色をクリア
+            inventoryElement.style.backgroundColor = '';
+        }
     }
 }
 
@@ -126,17 +138,17 @@ export function updateInventoryComparisonCard(allItemNamesArray = null, dateCoun
         // 最後の日付から逆順に検索して、最初に見つかった在庫値を使用
         // 高速化：最も一般的なケース（最終日の夜勤）を最初にチェック
         for (let dateIndex = lastDateIndex; dateIndex >= 0; dateIndex--) {
-            const nightInventoryInput = caches.inventoryElementCache.inventory[itemName]?.night?.[dateIndex];
+            const nightInventoryElement = caches.inventoryElementCache.inventory[itemName]?.night?.[dateIndex];
 
-            if (nightInventoryInput && nightInventoryInput.style.display !== 'none') {
-                endOfMonthInventory = parseInt(nightInventoryInput.value) || 0;
+            if (nightInventoryElement && nightInventoryElement.style.display !== 'none') {
+                endOfMonthInventory = getElementValue(nightInventoryElement);
                 break;
             }
 
-            const dayInventoryInput = caches.inventoryElementCache.inventory[itemName]?.day?.[dateIndex];
+            const dayInventoryElement = caches.inventoryElementCache.inventory[itemName]?.day?.[dateIndex];
 
-            if (dayInventoryInput && dayInventoryInput.style.display !== 'none') {
-                endOfMonthInventory = parseInt(dayInventoryInput.value) || 0;
+            if (dayInventoryElement && dayInventoryElement.style.display !== 'none') {
+                endOfMonthInventory = getElementValue(dayInventoryElement);
                 break;
             }
         }

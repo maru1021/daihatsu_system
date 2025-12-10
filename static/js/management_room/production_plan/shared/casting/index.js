@@ -229,9 +229,13 @@ export const moveToPrevShift = Utils.moveToPrevShift;
 export const getMachineName = Utils.getMachineName;
 export const getNextWorkingShift = Utils.getNextWorkingShift;
 export const getPrevWorkingShift = Utils.getPrevWorkingShift;
+export const getNextWorkingShiftSelect = Utils.getNextWorkingShiftSelect;
+export const getPrevWorkingShiftSelect = Utils.getPrevWorkingShiftSelect;
 export const getItemNames = Utils.getItemNames;
 export const getInputElement = Utils.getInputElement;
 export const getInputValue = Utils.getInputValue;
+export const getElementValue = Utils.getElementValue;
+export const setElementValue = Utils.setElementValue;
 export const getCookie = Utils.getCookie;
 
 // Cache
@@ -266,3 +270,16 @@ export const updateOvertimeInputVisibility = Control.updateOvertimeInputVisibili
 export const buildAllCaches = Initialization.buildAllCaches;
 export const initializeSelectColors = Initialization.initializeSelectColors;
 export const performInitialCalculations = Initialization.performInitialCalculations;
+
+// Save
+import * as Save from './save.js';
+export const saveProductionPlan = Save.saveProductionPlan;
+
+// Auto
+import * as Auto from './auto.js';
+export const autoProductionPlan = Auto.autoProductionPlan;
+export const applyAutoProductionPlan = Auto.applyAutoProductionPlan;
+
+// Events
+import * as Events from './events.js';
+export const setupEventListeners = Events.setupEventListeners;

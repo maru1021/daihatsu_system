@@ -1,4 +1,4 @@
-from management_room.models import DailyMachineCVTProductionPlan, DailyCVTProductionPlan, CVTItem, CVTItemMachineMap
+from management_room.models import DailyMachineCVTProductionPlan, DailyCVTProductionPlan, CVTItem, CVTItemMachineMap, MonthlyCVTProductionPlan
 from manufacturing.models import CVTLine, CVTMachine
 from management_room.auth_mixin import ManagementRoomPermissionMixin
 from django.views import View
@@ -120,10 +120,62 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                 if key not in plans_dict or plan.id > plans_dict[key].id:
                     plans_dict[key] = plan
 
+        # 月間計画データを取得
+        target_month_date = date(year, month, 1)
+        monthly_plans = MonthlyCVTProductionPlan.objects.filter(
+            line=line,
+            month=target_month_date
+        ).select_related('production_item')
+
+        # 月間計画を品番ごとに辞書化
+        monthly_plan_dict = {}
+        for plan in monthly_plans:
+            if plan.production_item:
+                monthly_plan_dict[plan.production_item.name] = plan.quantity or 0
+
+        # 平日の数を計算（土日を除く）
+        weekday_count = sum(1 for d in dates if not d['is_weekend'])
+
+        # 各品番の出庫数を平日の日勤・夜勤で均等配分（整数）
+        delivery_schedule = {}  # {item_name: {date_idx: {'day': 数, 'night': 数}}}
+        for item_name, monthly_quantity in monthly_plan_dict.items():
+            delivery_schedule[item_name] = {}
+            if weekday_count > 0 and monthly_quantity > 0:
+                # 総シフト数（日勤+夜勤）
+                total_shifts = weekday_count * 2
+
+                # 基本的な1シフトあたりの数（切り捨て）
+                base_per_shift = monthly_quantity // total_shifts
+                # 余り
+                remainder = monthly_quantity % total_shifts
+
+                # 平日のインデックスを取得
+                weekday_indices = [i for i, d in enumerate(dates) if not d['is_weekend']]
+
+                # 配分: 余りを最初のシフトから順に+1ずつ配る
+                shift_counter = 0
+                for date_idx in weekday_indices:
+                    # 日勤
+                    day_delivery = base_per_shift
+                    if shift_counter < remainder:
+                        day_delivery += 1
+                    shift_counter += 1
+
+                    # 夜勤
+                    night_delivery = base_per_shift
+                    if shift_counter < remainder:
+                        night_delivery += 1
+                    shift_counter += 1
+
+                    delivery_schedule[item_name][date_idx] = {
+                        'day': day_delivery,
+                        'night': night_delivery
+                    }
+
         # 日付ベースのデータ構造を構築
         dates_data = []
 
-        for date_index, date_info in enumerate(dates):
+        for date_idx, date_info in enumerate(dates):
             current_date = date_info['date']
             is_weekend = date_info['is_weekend']
 
@@ -146,8 +198,14 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                 for item_name in item_names:
                     plan = stock_plans_dict.get((item_name, current_date, shift))
 
-                    # 品番ごとのデータを設定（CVTは出庫数なし、在庫のみ）
+                    # 出庫数を計算（平日の日勤・夜勤）
+                    delivery = ''
+                    if not is_weekend:
+                        delivery = delivery_schedule.get(item_name, {}).get(date_idx, {}).get(shift, 0)
+
+                    # 品番ごとのデータを設定
                     date_data['shifts'][shift]['items'][item_name] = {
+                        'delivery': delivery,  # 出庫数（月間計画から平日の日勤・夜勤で均等配分、整数）
                         'inventory': plan.stock if plan and plan.stock is not None else '',  # 在庫数（計算結果）
                         'production': '',  # 生産台数（フロントエンドで計算）
                         'stock_adjustment': plan.stock_adjustment if plan and plan.stock_adjustment is not None else ''  # 在庫調整（手動入力値）
@@ -250,6 +308,7 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
             'inventory_comparison': inventory_comparison,
             'item_total_rows': item_total_rows,  # 品番ごとのセクションの総行数
             'machine_total_rows': machine_total_rows,  # CVT鋳造機ごとのセクションの総行数
+            'changeover_time': line.changeover_time if line.changeover_time else 0,  # 型替え時間
         }
 
         return render(request, self.template_file, context)
@@ -381,7 +440,6 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                         grouped_data[key]['item_name'] = item.get('item_name')
 
             # データベースに保存
-            saved_count = 0
             for key, data in grouped_data.items():
                 date_index = data['date_index']
                 shift = data['shift']
@@ -391,12 +449,12 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                 item_name = data['item_name']
 
                 # 日付を取得
-                if date_index >= len(dates):
+                if date_index is None or date_index >= len(dates):
                     continue
                 date = dates[date_index]
 
                 # CVT鋳造機を取得
-                if machine_index >= len(machines):
+                if machine_index is None or machine_index >= len(machines):
                     continue
                 machine = machines[machine_index]
 
@@ -450,7 +508,6 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                         production_item=production_item,
                         defaults=defaults
                     )
-                    saved_count += 1
                 elif item_name == '' or item_name is None:
                     # 品番が空の場合、該当する設備・日付・シフトの全てのレコードを削除
                     deleted = DailyMachineCVTProductionPlan.objects.filter(
@@ -459,8 +516,6 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                         date=date,
                         shift=shift
                     ).delete()
-                    if deleted[0] > 0:
-                        saved_count += 1
                 elif stop_time is not None or overtime is not None:
                     # production_itemがない場合でも、stop_time、overtimeだけ更新（全レコードに適用）
                     update_fields = {}
@@ -476,8 +531,6 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                             date=date,
                             shift=shift
                         ).update(**update_fields)
-                        if updated > 0:
-                            saved_count += updated
 
             # 在庫数・在庫調整を保存（DailyCVTProductionPlanに統合して保存）
             # 在庫計算式: 在庫数 = 前の直の在庫 + 良品生産数 + 在庫調整
@@ -489,7 +542,7 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                 stock_adjustment = plan_item['stock_adjustment']  # 在庫調整（棚卸・不良品などの手動調整）
 
                 # 日付を取得
-                if date_index >= len(dates):
+                if date_index is None or date_index >= len(dates):
                     continue
                 date = dates[date_index]
 
@@ -519,7 +572,6 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                         shift=shift,
                         defaults=defaults
                     )
-                    saved_count += 1
 
             # 生産台数を保存
             for prod_key, prod_data in production_data.items():
@@ -529,7 +581,7 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                 production_count = prod_data['production_count']
 
                 # 日付を取得
-                if date_index >= len(dates):
+                if date_index is None or date_index >= len(dates):
                     continue
                 date = dates[date_index]
 
@@ -549,13 +601,10 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
                         production_item=production_item
                     ).update(production_count=production_count)
 
-                    if updated > 0:
-                        saved_count += 1
-
             # 休日出勤が消された日付のDailyMachineCVTProductionPlanを削除
             deleted_count = 0
             for date_index in weekends_to_delete:
-                if date_index >= len(dates):
+                if date_index is None or date_index >= len(dates):
                     continue
                 date = dates[date_index]
 
@@ -571,7 +620,6 @@ class CVTProductionPlanView(ManagementRoomPermissionMixin, View):
 
             return JsonResponse({
                 'status': 'success',
-                'message': f'{saved_count}件のデータを保存、{deleted_count}件のデータを削除しました'
             })
 
         except Exception as e:

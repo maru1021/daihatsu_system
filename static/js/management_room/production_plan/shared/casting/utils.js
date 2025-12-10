@@ -155,6 +155,42 @@ export function getInputValue(input) {
 }
 
 /**
+ * 要素の値を取得（inputまたはspan両方に対応）
+ * @param {HTMLElement} element - input要素またはspan要素
+ * @returns {number} 数値（空の場合は0）
+ */
+export function getElementValue(element) {
+    if (!element) return 0;
+    if (element.tagName === 'INPUT') {
+        return parseInt(element.value) || 0;
+    } else {
+        // spanの場合はdata-value属性またはtextContentから取得
+        const dataValue = element.dataset.value;
+        if (dataValue !== undefined && dataValue !== '') {
+            return parseInt(dataValue) || 0;
+        }
+        return parseInt(element.textContent) || 0;
+    }
+}
+
+/**
+ * 要素に値を設定（inputまたはspan両方に対応）
+ * @param {HTMLElement} element - input要素またはspan要素
+ * @param {number|string} value - 設定する値
+ */
+export function setElementValue(element, value) {
+    if (!element) return;
+    const strValue = String(value);
+    if (element.tagName === 'INPUT') {
+        element.value = strValue;
+    } else {
+        // spanの場合はtextContentとdata-value属性の両方を設定
+        element.textContent = strValue;
+        element.dataset.value = strValue;
+    }
+}
+
+/**
  * Cookieを取得
  * @param {string} name - Cookie名
  * @returns {string|null} Cookie値
@@ -172,4 +208,70 @@ export function getCookie(name) {
         }
     }
     return cookieValue;
+}
+
+/**
+ * 次の稼働している直のselect要素を取得（品番が入っているセルのみ）
+ * 土日や休日を跨いで次の稼働直を探す（型替え判定用）
+ * @param {number} dateIndex - 開始日付インデックス
+ * @param {string} shift - 開始直（'day' or 'night'）
+ * @param {number} machineIndex - 設備インデックス
+ * @param {Map} vehicleSelectCache - vehicleSelectCacheマップ（key: "shift-dateIndex-machineIndex"）
+ * @returns {HTMLElement|null} 次の稼働直のselect要素、または見つからなければnull
+ */
+export function getNextWorkingShiftSelect(dateIndex, shift, machineIndex, vehicleSelectCache) {
+    if (shift === 'day') {
+        // 日勤の場合: 同じ日の夜勤を取得
+        const nightKey = `night-${dateIndex}-${machineIndex}`;
+        const nightCandidate = vehicleSelectCache.get(nightKey);
+        // 夜勤が存在し、かつ品番が入っている場合のみ
+        if (nightCandidate && nightCandidate.value && nightCandidate.value.trim() !== '') {
+            return nightCandidate;
+        }
+    } else {
+        // 夜勤の場合: 次の稼働日の日勤を取得（土日や休日を跨ぐ可能性を考慮）
+        // 最大10日先まで探す（長期休暇も考慮）
+        for (let offset = 1; offset <= 10; offset++) {
+            const nextDayKey = `day-${dateIndex + offset}-${machineIndex}`;
+            const candidateSelect = vehicleSelectCache.get(nextDayKey);
+            // 次の日勤が存在し、かつ品番が入っている場合のみ
+            if (candidateSelect && candidateSelect.value && candidateSelect.value.trim() !== '') {
+                return candidateSelect;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * 前の稼働している直のselect要素を取得（品番が入っているセルのみ）
+ * 土日や休日を跨いで前の稼働直を探す
+ * @param {number} dateIndex - 開始日付インデックス
+ * @param {string} shift - 開始直（'day' or 'night'）
+ * @param {number} machineIndex - 設備インデックス
+ * @param {Map} vehicleSelectCache - vehicleSelectCacheマップ（key: "shift-dateIndex-machineIndex"）
+ * @returns {HTMLElement|null} 前の稼働直のselect要素、または見つからなければnull
+ */
+export function getPrevWorkingShiftSelect(dateIndex, shift, machineIndex, vehicleSelectCache) {
+    if (shift === 'day') {
+        // 日勤の場合: 前の稼働日の夜勤を取得（夜勤→日勤の変更チェック）
+        // 最大10日前まで探す（土日や長期休暇を考慮）
+        for (let offset = 1; offset <= 10; offset++) {
+            const prevNightKey = `night-${dateIndex - offset}-${machineIndex}`;
+            const candidateSelect = vehicleSelectCache.get(prevNightKey);
+            // 前の夜勤が存在し、かつ品番が入っている場合のみ
+            if (candidateSelect && candidateSelect.value && candidateSelect.value.trim() !== '') {
+                return candidateSelect;
+            }
+        }
+    } else {
+        // 夜勤の場合: 同じ日の日勤を取得
+        const dayKey = `day-${dateIndex}-${machineIndex}`;
+        const dayCandidate = vehicleSelectCache.get(dayKey);
+        // 日勤が存在し、かつ品番が入っている場合のみ
+        if (dayCandidate && dayCandidate.value && dayCandidate.value.trim() !== '') {
+            return dayCandidate;
+        }
+    }
+    return null;
 }

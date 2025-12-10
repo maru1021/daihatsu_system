@@ -519,7 +519,6 @@ class DailyMachineCVTProductionPlan(models.Model):
     mold_change = models.IntegerField(verbose_name="金型交換", null=True, blank=True, default=0)
     stop_time = models.IntegerField(verbose_name="計画停止", null=True, blank=True, default=0)
     overtime = models.IntegerField(verbose_name="生産残業", null=True, blank=True, default=0)
-    mold_count = models.IntegerField(verbose_name="金型使用数", null=True, blank=True, default=0)
     last_updated_user = models.CharField(verbose_name='最終更新者', max_length=100, null=True, blank=True)
     occupancy_rate = models.FloatField(verbose_name="稼働率", null=True, blank=True, default=0)
     regular_working_hours = models.BooleanField(verbose_name="定時", default=False)
