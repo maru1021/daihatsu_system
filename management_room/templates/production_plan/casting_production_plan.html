@@ -178,38 +178,6 @@ td.weekend .overtime-input {
     <td></td>
 </tr>
 {% endfor %}
-<!-- 在庫 -->
-{% for item_name in item_names %}
-<tr data-section="inventory" data-shift="day">
-    {% if forloop.first %}
-    <th class="category-label" rowspan="{{ item_total_rows }}">在庫数</th>
-    <th class="shift-label" rowspan="{{ item_names|length }}">日勤</th>
-    {% endif %}
-    <th class="vehicle-label">{{ item_name }}</th>
-    {% for date_data in dates_data %}
-    <td class="inventory-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-        <span class="inventory-display" data-value="{{ date_data.shifts.day.items|get_item:item_name|get_item:'inventory' }}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">{{ date_data.shifts.day.items|get_item:item_name|get_item:'inventory' }}</span>
-    </td>
-    {% endfor %}
-    <td></td>
-    <td></td>
-</tr>
-{% endfor %}
-{% for item_name in item_names %}
-<tr class="night-shift" data-section="inventory" data-shift="night">
-    {% if forloop.first %}
-    <th class="shift-label" rowspan="{{ item_names|length }}">夜勤</th>
-    {% endif %}
-    <th class="vehicle-label">{{ item_name }}</th>
-    {% for date_data in dates_data %}
-    <td class="inventory-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
-        <span class="inventory-display" data-value="{{ date_data.shifts.night.items|get_item:item_name|get_item:'inventory' }}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}"{% if date_data.is_weekend %} style="display:none;"{% endif %}>{{ date_data.shifts.night.items|get_item:item_name|get_item:'inventory' }}</span>
-    </td>
-    {% endfor %}
-    <td></td>
-    <td class="total-cell inventory-difference-total" data-item="{{ item_name }}">0</td>
-</tr>
-{% endfor %}
 <!-- 在庫数調整（棚卸・不良品などによる手動調整） -->
 <!-- 在庫計算式: 在庫数 = 前の直の在庫 + 良品生産数 - 出庫数 + 在庫調整 -->
 {% for item_name in item_names %}
@@ -245,6 +213,38 @@ td.weekend .overtime-input {
     {% endfor %}
     <td></td>
     <td></td>
+</tr>
+{% endfor %}
+<!-- 在庫 -->
+{% for item_name in item_names %}
+<tr data-section="inventory" data-shift="day">
+    {% if forloop.first %}
+    <th class="category-label" rowspan="{{ item_total_rows }}">在庫数</th>
+    <th class="shift-label" rowspan="{{ item_names|length }}">日勤</th>
+    {% endif %}
+    <th class="vehicle-label">{{ item_name }}</th>
+    {% for date_data in dates_data %}
+    <td class="inventory-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
+        <span class="inventory-display" data-value="{{ date_data.shifts.day.items|get_item:item_name|get_item:'inventory' }}" data-shift="day" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">{{ date_data.shifts.day.items|get_item:item_name|get_item:'inventory' }}</span>
+    </td>
+    {% endfor %}
+    <td></td>
+    <td></td>
+</tr>
+{% endfor %}
+{% for item_name in item_names %}
+<tr class="night-shift" data-section="inventory" data-shift="night">
+    {% if forloop.first %}
+    <th class="shift-label" rowspan="{{ item_names|length }}">夜勤</th>
+    {% endif %}
+    <th class="vehicle-label">{{ item_name }}</th>
+    {% for date_data in dates_data %}
+    <td class="inventory-cell{% if date_data.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}">
+        <span class="inventory-display" data-value="{{ date_data.shifts.night.items|get_item:item_name|get_item:'inventory' }}" data-shift="night" data-item="{{ item_name }}" data-date-index="{{ forloop.counter0 }}"{% if date_data.is_weekend %} style="display:none;"{% endif %}>{{ date_data.shifts.night.items|get_item:item_name|get_item:'inventory' }}</span>
+    </td>
+    {% endfor %}
+    <td></td>
+    <td class="total-cell inventory-difference-total" data-item="{{ item_name }}">0</td>
 </tr>
 {% endfor %}
 <!-- 生産計画 -->

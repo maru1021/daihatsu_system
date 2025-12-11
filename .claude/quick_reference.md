@@ -79,6 +79,41 @@ item_urgency.sort(key=lambda x: (
 
 # カバーライン: 稼働率正規化（93% stored as 93）
 occupancy_rate = line.occupancy_rate / 100.0 if line.occupancy_rate > 1.0 else line.occupancy_rate
+
+# CVT自動計画: 在庫過剰判定（900台以上はスキップ）
+is_overstocked = item_info['current_stock'] >= CHANGEOVER_READY_STOCK  # 900台
+
+# CVT自動計画: 品番選択優先順位（フェーズ2）
+if item_info['shifts_until_stockout'] <= URGENCY_THRESHOLD:  # 3直以下
+    should_produce = True  # 緊急度が高い → 必ず生産
+elif is_continuation and not is_overstocked:
+    should_produce = True  # 継続生産可能 かつ 在庫900台未満 → 生産
+elif not is_overstocked:
+    should_produce = True  # 在庫900台未満 → 生産
+else:
+    should_produce = False  # 在庫過剰 → スキップ
+
+# CVT自動計画: 動的な在庫更新（同じ品番を複数設備に割り当てる場合）
+# 設備に品番を割り当てた後、すぐに緊急度情報を更新
+temp_stock = inventory.get(item_name, 0) + good_prod
+item_urgency[i]['current_stock'] = temp_stock
+item_urgency[i]['shifts_until_stockout'] = calculate_shifts_until_stockout(...)
+
+# CVT自動計画: 設備選択（継続生産 → グループ内継続 → 最速タクト）
+# 1. 同じ設備で継続生産可能か
+if machine_current_item.get(machine.id) == item_name:
+    return machine, True
+# 2. グループ内（650t#1と650t#2）で継続可能か
+if machine.name in GROUP_A and prev_machine_name in GROUP_A:
+    return machine, True
+# 3. 最速タクトの設備を選択
+best_machine = min(available_machines, key=lambda m: item_data[f"{item_name}_{m.id}"]['tact'])
+
+# CVT自動計画: 月末予測在庫を考慮した残業時間の最適化
+target_stock = optimal_inventory.get(item_name, 600)  # 品番ごとの適正在庫
+predicted_end_stock = stock_after_production - future_deliveries  # 月末予測在庫
+deviation = abs(predicted_end_stock - target_stock)  # 適正在庫との乖離
+# 乖離が最小となる残業時間を選択（過剰生産を防止）
 ```
 
 ## エラー対処
@@ -94,3 +129,6 @@ occupancy_rate = line.occupancy_rate / 100.0 if line.occupancy_rate > 1.0 else l
 | カバー#1空白 | 動的設備数計算（machineCount = machineRows.length / 8） |
 | カバー型替え多い | 継続生産優先ソート（can_continue）、#650t#1/#650t#2のみ |
 | カバーCCH未割当 | 出荷後在庫を優先（stock_after_delivery）、継続生産は第3キー |
+| CVT在庫過剰品番を生産 | `is_overstocked`チェック（900台以上はスキップ） |
+| CVT緊急品番が未割当 | 同じ品番を複数設備に割り当て可能に変更（`while`ループで繰り返し選択） |
+| CVT品番が「-」の設備 | 在庫過剰品番をスキップして設備が空く（正常動作） |

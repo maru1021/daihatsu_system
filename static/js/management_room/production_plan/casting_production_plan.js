@@ -60,6 +60,7 @@ import {
     setElementValue,
     getCookie,
     toggleCheck,
+    calculateMachineProduction,
     buildAllCaches as buildAllCachesShared,
     initializeSelectColors as initializeSelectColorsShared,
     performInitialCalculations as performInitialCalculationsShared,
@@ -1995,29 +1996,30 @@ function calculateProduction(dateIndex, shift) {
         // この設備の稼働時間 = 基本稼働時間 - 計画停止時間 - 金型交換時間 + 残業時間
         const workingTime = Math.max(0, baseTime - stopTime - moldChangeTime + overtime);
 
-        // この設備の生産台数 = (稼働時間 / タクト) × 稼働率（不良品も含む数量）
-        const production = Math.floor((workingTime / data.tact) * operationRate);
-
-        // この設備の良品生産数 = 生産台数 × 良品率
-        const yieldRate = data.yield_rate || 1.0;
-        const goodProduction = Math.floor(production * yieldRate);
+        // 生産数を計算（共通関数を使用）
+        const { totalProduction: production, goodProduction } = calculateMachineProduction(
+            workingTime,
+            data.tact,
+            operationRate,
+            data.yield_rate || 1.0
+        );
 
         // 品番ごとに合計
         itemStats[selectedItem].totalProduction += production;
         itemStats[selectedItem].totalGoodProduction += goodProduction;
     });
 
-    // 各品番の生産台数をinputに設定
+    // 各品番の生産台数を設定
     Object.keys(itemStats).forEach(itemName => {
         const stats = itemStats[itemName];
         const totalProduction = stats.totalProduction || 0;
         const totalGoodProduction = stats.totalGoodProduction || 0;
 
-        // 生産台数に良品生産数を設定（キャッシュを使用、shared/casting.jsの構造に対応）
-        // 在庫として扱われるのは良品のみのため
         const productionElement = inventoryElementCache?.production[itemName]?.[shift]?.[dateIndex];
         if (productionElement) {
-            setElementValue(productionElement, totalGoodProduction);
+            // 表示：総生産数、data属性：良品生産数（在庫計算用）
+            setElementValue(productionElement, totalProduction);
+            productionElement.dataset.goodProduction = totalGoodProduction;
         }
     });
 

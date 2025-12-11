@@ -29,7 +29,10 @@ export function calculateInventory(dateIndex, shift, itemName, inventoryCache, p
     const delivery = getElementValue(deliveryElement);
 
     const productionElement = inventoryCache.production[itemName]?.[shift]?.[dateIndex];
-    const production = getElementValue(productionElement);
+    // 在庫計算では良品生産数を使用（data-good-production属性から取得）
+    const production = productionElement?.dataset?.goodProduction
+        ? parseFloat(productionElement.dataset.goodProduction) || 0
+        : getElementValue(productionElement);  // 後方互換性
 
     const stockAdjustmentInput = inventoryCache.stockAdjustment[itemName]?.[shift]?.[dateIndex];
     const stockAdjustment = getInputValue(stockAdjustmentInput);

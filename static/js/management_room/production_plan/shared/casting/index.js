@@ -237,6 +237,9 @@ export const getInputValue = Utils.getInputValue;
 export const getElementValue = Utils.getElementValue;
 export const setElementValue = Utils.setElementValue;
 export const getCookie = Utils.getCookie;
+export const calculateTotalProduction = Utils.calculateTotalProduction;
+export const calculateGoodProduction = Utils.calculateGoodProduction;
+export const calculateMachineProduction = Utils.calculateMachineProduction;
 
 // Cache
 export const buildDOMCache = Cache.buildDOMCache;

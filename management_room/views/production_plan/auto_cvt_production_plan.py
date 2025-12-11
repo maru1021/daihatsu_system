@@ -1423,11 +1423,50 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
             # 最も緊急度の高い品番を返す
             return urgency_list[0][0]
 
+        def calculate_end_of_month_stock(item_name, current_shift_idx):
+            """月末時点での予測在庫を計算
+
+            現在の在庫 + 今後の生産（残業なし） - 今後の出荷
+
+            Args:
+                item_name: 品番
+                current_shift_idx: 現在の直のインデックス
+
+            Returns:
+                int: 月末予測在庫
+            """
+            # 現在の在庫
+            predicted_stock = inventory.get(item_name, 0)
+
+            # 今後の直について、出荷と生産（残業なし）を計算
+            for idx in range(current_shift_idx, len(all_shifts)):
+                sim_date, sim_shift = all_shifts[idx]
+
+                # 出荷
+                delivery = 0
+                for d in item_delivery.get(item_name, []):
+                    if d['date'] == sim_date and d['shift'] == sim_shift:
+                        delivery = d['count']
+                        break
+                predicted_stock -= delivery
+
+                # 生産（残業なし、既に計画済みの分）
+                for machine in machines:
+                    plan_list = [p for p in machine_plans[machine.id]
+                               if p['date'] == sim_date and p['shift'] == sim_shift]
+
+                    if plan_list and plan_list[0]['item_name'] == item_name:
+                        # 既に計画済みの場合は、その生産数を使用
+                        plan = plan_list[0]
+                        good_production = plan.get('good_production', 0)
+                        predicted_stock += good_production
+
+            return predicted_stock
+
         def calculate_optimal_overtime(item_name, machine_id, shift, stop_time, changeover_time, current_shift_planned_production, delivery_this_shift=0, is_continuation=False):
             """在庫が0にならず、かつMAX_STOCK（1000）を超えないように最適な残業時間を計算
 
-            在庫制約を遵守しつつ、継続生産の場合は在庫を900台に近づけることで
-            型替え効率を最大化する。
+            月末予測在庫を考慮し、適正在庫に近づけるように残業時間を最適化する。
 
             Args:
                 item_name: 品番
@@ -1458,11 +1497,9 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
             )
 
             # ケース1: 出荷後の在庫が危険レベル以下になる場合、必要な生産数を計算
+            # ただし、月末予測在庫も考慮して過剰生産を防ぐ
             if stock_after_delivery + good_production_no_overtime < SAFETY_THRESHOLD:
-                # 安全在庫を確保するために必要な生産数
-                required_production = SAFETY_THRESHOLD - stock_after_delivery
-
-                # 必要な残業時間を計算
+                # 安全在庫を確保するために必要な最小残業時間
                 min_overtime = 0
                 achieved_safety = False
                 for overtime in range(0, OVERTIME_MAX[shift] + 1, 5):
@@ -1485,66 +1522,115 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                     if final_stock < SAFETY_THRESHOLD:
                         log_file.write(f"\n    【警告】{item_name}: 最大残業でも安全在庫({SAFETY_THRESHOLD}台)を確保できません！ "
                                      f"予測在庫:{final_stock}台\n")
-                    min_overtime = OVERTIME_MAX[shift]
+                    return OVERTIME_MAX[shift]
 
-                # 在庫上限チェック
+                # 月末予測在庫を考慮して、過剰生産を防ぐ
+                target_stock = optimal_inventory.get(item_name, 600)
+                best_overtime = min_overtime
+                best_deviation = float('inf')
+
                 for overtime in range(min_overtime, OVERTIME_MAX[shift] + 1, 5):
                     _, good_production = calculate_production(
                         item_name, machine_id, shift, stop_time, overtime, changeover_time
                     )
 
-                    # 在庫が1000を超えない最大の残業時間を返す
-                    if stock_after_delivery + good_production <= MAX_STOCK:
-                        min_overtime = overtime
-                    else:
+                    stock_after_production = stock_after_delivery + good_production
+
+                    # 在庫上限チェック
+                    if stock_after_production > MAX_STOCK:
                         break
 
-                return min_overtime
+                    # 月末予測在庫を計算
+                    predicted_end_stock = stock_after_production
+                    for idx in range(shift_idx + 1, len(all_shifts)):
+                        sim_date, sim_shift = all_shifts[idx]
+                        delivery = 0
+                        for d in item_delivery.get(item_name, []):
+                            if d['date'] == sim_date and d['shift'] == sim_shift:
+                                delivery = d['count']
+                                break
+                        predicted_end_stock -= delivery
 
-            # ケース2: 継続生産の場合、型替え推奨在庫（900台）に近づけるように最大残業
-            # 型替え時に在庫が十分にあれば、その後しばらく生産しなくて良い
-            if is_continuation and changeover_time == 0:
-                # 継続生産中（型替えなし）の場合、在庫を900台に近づける
-                if stock_after_delivery < CHANGEOVER_TARGET:
-                    # 900台に近づくまで最大残業で生産
-                    if stock_after_delivery + good_production_max_overtime <= MAX_STOCK:
-                        return OVERTIME_MAX[shift]
+                    # 適正在庫との乖離を計算
+                    deviation = abs(predicted_end_stock - target_stock)
 
-                    # 1000を超えない範囲で最大化
-                    optimal_overtime = 0
-                    for overtime in range(0, OVERTIME_MAX[shift] + 1, 5):
-                        _, good_production = calculate_production(
-                            item_name, machine_id, shift, stop_time, overtime, changeover_time
-                        )
+                    # 最も適正在庫に近い残業時間を選択
+                    if deviation < best_deviation:
+                        best_deviation = deviation
+                        best_overtime = overtime
 
-                        if stock_after_delivery + good_production <= MAX_STOCK:
-                            optimal_overtime = overtime
-                        else:
-                            break
+                return best_overtime
 
-                    return optimal_overtime
+            # ケース2: 月末予測在庫を考慮して残業時間を最適化
+            # 適正在庫に近づけることで、過剰生産を防ぎ残業を減らす
+            target_stock = optimal_inventory.get(item_name, 600)  # 品番ごとの適正在庫
 
-            # ケース3: 在庫は十分だが、1000を超えないように調整
-            # 残業なしで1000を超えない場合、最大残業時間を使用
-            if stock_after_delivery + good_production_no_overtime <= MAX_STOCK:
-                # 最大残業でも1000を超えない場合、最大残業時間を返す
-                if stock_after_delivery + good_production_max_overtime <= MAX_STOCK:
-                    return OVERTIME_MAX[shift]
+            # 月末予測在庫を計算（この生産による影響を含む）
+            # この直以降の残り直数を考慮
+            remaining_shifts = len(all_shifts) - shift_idx - 1
 
-            # 在庫が1000を超えないように残業時間を調整（5分刻み）
-            optimal_overtime = 0
+            # 月末予測在庫を各残業時間で計算
+            best_overtime = 0
+            best_deviation = float('inf')
+            best_predicted_stock = 0
 
             for overtime in range(0, OVERTIME_MAX[shift] + 1, 5):
                 _, good_production = calculate_production(
                     item_name, machine_id, shift, stop_time, overtime, changeover_time
                 )
 
-                if stock_after_delivery + good_production <= MAX_STOCK:
-                    optimal_overtime = overtime
-                else:
+                # この生産後の在庫
+                stock_after_production = stock_after_delivery + good_production
+
+                # 在庫上限チェック
+                if stock_after_production > MAX_STOCK:
                     break
 
-            return optimal_overtime
+                # 月末予測在庫（簡易計算：この直以降の出荷のみ考慮）
+                predicted_end_stock = stock_after_production
+                for idx in range(shift_idx + 1, len(all_shifts)):
+                    sim_date, sim_shift = all_shifts[idx]
+                    delivery = 0
+                    for d in item_delivery.get(item_name, []):
+                        if d['date'] == sim_date and d['shift'] == sim_shift:
+                            delivery = d['count']
+                            break
+                    predicted_end_stock -= delivery
+
+                # 適正在庫との乖離を計算
+                deviation = abs(predicted_end_stock - target_stock)
+
+                # 安全在庫を下回る場合はペナルティ
+                if predicted_end_stock < SAFETY_THRESHOLD:
+                    deviation += 10000  # 大きなペナルティ
+
+                # 最も適正在庫に近い残業時間を選択
+                if deviation < best_deviation:
+                    best_deviation = deviation
+                    best_overtime = overtime
+                    best_predicted_stock = predicted_end_stock
+
+                # 継続生産の場合、型替え推奨在庫（900台）も考慮
+                # ただし、月末予測在庫が適正在庫に近い方を優先
+                if is_continuation and changeover_time == 0:
+                    # 在庫が少ない場合は900台に近づける
+                    if stock_after_delivery < CHANGEOVER_TARGET:
+                        # 月末予測在庫が適正在庫±100以内なら、900台を目指す
+                        if abs(predicted_end_stock - target_stock) <= 100:
+                            # 適正在庫に十分近い場合のみ、900台を目指す
+                            if stock_after_production >= CHANGEOVER_TARGET:
+                                # デバッグログ出力
+                                if shift_idx < 5:  # 最初の数直のみ出力
+                                    log_file.write(f"      【月末最適化】{item_name}: 継続生産で900台目標 "
+                                                 f"(適正在庫:{target_stock}台, 月末予測:{predicted_end_stock}台, 残業:{overtime}分)\n")
+                                return overtime
+
+            # デバッグログ出力（月末最適化の結果）
+            if shift_idx < 5:  # 最初の数直のみ出力
+                log_file.write(f"      【月末最適化】{item_name}: 適正在庫:{target_stock}台, "
+                             f"月末予測:{best_predicted_stock}台, 乖離:{best_deviation}, 残業:{best_overtime}分\n")
+
+            return best_overtime
 
         # ========================================
         # メインループ: 各直で生産計画を立てる
@@ -1573,6 +1659,17 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
         log_file.write("=" * 80 + "\n\n")
         for item_name in sorted(all_item_names):
             log_file.write(f"  {item_name}: {inventory.get(item_name, 0)} 台\n")
+        log_file.write("\n")
+
+        log_file.write("\n" + "=" * 80 + "\n")
+        log_file.write("【適正在庫設定】\n")
+        log_file.write("=" * 80 + "\n\n")
+        for item_name in sorted(all_item_names):
+            target = optimal_inventory.get(item_name, 0)
+            if target == 0:
+                log_file.write(f"  {item_name}: 未設定（デフォルト600台を使用）\n")
+            else:
+                log_file.write(f"  {item_name}: {target} 台\n")
         log_file.write("\n")
 
         log_file.write("\n" + "=" * 80 + "\n")
@@ -1684,6 +1781,27 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                             if key in item_data:
                                 available_machine_count += 1
 
+                    # 月末予測在庫を計算（生産しない場合）
+                    target_stock = optimal_inventory.get(item_name, 600)
+                    end_of_month_lower_limit = target_stock * 0.8
+
+                    # 今後の出庫数を計算
+                    # 注：この直の処理中は、まだ今後の計画は立てられていないため、
+                    #     「生産しない場合の月末予測」は単純に現在在庫から今後の出庫を引いたもの
+                    remaining_deliveries = 0
+
+                    for idx in range(shift_idx + 1, len(all_shifts)):
+                        sim_date, sim_shift = all_shifts[idx]
+
+                        # 出庫数
+                        for d in item_delivery.get(item_name, []):
+                            if d['date'] == sim_date and d['shift'] == sim_shift:
+                                remaining_deliveries += d['count']
+                                break
+
+                    predicted_end_stock_no_production = current_stock - remaining_deliveries
+                    is_below_lower_limit = predicted_end_stock_no_production < end_of_month_lower_limit
+
                     urgency_list.append({
                         'item_name': item_name,
                         'shifts_until_stockout': shifts_until_stockout,
@@ -1692,17 +1810,19 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                         'delivery_this_shift': delivery_this_shift,
                         'can_continue': can_continue,
                         'is_critical': stock_after_delivery < 0 or shifts_until_stockout <= 1,
-                        'available_machine_count': available_machine_count
+                        'available_machine_count': available_machine_count,
+                        'is_below_lower_limit': is_below_lower_limit,
+                        'predicted_end_stock_no_production': predicted_end_stock_no_production
                     })
 
                 # ソート: 在庫マイナスフラグ → 在庫切れまでの直数 → 継続生産可否 → 出荷後在庫 → 生産可能設備数
                 # 1. 在庫がマイナスになる品番を最優先
-                # 2. 在庫切れまでの直数が少ない品番を優先（在庫切れ防止を最優先）
-                # 3. 継続生産可能な品番を優先（型替え削減、設備の継続確保）
+                # 2. 在庫切れまでの直数が少ない品番を優先（在庫切れ防止）
+                # 3. 継続生産可能な品番を優先（型替え削減）
                 # 4. マイナスが深刻な順（-423 < -317 < 25）
                 urgency_list.sort(key=lambda x: (
                     0 if x['stock_after_delivery'] < 0 else 1,  # マイナスが最優先
-                    x['shifts_until_stockout'],  # 在庫切れまでの直数（緊急度を第2優先に変更）
+                    x['shifts_until_stockout'],  # 在庫切れまでの直数（緊急度）
                     0 if x['can_continue'] else 1,  # 継続生産可能を優先（型替え削減）
                     x['stock_after_delivery'],  # マイナスが深刻な順
                     x['available_machine_count'],  # 設備制約のある品番を優先
@@ -1805,6 +1925,7 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
             for item_info in item_urgency:
                 continue_mark = "【継続可】" if item_info['can_continue'] else ""
                 machine_count_info = f"[設備:{item_info['available_machine_count']}台で生産可]"
+
                 if item_info['delivery_this_shift'] > 0:
                     log_file.write(f"    {item_info['item_name']}{continue_mark}{machine_count_info}: "
                                  f"現在{item_info['current_stock']}台 - 出荷{item_info['delivery_this_shift']}台 = "
@@ -1942,74 +2063,217 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                              f"(出荷後在庫:{item_info['stock_after_delivery']}台, タクト:{tact_info}秒, "
                              f"残業:{optimal_overtime}分, 型替:{this_shift_changeover_time}分)\n")
 
-            # フェーズ2: その他の品番を処理
-            log_file.write("\n  --- フェーズ2: その他の品番（緊急度順） ---\n")
-            for item_info in item_urgency:
-                # 在庫マイナス品番はフェーズ1で処理済みなのでスキップ
-                if item_info['stock_after_delivery'] < 0:
-                    continue
+            def should_produce_item(item_info, is_continuation, machine_id):
+                """品番を生産すべきかを判定する
 
+                Args:
+                    item_info: 品番情報
+                    is_continuation: 継続生産可能かどうか
+                    machine_id: 設備ID
+
+                Returns:
+                    tuple: (should_produce: bool, reason: str)
+                """
+                item_name = item_info['item_name']
+                is_overstocked = item_info['current_stock'] >= CHANGEOVER_READY_STOCK
+
+                # 月末予測在庫の上限・下限を計算
+                target_stock = optimal_inventory.get(item_name, 600)
+                end_of_month_lower_limit = target_stock * 0.8  # 下限: 適正在庫の80%
+                if target_stock < 600:
+                    end_of_month_upper_limit = target_stock * 1.5
+                else:
+                    end_of_month_upper_limit = target_stock + 200
+
+                # この品番を生産した場合の月末予測在庫を計算
+                # 現在在庫 + この直の生産（残業なし） - 今後の全出庫
+                key = f"{item_name}_{machine_id}"
+                if key in item_data:
+                    data = item_data[key]
+                    tact = data['tact']
+                    yield_rate = data['yield_rate']
+
+                    # 残業なしでの生産数（概算）
+                    base_time = BASE_TIME[shift]
+                    working_time = base_time - 30  # 型替え時間を考慮（概算）
+                    # tact is in minutes, not seconds
+                    total_production = math.floor((working_time / tact) * occupancy_rate)
+                    estimated_production = math.floor(total_production * yield_rate)
+
+                    # 今後の出庫数を計算
+                    remaining_deliveries = 0
+                    for idx in range(shift_idx + 1, len(all_shifts)):
+                        sim_date, sim_shift = all_shifts[idx]
+                        for d in item_delivery.get(item_name, []):
+                            if d['date'] == sim_date and d['shift'] == sim_shift:
+                                remaining_deliveries += d['count']
+                                break
+
+                    # 生産しない場合の月末予測在庫（今後の計画は考慮しない）
+                    predicted_end_stock_no_production = item_info['current_stock'] - remaining_deliveries
+
+                    # 生産する場合の月末予測在庫
+                    predicted_end_stock = item_info['current_stock'] + estimated_production - remaining_deliveries
+
+                    # 月末予測在庫のログ出力（デバッグ用）
+                    if shift_idx < 10:  # 最初の10直のみ出力
+                        log_file.write(f"      月末予測: 現在{item_info['current_stock']}台 + 生産{estimated_production}台 - 残出庫{remaining_deliveries}台 = {predicted_end_stock:.0f}台 (上限:{end_of_month_upper_limit:.0f}台)\n")
+
+                    # 月末予測在庫が上限を超える場合は生産しない（緊急度が高い場合を除く）
+                    if predicted_end_stock > end_of_month_upper_limit:
+                        if item_info['shifts_until_stockout'] <= URGENCY_THRESHOLD:
+                            # 緊急度が高い場合は生産（在庫切れを避けるため）
+                            if shift_idx < 10:
+                                log_file.write(f"      → 月末在庫上限超過だが緊急度が高いため生産\n")
+                            return True, "緊急度が高い（月末在庫上限超過だが在庫切れ回避優先）"
+                        else:
+                            return False, f"月末予測在庫が上限超過（予測:{predicted_end_stock:.0f}台 > 上限:{end_of_month_upper_limit:.0f}台）"
+
+                # 通常の判定
+                if item_info['shifts_until_stockout'] <= URGENCY_THRESHOLD:
+                    return True, "緊急度が高い"
+                elif is_continuation and not is_overstocked:
+                    return True, "継続生産可能（型替えなし）"
+                elif not is_overstocked:
+                    return True, "在庫が不足する可能性あり"
+                else:
+                    return False, f"在庫過剰（{item_info['current_stock']}台）で緊急度も低い"
+
+            def has_available_machine_for_item(item_name):
+                """品番を生産可能な未割り当て設備があるかチェック
+
+                Args:
+                    item_name: 品番
+
+                Returns:
+                    bool: 生産可能な未割り当て設備がある場合True
+                """
+                for m in machines:
+                    if m.id not in assigned_machines:
+                        key = f"{item_name}_{m.id}"
+                        if key in item_data:
+                            return True
+                return False
+
+            def select_next_item_to_produce():
+                """次に生産すべき品番を選択する
+
+                Returns:
+                    tuple: (item_info, machine, is_continuation, reason) or (None, None, None, None)
+                """
+                for item_info in item_urgency:
+                    # 在庫マイナス品番はフェーズ1で処理済みなのでスキップ
+                    if item_info['stock_after_delivery'] < 0:
+                        continue
+
+                    item_name = item_info['item_name']
+
+                    # この品番を生産可能な未割り当て設備があるかチェック
+                    if not has_available_machine_for_item(item_name):
+                        continue
+
+                    # この品番用に最適な設備を探す
+                    machine, is_continuation = find_machine_for_item(item_name)
+                    if machine is None:
+                        continue
+
+                    # 生産すべきかを判定
+                    should_produce, reason = should_produce_item(item_info, is_continuation, machine.id)
+
+                    if not should_produce:
+                        # 生産しない理由をログ出力
+                        log_file.write(f"    品番:{item_name} をスキップ (理由: {reason})\n")
+                        continue
+
+                    if should_produce:
+                        # この品番を生産することに決定
+                        log_file.write(f"\n    品番:{item_name} を選択 (緊急度:{item_info['shifts_until_stockout']}直, "
+                                     f"現在在庫:{item_info['current_stock']}台)\n")
+                        log_file.write(f"      理由: {reason}\n")
+                        log_file.write(f"      前の直の設備状態: ")
+                        for m in machines:
+                            prev = machine_current_item.get(m.id, "未設定")
+                            assigned = "割当済" if m.id in assigned_machines else "未割当"
+                            log_file.write(f"#{m.name}:{prev}({assigned}), ")
+                        log_file.write(f"\n")
+                        return item_info, machine, is_continuation, reason
+
+                return None, None, None, None
+
+            def update_item_urgency_info(item_name, good_prod):
+                """品番の緊急度情報を更新する
+
+                Args:
+                    item_name: 品番
+                    good_prod: 良品生産数
+
+                Returns:
+                    int: 更新後の出荷後在庫
+                """
+                temp_stock = inventory.get(item_name, 0) + good_prod
+                updated_stock_after_delivery = 0
+
+                for i, info in enumerate(item_urgency):
+                    if info['item_name'] == item_name:
+                        item_urgency[i]['current_stock'] = temp_stock
+                        delivery_this_shift = shift_deliveries.get(item_name, 0)
+                        item_urgency[i]['stock_after_delivery'] = temp_stock - delivery_this_shift
+                        updated_stock_after_delivery = item_urgency[i]['stock_after_delivery']
+
+                        if item_urgency[i]['stock_after_delivery'] < 0:
+                            item_urgency[i]['shifts_until_stockout'] = 0
+                        else:
+                            item_urgency[i]['shifts_until_stockout'] = calculate_shifts_until_stockout(
+                                item_name, shift_idx + 1, initial_stock=item_urgency[i]['stock_after_delivery']
+                            )
+
+                        # 生産可能な未割り当て設備数を再計算
+                        available_count = 0
+                        for m in machines:
+                            if m.id not in assigned_machines:
+                                key_check = f"{item_name}_{m.id}"
+                                if key_check in item_data:
+                                    available_count += 1
+                        item_urgency[i]['available_machine_count'] = available_count
+                        break
+
+                return updated_stock_after_delivery
+
+            def calculate_changeover_time(machine, item_name):
+                """型替え時間を計算する
+
+                Args:
+                    machine: 設備
+                    item_name: 品番
+
+                Returns:
+                    int: 型替え時間（分）
+                """
+                prev_item = machine_current_item.get(machine.id)
+                if prev_item and prev_item != item_name:
+                    return CHANGEOVER_TIME
+                elif prev_item is None:
+                    return CHANGEOVER_TIME
+                return 0
+
+            def assign_item_to_machine(item_info, machine, is_continuation):
+                """品番を設備に割り当てて生産計画を作成する
+
+                Args:
+                    item_info: 品番情報
+                    machine: 設備
+                    is_continuation: 継続生産かどうか
+
+                Returns:
+                    int: 更新後の出荷後在庫
+                """
                 item_name = item_info['item_name']
 
-                # 既にこの品番が別の設備に割り当てられているかチェック
-                already_assigned = any(plan['item_name'] == item_name for plan in shift_plans)
-                if already_assigned:
-                    log_file.write(f"\n    品番:{item_name} → スキップ: この品番は既に別の設備で生産計画済み\n")
-                    continue
-
-                # 全設備が割り当て済みなら終了
-                if len(assigned_machines) >= len(machines):
-                    break
-
-                # デバッグ: 前の直の設備状態を確認
-                log_file.write(f"\n    品番:{item_name} (緊急度:{item_info['shifts_until_stockout']}直, "
-                             f"生産可能設備:{item_info['available_machine_count']}台)\n")
-                log_file.write(f"      前の直の設備状態: ")
-                for m in machines:
-                    prev = machine_current_item.get(m.id, "未設定")
-                    assigned = "割当済" if m.id in assigned_machines else "未割当"
-                    log_file.write(f"#{m.name}:{prev}({assigned}), ")
-                log_file.write(f"\n")
-
-                # 品番に最適な設備を探す
-                machine, is_continuation = find_machine_for_item(item_name)
-
-                if machine is None:
-                    log_file.write(f"      → この品番を生産できる設備がありません（全設備が割当済みまたは対応設備なし）\n")
-                    continue
-
-                # 判定ロジック（フェーズ2: 在庫マイナスはフェーズ1で処理済み）：
-                # 1. 緊急度が高い（URGENCY_THRESHOLD以下）→ 必ず生産
-                # 2. 設備制約がある（生産可能設備数が少ない）→ 生産を検討
-                # 3. 継続生産可能 → 型替えなしで生産
-                # 4. それ以外 → スキップ（型替え削減）
-                should_produce = False
-                reason = ""
-
-                if item_info['shifts_until_stockout'] <= URGENCY_THRESHOLD:
-                    should_produce = True
-                    reason = "緊急度が高い"
-                elif item_info['available_machine_count'] <= 1:
-                    # 1台以下でしか作れない場合は必ず生産
-                    should_produce = True
-                    reason = "設備制約あり（生産可能設備が限定）"
-                elif is_continuation:
-                    should_produce = True
-                    reason = "継続生産可能（型替えなし）"
-                else:
-                    should_produce = False
-                    reason = "緊急度が低く、設備制約もなく、継続生産でもない"
-
-                if not should_produce:
-                    log_file.write(f"      → スキップ: {reason}\n")
-                    continue
-
                 # ログ出力
-                log_file.write(f"      → 生産決定: {reason}\n")
+                log_file.write(f"      → 生産決定確定\n")
                 if is_continuation:
                     log_file.write(f"      → 設備#{machine.name}で継続生産（型替えなし）\n")
                 else:
-                    # 継続生産できなかった理由をログ
                     continuation_failed_reason = ""
                     for m in machines:
                         if machine_current_item.get(m.id) == item_name:
@@ -2018,29 +2282,15 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                             break
                     log_file.write(f"      → 設備#{machine.name}を選択（最速タクト）{continuation_failed_reason}\n")
 
-                # 計画停止時間を取得
+                # 計画停止時間と型替え時間を取得
                 stop_time = stop_time_dict.get((date, shift, machine.id), 0)
+                this_shift_changeover_time = calculate_changeover_time(machine, item_name)
 
-                # 前の直と品番が異なる場合、この直に型替え時間を設定
-                prev_item = machine_current_item.get(machine.id)
-                this_shift_changeover_time = 0
-
-                if prev_item and prev_item != item_name:
-                    # 品番が変わる場合、この直に型替え時間を設定
-                    this_shift_changeover_time = CHANGEOVER_TIME
-
-                elif prev_item is None:
-                    # 前月末のデータがない場合は型替え時間を設定
-                    this_shift_changeover_time = CHANGEOVER_TIME
-
-                # この直で既に計画されたこの品番の生産数を取得
+                # この直で既に計画されたこの品番の生産数と出荷数を取得
                 current_shift_planned = planned_production_by_item.get(item_name, 0)
-
-                # この直での出荷数を取得
                 delivery = shift_deliveries.get(item_name, 0)
 
-                # 最適な残業時間を計算（在庫が0にならず、かつ1000を超えないように）
-                # 継続生産の場合は、在庫を900台に近づけるように最大残業
+                # 最適な残業時間を計算
                 optimal_overtime = calculate_optimal_overtime(
                     item_name, machine.id, shift, stop_time, this_shift_changeover_time,
                     current_shift_planned, delivery, is_continuation
@@ -2068,34 +2318,47 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                 # 設備を割り当て済みとしてマーク
                 assigned_machines.add(machine.id)
 
-                # タクト情報を取得
-                key = f"{item_name}_{machine.id}"
-                tact_info = item_data[key]['tact']
+                # 現在の品番を更新（次の品番選択時の継続生産判定に使用）
+                machine_current_item[machine.id] = item_name
+
+                # この品番の緊急度情報を更新
+                updated_stock_after_delivery = update_item_urgency_info(item_name, good_prod)
 
                 # ログ出力（緊急度と継続生産を明示）
-                if is_continuation:
-                    continuation_msg = "【継続生産】"
-                else:
-                    continuation_msg = ""
+                key = f"{item_name}_{machine.id}"
+                tact_info = item_data[key]['tact']
+                continuation_msg = "【継続生産】" if is_continuation else ""
 
                 if item_info['shifts_until_stockout'] == 0:
                     log_file.write(f"  設備#{machine.name}: {item_name} を【緊急割り当て】{continuation_msg} "
-                                 f"(出荷後在庫:{item_info['stock_after_delivery']}台, タクト:{tact_info}秒, "
-                                 f"残業:{optimal_overtime}分, 型替:{this_shift_changeover_time}分)\n")
+                                 f"(出荷後在庫:{item_info['stock_after_delivery']}台→{updated_stock_after_delivery}台, タクト:{tact_info}秒, "
+                                 f"良品生産:{good_prod}台, 残業:{optimal_overtime}分, 型替:{this_shift_changeover_time}分)\n")
+                elif is_continuation:
+                    log_file.write(f"  設備#{machine.name}: {item_name} を{continuation_msg} "
+                                 f"(緊急度: 在庫切れまで{item_info['shifts_until_stockout']}直, "
+                                 f"良品生産:{good_prod}台, 残業:{optimal_overtime}分, 型替:{this_shift_changeover_time}分)\n")
                 else:
-                    if is_continuation:
-                        log_file.write(f"  設備#{machine.name}: {item_name} を{continuation_msg} "
-                                     f"(緊急度: 在庫切れまで{item_info['shifts_until_stockout']}直, "
-                                     f"残業:{optimal_overtime}分, 型替:{this_shift_changeover_time}分)\n")
-                    else:
-                        log_file.write(f"  設備#{machine.name}: {item_name} を割り当て "
-                                     f"(タクト:{tact_info}秒で最速, "
-                                     f"緊急度: 在庫切れまで{item_info['shifts_until_stockout']}直, "
-                                     f"残業:{optimal_overtime}分, 型替:{this_shift_changeover_time}分)\n")
+                    log_file.write(f"  設備#{machine.name}: {item_name} を割り当て "
+                                 f"(タクト:{tact_info}秒で最速, "
+                                 f"緊急度: 在庫切れまで{item_info['shifts_until_stockout']}直, "
+                                 f"良品生産:{good_prod}台, 残業:{optimal_overtime}分, 型替:{this_shift_changeover_time}分)\n")
 
-                # 全設備が割り当て済みならループ終了
-                if len(assigned_machines) >= len(machines):
+                return updated_stock_after_delivery
+
+            # フェーズ2: その他の品番を処理
+            # 未割り当て設備がある限り、常に最も緊急度の高い品番を優先的に割り当てる
+            log_file.write("\n  --- フェーズ2: その他の品番（緊急度順、複数設備割り当て可能） ---\n")
+
+            while len(assigned_machines) < len(machines):
+                # 次に生産すべき品番を選択
+                item_info, machine, is_continuation, reason = select_next_item_to_produce()
+
+                if item_info is None:
+                    log_file.write(f"\n    → 残りの品番は全て在庫十分またはマイナスのため、設備割り当て終了\n")
                     break
+
+                # 品番を設備に割り当てて生産計画を作成
+                assign_item_to_machine(item_info, machine, is_continuation)
 
             log_file.write("\n")
 
@@ -2480,7 +2743,10 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
         has_warning = False
         for item_name in sorted(all_item_names):
             final_stock = inventory.get(item_name, 0)
-            log_file.write(f"  {item_name}: {final_stock}台 ")
+            target_stock = optimal_inventory.get(item_name, 600)
+            deviation = final_stock - target_stock
+
+            log_file.write(f"  {item_name}: {final_stock}台 (適正在庫:{target_stock}台, 乖離:{deviation:+d}台) ")
 
             if final_stock < MIN_STOCK:
                 log_file.write("【警告: 在庫不足！】")
@@ -2493,6 +2759,9 @@ class AutoCVTProductionPlanView(ManagementRoomPermissionMixin, View):
                 has_warning = True
             elif final_stock > 900:
                 log_file.write("【注意: 上限接近】")
+            elif abs(deviation) > 200:
+                log_file.write(f"【注意: 適正在庫から大きく乖離】")
+                has_warning = True
 
             log_file.write("\n")
 

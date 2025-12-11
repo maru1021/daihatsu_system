@@ -275,3 +275,46 @@ export function getPrevWorkingShiftSelect(dateIndex, shift, machineIndex, vehicl
     }
     return null;
 }
+
+// ========================================
+// 生産数計算ヘルパー関数
+// ========================================
+
+/** デフォルト良品率（100%） */
+const DEFAULT_YIELD_RATE = 1.0;
+
+/**
+ * 総生産数を計算
+ * @param {number} workingTime - 稼働時間（分）
+ * @param {number} tact - タクト（分/個）
+ * @param {number} operationRate - 稼働率（0.0～1.0）
+ * @returns {number} 総生産数（切り上げ）
+ */
+export function calculateTotalProduction(workingTime, tact, operationRate) {
+    if (tact === 0) return 0;
+    return Math.ceil((workingTime / tact) * operationRate);
+}
+
+/**
+ * 良品生産数を計算
+ * @param {number} totalProduction - 総生産数
+ * @param {number} yieldRate - 良品率（0.0～1.0）、省略時は100%
+ * @returns {number} 良品生産数（切り上げ）
+ */
+export function calculateGoodProduction(totalProduction, yieldRate = DEFAULT_YIELD_RATE) {
+    return Math.ceil(totalProduction * yieldRate);
+}
+
+/**
+ * 設備の生産数を計算（総生産数と良品生産数の両方）
+ * @param {number} workingTime - 稼働時間（分）
+ * @param {number} tact - タクト（分/個）
+ * @param {number} operationRate - 稼働率（0.0～1.0）
+ * @param {number} yieldRate - 良品率（0.0～1.0）、省略時は100%
+ * @returns {Object} { totalProduction: 総生産数, goodProduction: 良品生産数 }
+ */
+export function calculateMachineProduction(workingTime, tact, operationRate, yieldRate = DEFAULT_YIELD_RATE) {
+    const totalProduction = calculateTotalProduction(workingTime, tact, operationRate);
+    const goodProduction = calculateGoodProduction(totalProduction, yieldRate);
+    return { totalProduction, goodProduction };
+}

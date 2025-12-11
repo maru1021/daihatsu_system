@@ -163,7 +163,7 @@ class CVTVolumeInputView(ManagementRoomPermissionMixin, View):
             else:
                 messages.warning(request, '登録できるデータがありませんでした。')
 
-            return redirect('management_room:cvt_volume_input')
+            return redirect('/management_room/production-plan/cvt-production-plan/')
 
         except json.JSONDecodeError:
             messages.error(request, 'データ形式が不正です。')
