@@ -1,8 +1,40 @@
 // ========================================
+// 組付生産計画JavaScript
+// ========================================
+// 依存: shared/common.js
+//   - OVERTIME_MAX_DAY = 120 (日勤の残業上限)
+//   - OVERTIME_MAX_NIGHT = 60 (夜勤の残業上限)
+//   - setupColumnHover() (カラムホバー処理)
+//
+// ========================================
 // 定数
 // ========================================
+// 定時時間（分）
 const REGULAR_TIME_DAY = 455;
 const REGULAR_TIME_NIGHT = 450;
+
+// その他の定数
+const OVERTIME_ROUND_MINUTES = 5;              // 残業時間の丸め単位（分）
+const OVERTIME_CONSTRAINT_THRESHOLD = 5;       // 残業時間の均等制約閾値（分）
+const NIGHT_SHIFT_UNIFORM_THRESHOLD = 60;      // 夜勤の均等配分閾値（分）
+const STOP_TIME_MAX = 480;                     // 計画停止の上限（分）
+const DEBOUNCE_DELAY = 100;                    // デバウンス遅延時間（ミリ秒）
+const MAX_ADJUSTMENT_ROUNDS = 3;               // 微調整の最大反復回数
+const MAX_OVERTIME_ADJUST_ROUNDS = 100;        // 残業調整の最大ループ回数
+
+// セル表示文字列
+const CELL_TEXT = {
+    REGULAR: '定時',
+    WEEKEND_WORK: '休出'
+};
+
+// スタイル定数
+const STYLE = {
+    UNDER_REGULAR_TIME_BG: '#fef9c3',          // 定時未満の背景色（薄い黄色）
+    MONTHLY_PLAN_OVER_BG: '#fef9c3',           // 月別計画超過の背景色
+    MONTHLY_PLAN_UNDER_BG: '#fee2e2',          // 月別計画未達の背景色
+    DAILY_TOTAL_BG: '#e0f2fe'                  // 日別合計の背景色
+};
 
 // ========================================
 // ユーティリティ関数
@@ -168,7 +200,7 @@ function updateDailyTotals() {
             dailyTotalCell.textContent = dailyTotal > 0 ? dailyTotal : '';
             dailyTotalCell.style.fontWeight = 'bold';
             dailyTotalCell.style.textAlign = 'center';
-            dailyTotalCell.style.backgroundColor = '#e0f2fe';
+            dailyTotalCell.style.backgroundColor = STYLE.DAILY_TOTAL_BG;
         }
     });
 
@@ -216,11 +248,11 @@ function updateMonthlyPlanColors() {
 
         // 月別計画と実際の生産数を比較して背景色を設定
         if (actualTotal > monthlyPlanQuantity) {
-            // 実際の生産数の方が多い場合は薄い黄色
-            planItem.style.backgroundColor = '#fef9c3';
+            // 実際の生産数の方が多い場合
+            planItem.style.backgroundColor = STYLE.MONTHLY_PLAN_OVER_BG;
         } else if (actualTotal < monthlyPlanQuantity) {
-            // 実際の生産数の方が少ない場合は薄い赤色
-            planItem.style.backgroundColor = '#fee2e2';
+            // 実際の生産数の方が少ない場合
+            planItem.style.backgroundColor = STYLE.MONTHLY_PLAN_UNDER_BG;
         } else {
             // 同じ場合は白色（デフォルト）
             planItem.style.backgroundColor = 'white';
@@ -273,7 +305,7 @@ function updateRowTotals() {
 // ========================================
 const debouncedUpdateWorkingDayStatus = debounce(function (dateIndex) {
     updateWorkingDayStatus(dateIndex);
-}, 100);
+}, DEBOUNCE_DELAY);
 
 function toggleCheck(element) {
     const isWeekend = element.getAttribute('data-weekend') === 'true';
@@ -590,8 +622,8 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
         const occupancyRate = occupancyRateInput ? (parseFloat(occupancyRateInput.value) || 0) / 100 : 0;
         if (occupancyRate === 0) return;
 
-        // 5分の残業時間での生産数増減
-        const baseQuantity = Math.ceil(5 / tact * occupancyRate);
+        // 最小残業単位での生産数増減
+        const baseQuantity = Math.ceil(OVERTIME_ROUND_MINUTES / tact * occupancyRate);
         let effect = 0;
         itemNames.forEach(itemName => {
             const ratio = monthlyPlanRatios[itemName] || 0;
@@ -611,16 +643,14 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
 
     if (slots.length === 0) return;
 
-    const nightShiftMaxForUniform = 60; // 夜勤が60分までなら全体で5分以内制約
-
     // 全スロットの最大残業時間をチェック
     const maxCurrentOvertime = Math.max(...slots.map(s => s.currentOvertime));
-    const useUniformConstraint = maxCurrentOvertime <= nightShiftMaxForUniform;
+    const useUniformConstraint = maxCurrentOvertime <= NIGHT_SHIFT_UNIFORM_THRESHOLD;
 
     if (useUniformConstraint) {
-        // 夜勤が60分以内の場合: 全スロット共通で5分以内制約
+        // 夜勤が閾値以内の場合: 全スロット共通で均等制約
         let round = 0;
-        const maxRounds = 100;
+        const maxRounds = MAX_OVERTIME_ADJUST_ROUNDS;
 
         while (remaining > 0 && round < maxRounds) {
             let adjusted = false;
@@ -637,26 +667,26 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
                 const maxOtherOvertime = Math.max(...otherOvertimes, 0);
                 const minOtherOvertime = Math.min(...otherOvertimes, Infinity);
 
-                // 調整後の差が5分を超える場合はスキップ
+                // 調整後の差が制約閾値を超える場合はスキップ
                 if (needIncrease) {
-                    if (currentOvertimeAfterAdjust - minOtherOvertime > 5) {
+                    if (currentOvertimeAfterAdjust - minOtherOvertime > OVERTIME_CONSTRAINT_THRESHOLD) {
                         continue;
                     }
                 } else {
-                    if (maxOtherOvertime - currentOvertimeAfterAdjust > 5) {
+                    if (maxOtherOvertime - currentOvertimeAfterAdjust > OVERTIME_CONSTRAINT_THRESHOLD) {
                         continue;
                     }
                 }
 
-                // 夜勤の場合は60分を超えないようにチェック
-                if (slot.cap.shift === 'night' && currentOvertimeAfterAdjust > nightShiftMaxForUniform) {
+                // 夜勤の場合は均等配分閾値を超えないようにチェック
+                if (slot.cap.shift === 'night' && currentOvertimeAfterAdjust > NIGHT_SHIFT_UNIFORM_THRESHOLD) {
                     continue;
                 }
 
                 // 上限チェック
                 const maxAdjustments = needIncrease
-                    ? Math.floor((slot.cap.maxOvertime - slot.currentOvertime) / 5)
-                    : Math.floor(slot.currentOvertime / 5);
+                    ? Math.floor((slot.cap.maxOvertime - slot.currentOvertime) / OVERTIME_ROUND_MINUTES)
+                    : Math.floor(slot.currentOvertime / OVERTIME_ROUND_MINUTES);
 
                 if (slot.adjustCount < maxAdjustments) {
                     slot.adjustCount++;
@@ -669,7 +699,7 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
             round++;
         }
     } else {
-        // 夜勤が60分を超えている場合: シフトごとに5分以内制約
+        // 夜勤が閾値を超えている場合: シフトごとに均等制約
         const daySlots = slots.filter(slot => slot.cap.shift === 'day');
         const nightSlots = slots.filter(slot => slot.cap.shift === 'night');
 
@@ -677,7 +707,7 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
             if (shiftSlots.length === 0) return;
 
             let round = 0;
-            const maxRounds = 100;
+            const maxRounds = MAX_OVERTIME_ADJUST_ROUNDS;
 
             while (remaining > 0 && round < maxRounds) {
                 let adjusted = false;
@@ -694,18 +724,18 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
                     const minOtherOvertime = Math.min(...otherOvertimes, Infinity);
 
                     if (needIncrease) {
-                        if (currentOvertimeAfterAdjust - minOtherOvertime > 5) {
+                        if (currentOvertimeAfterAdjust - minOtherOvertime > OVERTIME_CONSTRAINT_THRESHOLD) {
                             continue;
                         }
                     } else {
-                        if (maxOtherOvertime - currentOvertimeAfterAdjust > 5) {
+                        if (maxOtherOvertime - currentOvertimeAfterAdjust > OVERTIME_CONSTRAINT_THRESHOLD) {
                             continue;
                         }
                     }
 
                     const maxAdjustments = needIncrease
-                        ? Math.floor((slot.cap.maxOvertime - slot.currentOvertime) / 5)
-                        : Math.floor(slot.currentOvertime / 5);
+                        ? Math.floor((slot.cap.maxOvertime - slot.currentOvertime) / OVERTIME_ROUND_MINUTES)
+                        : Math.floor(slot.currentOvertime / OVERTIME_ROUND_MINUTES);
 
                     if (slot.adjustCount < maxAdjustments) {
                         slot.adjustCount++;
@@ -726,7 +756,7 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
     // 実際に残業時間を適用
     slots.forEach(slot => {
         if (slot.adjustCount > 0) {
-            const adjustment = slot.adjustCount * 5;
+            const adjustment = slot.adjustCount * OVERTIME_ROUND_MINUTES;
             const newOvertime = needIncrease
                 ? slot.currentOvertime + adjustment
                 : slot.currentOvertime - adjustment;
@@ -749,9 +779,8 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
     // 合計を更新
     updateRowTotals();
 
-    // 2回目の微調整（さらに精度を上げる）- 最大3回まで反復
+    // 2回目の微調整（さらに精度を上げる）
     let adjustmentRound = 1;
-    const maxAdjustmentRounds = 3;
 
     const performFineTune = () => {
         setTimeout(() => {
@@ -768,8 +797,8 @@ function adjustOvertimeForTarget(productionCapacity, diff, totalMonthlyTarget, i
 
             const newDiff = totalMonthlyTarget - actualTotal;
 
-            // まだ差分がある場合、もう一度調整（最大3回まで）
-            if (Math.abs(newDiff) > 0 && adjustmentRound < maxAdjustmentRounds) {
+            // まだ差分がある場合、もう一度調整
+            if (Math.abs(newDiff) > 0 && adjustmentRound < MAX_ADJUSTMENT_ROUNDS) {
                 adjustmentRound++;
                 const improved = fineTuneOvertime(slots, newDiff, itemNames, totalMonthlyTarget);
                 // 改善があった場合は次の調整を試みる
@@ -807,23 +836,22 @@ function fineTuneOvertime(slots, diff, itemNames, totalMonthlyTarget) {
         slot.currentOvertime = parseInt(slot.overtimeInput.value) || 0;
     });
 
-    const nightShiftMaxForUniform = 60;
     const maxCurrentOvertime = Math.max(...slots.map(s => s.currentOvertime));
-    const useUniformConstraint = maxCurrentOvertime <= nightShiftMaxForUniform;
+    const useUniformConstraint = maxCurrentOvertime <= NIGHT_SHIFT_UNIFORM_THRESHOLD;
 
     let adjustedCount = 0;
 
     if (useUniformConstraint) {
-        // 夜勤が60分以内の場合: 全スロット共通で5分以内制約
+        // 夜勤が閾値以内の場合: 全スロット共通で均等制約
         const adjustableSlots = [];
 
         for (const slot of slots) {
             const canAdjust = needIncrease
-                ? (slot.currentOvertime + 5 <= slot.cap.maxOvertime)
-                : (slot.currentOvertime - 5 >= 0);
+                ? (slot.currentOvertime + OVERTIME_ROUND_MINUTES <= slot.cap.maxOvertime)
+                : (slot.currentOvertime - OVERTIME_ROUND_MINUTES >= 0);
 
-            // 夜勤の場合は60分を超えないかチェック
-            if (slot.cap.shift === 'night' && needIncrease && slot.currentOvertime + 5 > nightShiftMaxForUniform) {
+            // 夜勤の場合は閾値を超えないかチェック
+            if (slot.cap.shift === 'night' && needIncrease && slot.currentOvertime + OVERTIME_ROUND_MINUTES > NIGHT_SHIFT_UNIFORM_THRESHOLD) {
                 continue;
             }
 
@@ -845,9 +873,9 @@ function fineTuneOvertime(slots, diff, itemNames, totalMonthlyTarget) {
             if (remaining <= 0) break;
 
             const currentValue = parseInt(slot.overtimeInput.value) || 0;
-            const newValue = needIncrease ? currentValue + 5 : currentValue - 5;
+            const newValue = needIncrease ? currentValue + OVERTIME_ROUND_MINUTES : currentValue - OVERTIME_ROUND_MINUTES;
 
-            // 他のすべてのスロットとの差が5分を超えないかチェック
+            // 他のすべてのスロットとの差が制約閾値を超えないかチェック
             const otherOvertimes = slots
                 .filter(s => s !== slot)
                 .map(s => parseInt(s.overtimeInput.value) || 0);
@@ -856,11 +884,11 @@ function fineTuneOvertime(slots, diff, itemNames, totalMonthlyTarget) {
             const minOtherOvertime = Math.min(...otherOvertimes, Infinity);
 
             if (needIncrease) {
-                if (newValue - minOtherOvertime > 5) {
+                if (newValue - minOtherOvertime > OVERTIME_CONSTRAINT_THRESHOLD) {
                     continue;
                 }
             } else {
-                if (maxOtherOvertime - newValue > 5) {
+                if (maxOtherOvertime - newValue > OVERTIME_CONSTRAINT_THRESHOLD) {
                     continue;
                 }
             }
@@ -871,7 +899,7 @@ function fineTuneOvertime(slots, diff, itemNames, totalMonthlyTarget) {
             adjustedCount++;
         }
     } else {
-        // 夜勤が60分を超えている場合: シフトごとに5分以内制約
+        // 夜勤が閾値を超えている場合: シフトごとに均等制約
         const daySlots = slots.filter(slot => slot.cap.shift === 'day');
         const nightSlots = slots.filter(slot => slot.cap.shift === 'night');
 
@@ -882,8 +910,8 @@ function fineTuneOvertime(slots, diff, itemNames, totalMonthlyTarget) {
 
             for (const slot of shiftSlots) {
                 const canAdjust = needIncrease
-                    ? (slot.currentOvertime + 5 <= slot.cap.maxOvertime)
-                    : (slot.currentOvertime - 5 >= 0);
+                    ? (slot.currentOvertime + OVERTIME_ROUND_MINUTES <= slot.cap.maxOvertime)
+                    : (slot.currentOvertime - OVERTIME_ROUND_MINUTES >= 0);
 
                 if (canAdjust) {
                     adjustableSlots.push({
@@ -903,7 +931,7 @@ function fineTuneOvertime(slots, diff, itemNames, totalMonthlyTarget) {
                 if (remaining <= 0) break;
 
                 const currentValue = parseInt(slot.overtimeInput.value) || 0;
-                const newValue = needIncrease ? currentValue + 5 : currentValue - 5;
+                const newValue = needIncrease ? currentValue + OVERTIME_ROUND_MINUTES : currentValue - OVERTIME_ROUND_MINUTES;
 
                 const otherOvertimes = shiftSlots
                     .filter(s => s !== slot)
@@ -913,11 +941,11 @@ function fineTuneOvertime(slots, diff, itemNames, totalMonthlyTarget) {
                 const minOtherOvertime = Math.min(...otherOvertimes, Infinity);
 
                 if (needIncrease) {
-                    if (newValue - minOtherOvertime > 5) {
+                    if (newValue - minOtherOvertime > OVERTIME_CONSTRAINT_THRESHOLD) {
                         continue;
                     }
                 } else {
-                    if (maxOtherOvertime - newValue > 5) {
+                    if (maxOtherOvertime - newValue > OVERTIME_CONSTRAINT_THRESHOLD) {
                         continue;
                     }
                 }
@@ -1266,21 +1294,18 @@ function autoCalculateOvertime() {
 
             // 基準残業時間の平均を計算
             const avgOvertime = baseOvertimes.reduce((sum, ot) => sum + ot, 0) / baseOvertimes.length;
-            let baseOvertime = Math.round(avgOvertime / 5) * 5; // 5分刻みに丸める
+            let baseOvertime = Math.round(avgOvertime / OVERTIME_ROUND_MINUTES) * OVERTIME_ROUND_MINUTES;
 
-            // 夜勤の上限を考慮（60分まで）
-            const nightShiftMaxForUniform = 60; // 夜勤が60分までなら日勤と同じ扱い
-
-            // すべてのスロットを基準値に設定（差は最大5分以内）
+            // すべてのスロットを基準値に設定（差は最大制約閾値以内）
             productionCapacity.forEach(cap => {
-                // 夜勤で基準値が60分を超える場合は、夜勤は別扱い
-                if (cap.shift === 'night' && baseOvertime > nightShiftMaxForUniform) {
-                    // 夜勤は60分を上限として設定
+                // 夜勤で基準値が閾値を超える場合は、夜勤は別扱い
+                if (cap.shift === 'night' && baseOvertime > NIGHT_SHIFT_UNIFORM_THRESHOLD) {
+                    // 夜勤は閾値を上限として設定
                     const nightBaseOvertime = Math.min(baseOvertime, cap.maxOvertime);
                     let bestOvertime = nightBaseOvertime;
                     let bestDiff = Infinity;
 
-                    for (let overtime = Math.max(0, nightBaseOvertime - 5); overtime <= Math.min(cap.maxOvertime, nightBaseOvertime + 5); overtime += 5) {
+                    for (let overtime = Math.max(0, nightBaseOvertime - OVERTIME_ROUND_MINUTES); overtime <= Math.min(cap.maxOvertime, nightBaseOvertime + OVERTIME_ROUND_MINUTES); overtime += OVERTIME_ROUND_MINUTES) {
                         const production = cap.calcProduction(overtime);
                         const diff = Math.abs(production - targetPerSlot);
                         if (diff < bestDiff) {
@@ -1294,13 +1319,13 @@ function autoCalculateOvertime() {
                         overtimeInput.value = bestOvertime;
                     }
                 } else {
-                    // 日勤、または夜勤でも60分以内の場合は共通基準値で設定
+                    // 日勤、または夜勤でも閾値以内の場合は共通基準値で設定
                     let bestOvertime = baseOvertime;
                     let bestDiff = Infinity;
 
-                    const maxAllowedOvertime = cap.shift === 'night' ? Math.min(cap.maxOvertime, nightShiftMaxForUniform) : cap.maxOvertime;
+                    const maxAllowedOvertime = cap.shift === 'night' ? Math.min(cap.maxOvertime, NIGHT_SHIFT_UNIFORM_THRESHOLD) : cap.maxOvertime;
 
-                    for (let overtime = Math.max(0, baseOvertime - 5); overtime <= Math.min(maxAllowedOvertime, baseOvertime + 5); overtime += 5) {
+                    for (let overtime = Math.max(0, baseOvertime - OVERTIME_ROUND_MINUTES); overtime <= Math.min(maxAllowedOvertime, baseOvertime + OVERTIME_ROUND_MINUTES); overtime += OVERTIME_ROUND_MINUTES) {
                         const production = cap.calcProduction(overtime);
                         const diff = Math.abs(production - targetPerSlot);
                         if (diff < bestDiff) {
@@ -1353,15 +1378,11 @@ function autoCalculateOvertime() {
 
     // 結果を確認（微調整後）
     setTimeout(() => {
-        // 全ての日付・シフトで計画停止を自動調整
-        for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
-            ['day', 'night'].forEach(shift => {
-                adjustStopTimeForUnderProduction(dateIndex, shift);
-            });
-        }
-
         // 合計を再更新
         updateRowTotals();
+
+        // 定時未満の直をハイライト
+        highlightUnderRegularTimeColumns();
 
         let actualTotal = 0;
         document.querySelectorAll('[data-section="production"][data-shift="day"]').forEach(row => {
@@ -1379,61 +1400,59 @@ function autoCalculateOvertime() {
 }
 
 // ========================================
-// 生産数が定時より少ない場合に計画停止を調整
+// 定時未満の直のハイライト表示
 // ========================================
-function adjustStopTimeForUnderProduction(dateIndex, shift) {
-    const tact = itemData.tact || 0;
-    if (tact === 0) return;
+function highlightUnderRegularTimeColumns() {
+    const dateCount = document.querySelectorAll('.operation-rate-input').length;
 
-    const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
-    if (!occupancyRateInput || occupancyRateInput.style.display === 'none') return;
-    const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
-    if (occupancyRate === 0) return;
+    for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+        ['day', 'night'].forEach(shift => {
+            const tact = itemData.tact || 0;
+            if (tact === 0) return;
 
-    const stopTimeInput = getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
-    if (!stopTimeInput || stopTimeInput.style.display === 'none') return;
+            const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
+            if (!occupancyRateInput || occupancyRateInput.style.display === 'none') return;
+            const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
+            if (occupancyRate === 0) return;
 
-    const overtimeInput = getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
-    const overtime = overtimeInput && overtimeInput.style.display !== 'none' ? (parseInt(overtimeInput.value) || 0) : 0;
+            // 全品番の生産数を合計
+            const itemNames = getItemNames();
+            let totalProduction = 0;
+            itemNames.forEach(name => {
+                const productionInput = getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"]`);
+                if (productionInput && productionInput.style.display !== 'none') {
+                    totalProduction += parseInt(productionInput.value) || 0;
+                }
+            });
 
-    const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
+            // 計画停止を取得
+            const stopTimeInput = getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
+            const stopTime = stopTimeInput && stopTimeInput.style.display !== 'none' ? (parseInt(stopTimeInput.value) || 0) : 0;
 
-    // 全品番の実際の生産数合計を取得
-    const itemNames = getItemNames();
-    let totalActualProduction = 0;
-    itemNames.forEach(name => {
-        const productionInput = getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"]`);
-        if (productionInput && productionInput.style.display !== 'none') {
-            totalActualProduction += parseInt(productionInput.value) || 0;
-        }
-    });
+            // 定時時間
+            const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
 
-    // 実際の生産数がゼロの場合は計画停止を0に
-    if (totalActualProduction === 0) {
-        stopTimeInput.value = 0;
-        return;
-    }
+            // 生産に必要な時間を計算
+            const requiredProductionTime = totalProduction > 0 ? (totalProduction * tact) / occupancyRate : 0;
 
-    // 実際の生産数に必要な時間を逆算（残業含む）
-    const requiredTime = (totalActualProduction * tact) / occupancyRate;
+            // 実際に使用している時間 = 生産時間 + 計画停止
+            const usedTime = requiredProductionTime + stopTime;
 
-    // 利用可能な総時間（定時 + 残業）
-    const availableTime = regularTime + overtime;
+            // 定時未満かどうかを判定（使用時間が定時より少ない場合）
+            const isUnderRegularTime = usedTime < regularTime;
 
-    // 余った時間を計算
-    const excessTime = availableTime - requiredTime;
-
-    if (excessTime > 0) {
-        // 余った時間を計画停止に設定（5分刻みに丸める）
-        const newStopTime = Math.round(excessTime / 5) * 5;
-
-        // 計画停止の上限チェック（480分）
-        const finalStopTime = Math.min(newStopTime, 480);
-
-        stopTimeInput.value = finalStopTime;
-    } else {
-        // 時間が足りない場合は計画停止を0に
-        stopTimeInput.value = 0;
+            // 該当する直の全品番のinputをハイライト
+            itemNames.forEach(name => {
+                const productionInput = getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"]`);
+                if (productionInput && productionInput.style.display !== 'none') {
+                    if (isUnderRegularTime) {
+                        productionInput.style.backgroundColor = STYLE.UNDER_REGULAR_TIME_BG;
+                    } else {
+                        productionInput.style.backgroundColor = ''; // デフォルト
+                    }
+                }
+            });
+        });
     }
 }
 
@@ -1524,8 +1543,8 @@ function recalculateOvertimeFromProduction(dateIndex, shift, itemName) {
         return false; // 入力を拒否
     }
 
-    // 5分刻みに丸める
-    calculatedOvertime = Math.round(calculatedOvertime / 5) * 5;
+    // 残業時間を丸める
+    calculatedOvertime = Math.round(calculatedOvertime / OVERTIME_ROUND_MINUTES) * OVERTIME_ROUND_MINUTES;
     overtimeInput.value = calculatedOvertime;
     return true; // 入力を許可
 }
@@ -1542,6 +1561,7 @@ function setupEventListeners() {
 
             updateAllItemsProduction(dateIndex, [shift], true);
             updateRowTotals();
+            highlightUnderRegularTimeColumns();
         });
     });
 
@@ -1550,6 +1570,8 @@ function setupEventListeners() {
         input.addEventListener('input', function () {
             const dateIndex = parseInt(this.getAttribute('data-date-index'));
             updateAllItemsProduction(dateIndex, ['day', 'night'], true);
+            updateRowTotals();
+            highlightUnderRegularTimeColumns();
         });
     });
 
@@ -1577,10 +1599,7 @@ function setupEventListeners() {
 
             isRecalculating = true;
 
-            // 1. まず計画停止を自動調整
-            adjustStopTimeForUnderProduction(dateIndex, shift);
-
-            // 2. その後、残業時間を逆算して上限チェック
+            // 1. 残業時間を逆算して上限チェック
             const isValid = recalculateOvertimeFromProduction(dateIndex, shift, itemName);
 
             // 上限を超える場合は元の値に戻す
@@ -1592,8 +1611,11 @@ function setupEventListeners() {
                 previousValue = this.value;
             }
 
-            // 3. 合計を更新
+            // 2. 合計を更新
             updateRowTotals();
+
+            // 3. 定時未満の直をハイライト
+            highlightUnderRegularTimeColumns();
 
             isRecalculating = false;
         });
@@ -1642,22 +1664,11 @@ $(document).ready(function () {
     // 初期表示時にすべての生産数を計算
     updateAllProductionQuantities();
 
-    // 初期表示時に計画停止を自動調整
+    // 初期表示時に定時未満の直をハイライト
     setTimeout(() => {
-        const dateCount = document.querySelectorAll('.operation-rate-input').length;
-        for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
-            ['day', 'night'].forEach(shift => {
-                adjustStopTimeForUnderProduction(dateIndex, shift);
-            });
-        }
-        // 合計を更新
-        updateRowTotals();
+        highlightUnderRegularTimeColumns();
     }, 100);
 });
-
-// ========================================
-// 列のホバー処理（日付セルのみ濃い青色）
-// ========================================
 
 // ========================================
 // 残業inputの表示/非表示制御
