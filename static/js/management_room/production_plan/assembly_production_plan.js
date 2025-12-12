@@ -1,92 +1,44 @@
 // ========================================
 // 組付生産計画JavaScript
 // ========================================
-// 依存: shared/common.js
-//   - OVERTIME_MAX_DAY = 120 (日勤の残業上限)
-//   - OVERTIME_MAX_NIGHT = 60 (夜勤の残業上限)
-//   - setupColumnHover() (カラムホバー処理)
+// 依存:
+//   - shared/common.js: setupColumnHover() (カラムホバー処理)
+//   - shared/assembly_machining/index.js: 共通定数・関数
 //
 // ========================================
-// 定数
+// 共通モジュールのインポート
 // ========================================
-// 定時時間（分）
-const REGULAR_TIME_DAY = 455;
-const REGULAR_TIME_NIGHT = 450;
-
-// その他の定数
-const OVERTIME_ROUND_MINUTES = 5;              // 残業時間の丸め単位（分）
-const OVERTIME_CONSTRAINT_THRESHOLD = 5;       // 残業時間の均等制約閾値（分）
-const NIGHT_SHIFT_UNIFORM_THRESHOLD = 60;      // 夜勤の均等配分閾値（分）
-const STOP_TIME_MAX = 480;                     // 計画停止の上限（分）
-const DEBOUNCE_DELAY = 100;                    // デバウンス遅延時間（ミリ秒）
-const MAX_ADJUSTMENT_ROUNDS = 3;               // 微調整の最大反復回数
-const MAX_OVERTIME_ADJUST_ROUNDS = 100;        // 残業調整の最大ループ回数
-
-// セル表示文字列
-const CELL_TEXT = {
-    REGULAR: '定時',
-    WEEKEND_WORK: '休出'
-};
-
-// スタイル定数
-const STYLE = {
-    UNDER_REGULAR_TIME_BG: '#fef9c3',          // 定時未満の背景色（薄い黄色）
-    MONTHLY_PLAN_OVER_BG: '#fef9c3',           // 月別計画超過の背景色
-    MONTHLY_PLAN_UNDER_BG: '#fee2e2',          // 月別計画未達の背景色
-    DAILY_TOTAL_BG: '#e0f2fe'                  // 日別合計の背景色
-};
+import {
+    REGULAR_TIME_DAY,
+    REGULAR_TIME_NIGHT,
+    OVERTIME_MAX_DAY,
+    OVERTIME_MAX_NIGHT,
+    OVERTIME_ROUND_MINUTES,
+    OVERTIME_CONSTRAINT_THRESHOLD,
+    NIGHT_SHIFT_UNIFORM_THRESHOLD,
+    STOP_TIME_MAX,
+    DEBOUNCE_DELAY,
+    MAX_ADJUSTMENT_ROUNDS,
+    MAX_OVERTIME_ADJUST_ROUNDS,
+    CELL_TEXT,
+    STYLE,
+    debounce,
+    getInputElement,
+    getInputValue,
+    setCellStyle,
+    getItemNames,
+    updateAllItemsProduction as updateAllItemsProductionCommon,
+    toggleCheck as toggleCheckCommon,
+    createHandleLineChange,
+    createHandleMonthChange
+} from './shared/assembly_machining/index.js';
 
 // ========================================
-// ユーティリティ関数
+// 組付固有の関数
 // ========================================
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-// 品番リストを取得
-function getItemNames() {
-    const itemNames = [];
-    document.querySelectorAll('[data-section="production"][data-shift="day"] .vehicle-label').forEach(label => {
-        itemNames.push(label.textContent.trim());
-    });
-    return itemNames;
-}
-
-// 入力要素を取得
-function getInputElement(selector) {
-    return document.querySelector(selector);
-}
-
-// 入力値を取得（非表示の場合は0を返す）
-function getInputValue(input) {
-    return input && input.style.display !== 'none' ? (parseInt(input.value) || 0) : 0;
-}
-
-// セルのスタイルを設定
-function setCellStyle(cell, value) {
-    if (cell) {
-        cell.textContent = value > 0 ? value : '';
-        cell.style.fontWeight = 'bold';
-        cell.style.textAlign = 'center';
-    }
-}
-
-// 全品番の生産数を更新（共通処理）
+// 全品番の生産数を更新（組付用ラッパー関数）
 function updateAllItemsProduction(dateIndex, shifts, forceRecalculate = false) {
-    const itemNames = getItemNames();
-    shifts.forEach(shift => {
-        itemNames.forEach(itemName => {
-            updateProductionQuantity(dateIndex, shift, itemName, forceRecalculate);
-        });
-    });
+    updateAllItemsProductionCommon(dateIndex, shifts, forceRecalculate, updateProductionQuantity);
 }
 
 // ========================================
@@ -307,25 +259,15 @@ const debouncedUpdateWorkingDayStatus = debounce(function (dateIndex) {
     updateWorkingDayStatus(dateIndex);
 }, DEBOUNCE_DELAY);
 
-function toggleCheck(element) {
-    const isWeekend = element.getAttribute('data-weekend') === 'true';
-    const currentText = element.textContent;
-
-    const newText = currentText === '' ? (isWeekend ? '休出' : '定時') : '';
-    element.textContent = newText;
-
-    // data-regular-hours属性を更新
-    element.setAttribute('data-regular-hours', newText === '定時' ? 'true' : 'false');
-
-    const dateIndex = Array.from(element.parentElement.children).indexOf(element) - 1;
-    debouncedUpdateWorkingDayStatus(dateIndex);
-
-    // 残業inputの表示/非表示を更新
-    updateOvertimeInputVisibility();
-
-    // 合計を更新（表示状態が変更された後に実行）
-    setTimeout(() => updateRowTotals(), 150);
-}
+// 組付固有のtoggleCheck関数（HTMLから呼び出されるグローバル関数）
+window.toggleCheck = function(element) {
+    // 共通モジュールのtoggleCheckを呼び出し、コールバック関数を渡す
+    toggleCheckCommon(element, (dateIndex) => {
+        debouncedUpdateWorkingDayStatus(dateIndex);
+        updateOvertimeInputVisibility();
+        setTimeout(() => updateRowTotals(), 150);
+    });
+};
 
 // 入力フィールドの表示/非表示を制御
 function toggleInputs(dateIndex, shift, show) {
@@ -448,23 +390,9 @@ function updateWorkingDayStatus(dateIndex, isInitializing = false) {
 // ========================================
 // ライン・月選択変更処理
 // ========================================
-function handleLineChange() {
-    const lineId = $('#line-select').val();
-    const targetMonth = $('#target-month').val();
-    if (lineId && targetMonth) {
-        const [year, month] = targetMonth.split('-');
-        window.location.href = `?line=${lineId}&year=${year}&month=${month}`;
-    }
-}
-
-function handleMonthChange() {
-    const lineId = $('#line-select').val();
-    const targetMonth = $('#target-month').val();
-    if (lineId && targetMonth) {
-        const [year, month] = targetMonth.split('-');
-        window.location.href = `?line=${lineId}&year=${year}&month=${month}`;
-    }
-}
+// 共通モジュールのファクトリー関数を使用してハンドラーを作成（組付は'line'パラメータを使用）
+const handleLineChange = createHandleLineChange('line');
+const handleMonthChange = createHandleMonthChange('line');
 
 // ========================================
 // 保存機能

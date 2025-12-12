@@ -60,6 +60,8 @@ import {
     getCookie,
     toggleCheck,
     calculateMachineProduction,
+    clearProductionElement,
+    clearAllProductionElements,
     buildAllCaches as buildAllCachesShared,
     initializeSelectColors as initializeSelectColorsShared,
     performInitialCalculations as performInitialCalculationsShared,
@@ -320,15 +322,8 @@ function calculateProduction(dateIndex, shift) {
         const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
         const checkText = checkCell.textContent.trim();
         if (isWeekend && checkText !== '休出') {
-            // 生産台数をクリア（キャッシュを使用、shared/casting.jsの構造に対応）
-            if (inventoryElementCache) {
-                Object.keys(inventoryElementCache.production).forEach(itemName => {
-                    const productionElement = inventoryElementCache.production[itemName]?.[shift]?.[dateIndex];
-                    if (productionElement) {
-                        setElementValue(productionElement, '');
-                    }
-                });
-            }
+            // 生産台数をクリア（共通関数を使用）
+            clearAllProductionElements(inventoryElementCache, shift, dateIndex);
             return;
         }
     }
@@ -470,14 +465,12 @@ function calculateProduction(dateIndex, shift) {
         }
     });
 
-    // 選択されていない品番は空にする（キャッシュを使用、shared/casting.jsの構造に対応）
+    // 選択されていない品番は空にする（共通関数を使用）
     if (inventoryElementCache) {
         Object.keys(inventoryElementCache.production).forEach(itemName => {
             if (!itemStats[itemName]) {
                 const productionElement = inventoryElementCache.production[itemName]?.[shift]?.[dateIndex];
-                if (productionElement) {
-                    setElementValue(productionElement, '');
-                }
+                clearProductionElement(productionElement);
             }
         });
     }

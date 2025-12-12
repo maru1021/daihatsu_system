@@ -61,6 +61,8 @@ import {
     getCookie,
     toggleCheck,
     calculateMachineProduction,
+    clearProductionElement,
+    clearAllProductionElements,
     buildAllCaches as buildAllCachesShared,
     initializeSelectColors as initializeSelectColorsShared,
     performInitialCalculations as performInitialCalculationsShared,
@@ -747,6 +749,9 @@ function updateMoldCountForMachineFromShift(startDateIndex, startShift, machineI
         updateMoldCount(startDateIndex, startShift, m);
     }
 
+    // 変更された直の生産台数を再計算（品番を"-"にした場合も含む）
+    calculateProduction(startDateIndex, startShift);
+
     // 差分計算: 影響を受ける品番のみを再計算
     recalculateAffectedItems(startDateIndex, startShift, oldItem, newItem);
 }
@@ -761,53 +766,52 @@ function recalculateAffectedItems(startDateIndex, startShift, oldItem, newItem) 
     if (oldItem && oldItem !== '') affectedItems.add(oldItem);
     if (newItem && newItem !== '') affectedItems.add(newItem);
 
-    // 影響を受ける品番がない場合は何もしない
-    if (affectedItems.size === 0) {
-        return;
-    }
+    // 影響を受ける品番がある場合のみ金型・生産台数を再計算
+    if (affectedItems.size > 0) {
+        // 次の直に移動
+        let next = moveToNextShift(startDateIndex, startShift);
+        let currentDateIndex = next.dateIndex;
+        let currentShift = next.shift;
 
-    // 次の直に移動
-    let next = moveToNextShift(startDateIndex, startShift);
-    let currentDateIndex = next.dateIndex;
-    let currentShift = next.shift;
+        // 1回のループで金型使用数の再計算と生産台数の日付収集を同時に実行
+        const affectedDatesForProduction = new Set();
 
-    // 1回のループで金型使用数の再計算と生産台数の日付収集を同時に実行
-    const affectedDatesForProduction = new Set();
+        while (currentDateIndex < dateCount) {
+            let hasAffectedItem = false;
 
-    while (currentDateIndex < dateCount) {
-        let hasAffectedItem = false;
-
-        for (let m = 0; m < totalMachines; m++) {
-            const select = selectElementCache[currentShift]?.[currentDateIndex]?.[m];
-            if (select) {
-                const itemName = select.value;
-                // この設備が影響を受ける品番を使用している場合
-                if (affectedItems.has(itemName)) {
-                    hasAffectedItem = true;
-                    // 金型使用数を再計算
-                    updateMoldCount(currentDateIndex, currentShift, m);
+            for (let m = 0; m < totalMachines; m++) {
+                const select = selectElementCache[currentShift]?.[currentDateIndex]?.[m];
+                if (select) {
+                    const itemName = select.value;
+                    // この設備が影響を受ける品番を使用している場合
+                    if (affectedItems.has(itemName)) {
+                        hasAffectedItem = true;
+                        // 金型使用数を再計算
+                        updateMoldCount(currentDateIndex, currentShift, m);
+                    }
                 }
             }
+
+            // 影響を受ける品番がある直の生産台数を後で再計算するため記録
+            if (hasAffectedItem) {
+                affectedDatesForProduction.add(`${currentDateIndex}-${currentShift}`);
+            }
+
+            // 次の直に移動
+            next = moveToNextShift(currentDateIndex, currentShift);
+            currentDateIndex = next.dateIndex;
+            currentShift = next.shift;
         }
 
-        // 影響を受ける品番がある直の生産台数を後で再計算するため記録
-        if (hasAffectedItem) {
-            affectedDatesForProduction.add(`${currentDateIndex}-${currentShift}`);
-        }
-
-        // 次の直に移動
-        next = moveToNextShift(currentDateIndex, currentShift);
-        currentDateIndex = next.dateIndex;
-        currentShift = next.shift;
+        // 影響を受ける日付の生産台数を再計算
+        affectedDatesForProduction.forEach(key => {
+            const [d, shift] = key.split('-');
+            calculateProduction(parseInt(d), shift);
+        });
     }
 
-    // 影響を受ける日付の生産台数を再計算
-    affectedDatesForProduction.forEach(key => {
-        const [d, shift] = key.split('-');
-        calculateProduction(parseInt(d), shift);
-    });
-
     // 在庫は全品番を再計算（品番間の依存関係があるため）
+    // 品番を"-"に変更した場合でも在庫数の再計算は必要
     recalculateAllInventoryWrapper();
 
     // 再利用可能金型を更新
@@ -1867,15 +1871,8 @@ function calculateProduction(dateIndex, shift) {
         const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
         const checkText = checkCell.textContent.trim();
         if (isWeekend && checkText !== '休出') {
-            // 生産台数をクリア（キャッシュを使用、shared/casting.jsの構造に対応）
-            if (inventoryElementCache) {
-                Object.keys(inventoryElementCache.production).forEach(itemName => {
-                    const productionElement = inventoryElementCache.production[itemName]?.[shift]?.[dateIndex];
-                    if (productionElement) {
-                        setElementValue(productionElement, '');
-                    }
-                });
-            }
+            // 生産台数をクリア（共通関数を使用）
+            clearAllProductionElements(inventoryElementCache, shift, dateIndex);
             return;
         }
     }
@@ -2023,14 +2020,12 @@ function calculateProduction(dateIndex, shift) {
         }
     });
 
-    // 選択されていない品番は空にする（キャッシュを使用、shared/casting.jsの構造に対応）
+    // 選択されていない品番は空にする（共通関数を使用）
     if (inventoryElementCache) {
         Object.keys(inventoryElementCache.production).forEach(itemName => {
             if (!itemStats[itemName]) {
                 const productionElement = inventoryElementCache.production[itemName]?.[shift]?.[dateIndex];
-                if (productionElement) {
-                    setElementValue(productionElement, '');
-                }
+                clearProductionElement(productionElement);
             }
         });
     }

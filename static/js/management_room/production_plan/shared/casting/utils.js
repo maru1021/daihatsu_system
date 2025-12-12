@@ -318,3 +318,29 @@ export function calculateMachineProduction(workingTime, tact, operationRate, yie
     const goodProduction = calculateGoodProduction(totalProduction, yieldRate);
     return { totalProduction, goodProduction };
 }
+
+/**
+ * 生産要素をクリア（表示値とdata-good-production属性の両方）
+ * @param {HTMLElement} productionElement - 生産要素
+ */
+export function clearProductionElement(productionElement) {
+    if (productionElement) {
+        setElementValue(productionElement, '');
+        productionElement.dataset.goodProduction = '0';
+    }
+}
+
+/**
+ * 指定した直の全品番の生産要素をクリア
+ * @param {Object} inventoryElementCache - 在庫要素キャッシュ
+ * @param {string} shift - 直（'day' or 'night'）
+ * @param {number} dateIndex - 日付インデックス
+ */
+export function clearAllProductionElements(inventoryElementCache, shift, dateIndex) {
+    if (!inventoryElementCache) return;
+
+    Object.keys(inventoryElementCache.production).forEach(itemName => {
+        const productionElement = inventoryElementCache.production[itemName]?.[shift]?.[dateIndex];
+        clearProductionElement(productionElement);
+    });
+}

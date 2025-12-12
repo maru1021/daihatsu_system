@@ -240,6 +240,8 @@ export const getCookie = Utils.getCookie;
 export const calculateTotalProduction = Utils.calculateTotalProduction;
 export const calculateGoodProduction = Utils.calculateGoodProduction;
 export const calculateMachineProduction = Utils.calculateMachineProduction;
+export const clearProductionElement = Utils.clearProductionElement;
+export const clearAllProductionElements = Utils.clearAllProductionElements;
 
 // Cache
 export const buildDOMCache = Cache.buildDOMCache;

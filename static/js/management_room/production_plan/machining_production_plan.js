@@ -24,9 +24,9 @@
 // - forループ化による関数呼び出しオーバーヘッドの削減
 //
 // コード構造:
-// 1. 定数定義
+// 1. 共通モジュールのインポート
 // 2. グローバルキャッシュ
-// 3. ユーティリティ関数
+// 3. 加工固有のユーティリティ関数
 // 4. 生産数計算関数
 // 5. 在庫計算関数
 // 6. 残業計算関数
@@ -36,25 +36,32 @@
 // 10. 初期化処理
 //
 // ========================================
-// 定数
+// 共通モジュールのインポート
 // ========================================
-const REGULAR_TIME_DAY = 455;           // 加工の日勤定時時間（分）
-const REGULAR_TIME_NIGHT = 450;         // 加工の夜勤定時時間（分）
-const OVERTIME_ROUND_MINUTES = 5;       // 残業時間の丸め単位（分）
-const DEBOUNCE_DELAY = 100;             // デバウンス遅延時間（ミリ秒）
-const STOCK_UPDATE_DELAY = 150;         // 在庫更新遅延時間（ミリ秒）
+import {
+    REGULAR_TIME_DAY,
+    REGULAR_TIME_NIGHT,
+    OVERTIME_MAX_DAY,
+    OVERTIME_MAX_NIGHT,
+    OVERTIME_ROUND_MINUTES,
+    DEBOUNCE_DELAY,
+    STOCK_UPDATE_DELAY,
+    SHIFT,
+    CELL_TEXT,
+    debounce,
+    getInputElement,
+    getInputValue,
+    getShipmentValue,
+    setCellStyle,
+    getItemNames,
+    // toggleInputs, setOvertimeLimit, updateOvertimeInputVisibility は加工固有の実装を使用
+    createHandleLineChange,
+    createHandleMonthChange
+} from './shared/assembly_machining/index.js';
 
-// シフト定数
-const SHIFT = {
-    DAY: 'day',
-    NIGHT: 'night'
-};
-
-// セル表示文字列
-const CELL_TEXT = {
-    REGULAR: '定時',
-    WEEKEND_WORK: '休出'
-};
+// ========================================
+// 加工固有の定数
+// ========================================
 
 // 品番別の生産数比率を保存
 // { lineIndex: { dateIndex: { shift: { itemName: ratio } } } }
@@ -186,44 +193,11 @@ function getCachedInput(type, lineIndex, dateIndex, shift, itemName) {
 }
 
 // ========================================
-// ユーティリティ関数
+// 加工固有のユーティリティ関数
 // ========================================
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
+// debounce、getItemNames、getInputElement、getInputValue、getShipmentValue、setCellStyleは共通モジュールから使用
 
-// 品番リストを取得（テーブルごとに異なる品番がある可能性があるため、lineIndexを指定）
-function getItemNames(lineIndex) {
-    const itemNames = [];
-    if (lineIndex !== undefined && lineIndex !== null) {
-        // 特定のテーブルから品番を取得
-        const table = document.querySelector(`table[data-line-index="${lineIndex}"]`);
-        if (table) {
-            table.querySelectorAll('[data-section="production"][data-shift="day"] .vehicle-label').forEach(label => {
-                itemNames.push(label.textContent.trim());
-            });
-        }
-    } else {
-        // lineIndexが指定されていない場合は最初のテーブルから取得（後方互換性）
-        const firstTable = document.querySelector('table[data-line-index="0"]');
-        if (firstTable) {
-            firstTable.querySelectorAll('[data-section="production"][data-shift="day"] .vehicle-label').forEach(label => {
-                itemNames.push(label.textContent.trim());
-            });
-        }
-    }
-    return itemNames;
-}
-
-// 全テーブルの品番を重複なく取得
+// 全テーブルの品番を重複なく取得（加工固有）
 function getAllItemNames() {
     const itemNamesSet = new Set();
     const tables = document.querySelectorAll('table[data-line-index]');
@@ -233,30 +207,6 @@ function getAllItemNames() {
         });
     });
     return Array.from(itemNamesSet);
-}
-
-// 入力要素を取得
-function getInputElement(selector) {
-    return document.querySelector(selector);
-}
-
-// 入力値を取得（非表示の場合は0を返す）
-function getInputValue(input) {
-    return input && input.style.display !== 'none' ? (parseInt(input.value) || 0) : 0;
-}
-
-// 出庫数の値を取得（span要素から）
-function getShipmentValue(shipmentDisplay) {
-    return shipmentDisplay && shipmentDisplay.style.display !== 'none' ? (parseInt(shipmentDisplay.textContent) || 0) : 0;
-}
-
-// セルのスタイルを設定
-function setCellStyle(cell, value) {
-    if (cell) {
-        cell.textContent = value > 0 ? value : '';
-        cell.style.fontWeight = 'bold';
-        cell.style.textAlign = 'center';
-    }
 }
 
 // 生産数の比率を保存
@@ -1214,7 +1164,8 @@ const debouncedUpdateWorkingDayStatus = debounce(function (dateIndex, lineIndex)
     updateWorkingDayStatus(dateIndex, lineIndex);
 }, DEBOUNCE_DELAY);
 
-function toggleCheck(element) {
+// 加工固有のtoggleCheck関数（HTMLから呼び出されるグローバル関数）
+window.toggleCheck = function(element) {
     const isWeekend = element.getAttribute('data-weekend') === 'true';
     const currentText = element.textContent.trim();
 
@@ -1239,9 +1190,10 @@ function toggleCheck(element) {
     setTimeout(() => {
         updateRowTotals();
     }, 150);
-}
+};
 
 // 入力フィールドの表示/非表示を制御
+// toggleInputsは加工固有（在庫表示の制御を含むため共通モジュールとは異なる）
 function toggleInputs(dateIndex, shift, show, lineIndex = null) {
     let selector = `[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
     if (lineIndex !== null) {
@@ -1271,7 +1223,7 @@ function toggleInputs(dateIndex, shift, show, lineIndex = null) {
     });
 }
 
-// 残業上限を設定
+// setOvertimeLimitは加工固有（プログラマティック変更フラグの設定を含むため共通モジュールとは異なる）
 function setOvertimeLimit(dateIndex, shift, max, lineIndex = null) {
     let selector = `.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
     if (lineIndex !== null) {
@@ -1578,23 +1530,9 @@ function updateWorkingDayStatus(dateIndex, lineIndex = 0, isInitializing = false
 // ========================================
 // ライン・月選択変更処理
 // ========================================
-function handleLineChange() {
-    const lineName = $('#line-select').val();
-    const targetMonth = $('#target-month').val();
-    if (lineName && targetMonth) {
-        const [year, month] = targetMonth.split('-');
-        window.location.href = `?line_name=${encodeURIComponent(lineName)}&year=${year}&month=${month}`;
-    }
-}
-
-function handleMonthChange() {
-    const lineName = $('#line-select').val();
-    const targetMonth = $('#target-month').val();
-    if (lineName && targetMonth) {
-        const [year, month] = targetMonth.split('-');
-        window.location.href = `?line_name=${encodeURIComponent(lineName)}&year=${year}&month=${month}`;
-    }
-}
+// 共通モジュールのファクトリー関数を使用してハンドラーを作成（加工は'line_name'パラメータを使用）
+const handleLineChange = createHandleLineChange('line_name');
+const handleMonthChange = createHandleMonthChange('line_name');
 
 // ========================================
 // 保存機能
@@ -2076,6 +2014,7 @@ function highlightUnderRegularTimeColumns() {
  * - 土日（休出なし）: 日勤・夜勤とも非表示
  * - 通常: すべて表示
  */
+// updateOvertimeInputVisibilityは加工固有（計画停止時間の制御を含むため共通モジュールとは異なる）
 function updateOvertimeInputVisibility() {
     const checkCells = document.querySelectorAll('.check-cell');
 

@@ -9,6 +9,7 @@ use context7
 ### 生産計画
 - **共通**: [management_room/production_plan/common/](management_room/production_plan/common/)
   - [shared_modules.md](management_room/production_plan/common/shared_modules.md): 共通モジュール（鋳造・CVT）
+  - [assembly_machining_shared.md](management_room/production_plan/common/assembly_machining_shared.md): 共通モジュール（組付・加工）
   - [stock_management.md](management_room/production_plan/common/stock_management.md): 在庫管理
   - [performance.md](management_room/production_plan/common/performance.md): 最適化
 
