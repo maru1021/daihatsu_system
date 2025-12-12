@@ -15,8 +15,11 @@ export * from './constants.js';
 // ユーティリティ関数
 export * from './utils.js';
 
-// 制御関数（組付専用のtoggleCheckのみ）
+// 制御関数
 export * from './control.js';
 
 // ナビゲーション関数
 export * from './navigation.js';
+
+// 合計計算関数
+export * from './totals.js';

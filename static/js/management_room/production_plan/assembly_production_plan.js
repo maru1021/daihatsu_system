@@ -30,7 +30,13 @@ import {
     updateAllItemsProduction as updateAllItemsProductionCommon,
     toggleCheck as toggleCheckCommon,
     createHandleLineChange,
-    createHandleMonthChange
+    createHandleMonthChange,
+    // 新しく追加した共通関数
+    calculateSectionTotal,
+    setOvertimeLimit,
+    toggleInputs,
+    updateOvertimeInputVisibility,
+    recalculateOvertimeFromProduction
 } from './shared/assembly_machining/index.js';
 
 // ========================================
@@ -109,20 +115,8 @@ function updateAllProductionQuantities() {
 // ========================================
 // 合計値計算機能
 // ========================================
-// セクションごとの合計を計算
-function calculateSectionTotal(rows, inputClass) {
-    rows.forEach(row => {
-        let total = 0;
-        row.querySelectorAll(`.${inputClass}`).forEach(input => {
-            if (input.style.display !== 'none') {
-                total += parseInt(input.value) || 0;
-            }
-        });
-
-        const lastCell = row.querySelector('td:last-child');
-        setCellStyle(lastCell, total);
-    });
-}
+// セクションごとの合計を計算（共通モジュールから使用）
+// calculateSectionTotal は shared/assembly_machining/totals.js からインポート
 
 // 日勤+夜勤の日別合計を計算
 function updateDailyTotals() {
@@ -269,31 +263,7 @@ window.toggleCheck = function(element) {
     });
 };
 
-// 入力フィールドの表示/非表示を制御
-function toggleInputs(dateIndex, shift, show) {
-    const selector = `[data-shift="${shift}"][data-date-index="${dateIndex}"] input`;
-    document.querySelectorAll(selector).forEach(input => {
-        // 残業inputは除外（updateOvertimeInputVisibility()で制御）
-        if (input.classList.contains('overtime-input')) {
-            return;
-        }
-
-        input.style.display = show ? '' : 'none';
-    });
-}
-
-// 残業上限を設定
-function setOvertimeLimit(dateIndex, shift, max) {
-    const input = getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
-    if (input) {
-        if (max !== null) {
-            input.setAttribute('max', max);
-            if (max === 0) input.value = '0';
-        } else {
-            input.removeAttribute('max');
-        }
-    }
-}
+// toggleInputs と setOvertimeLimit は shared/assembly_machining/control.js からインポート
 
 // 週末の休出状態と平日の定時状態を初期化
 function initializeWeekendWorkingStatus() {
@@ -1387,94 +1357,16 @@ function highlightUnderRegularTimeColumns() {
 // ========================================
 // 生産数から残業時間を逆算
 // ========================================
-function recalculateOvertimeFromProduction(dateIndex, shift, itemName) {
-    const tact = itemData.tact || 0;
-    if (tact === 0) return true;
-
-    const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"]`);
-    if (!occupancyRateInput || occupancyRateInput.style.display === 'none') return true;
-    const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
-    if (occupancyRate === 0) return true;
-
-    // 残業入力（定時・休出時は非表示のため、存在確認は後で行う）
-    const overtimeInput = getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
-
-    const stopTimeInput = getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`);
-    const stopTime = getInputValue(stopTimeInput);
-    const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
-
-    // 全品番の生産数を合計
-    const itemNames = getItemNames();
-    let totalProduction = 0;
-    itemNames.forEach(name => {
-        const productionInput = getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"]`);
-        if (productionInput && productionInput.style.display !== 'none') {
-            totalProduction += parseInt(productionInput.value) || 0;
-        }
+// recalculateOvertimeFromProduction は shared/assembly_machining/totals.js からインポート
+// 組付用のラッパー関数
+function recalculateOvertimeFromProductionWrapper(dateIndex, shift, itemName) {
+    return recalculateOvertimeFromProduction(dateIndex, shift, itemName, {
+        lineIndex: 0,
+        roundingMethod: 'round',
+        linesItemData: null,
+        itemData: window.itemData || itemData,
+        showToast: window.showToast || showToast
     });
-
-    if (totalProduction === 0) {
-        overtimeInput.value = 0;
-        return true;
-    }
-
-    // 定時間で生産できる台数を計算（全車種の合計）
-    // 計算式: 定時間の台数 = (定時間 - 計画停止) / タクト × 稼働率
-    const regularProductionTime = regularTime - stopTime;
-    const regularTotalProduction = regularProductionTime > 0
-        ? Math.ceil(regularProductionTime / tact * occupancyRate)
-        : 0;
-
-    // 残業で必要な追加生産数
-    const additionalProduction = totalProduction - regularTotalProduction;
-
-    // チェックセル取得
-    const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"]`);
-    const date = checkCell?.getAttribute('data-date') || '';
-    const shiftName = shift === 'day' ? '日勤' : '夜勤';
-
-    // 日勤のみ：定時ONまたは休出の場合は残業不可
-    if (shift === 'day') {
-        const isRegularHours = checkCell && checkCell.getAttribute('data-regular-hours') === 'true';
-        const checkText = checkCell ? checkCell.textContent.trim() : '';
-        const isHolidayWork = checkText === '休出';
-
-        if (isRegularHours || isHolidayWork) {
-            if (additionalProduction > 0) {
-                const mode = isRegularHours ? '定時' : '休出';
-                showToast('error', `${date} 日勤：${mode}の場合は残業できません。生産数合計を${regularTotalProduction}以下にしてください。`);
-                return false;
-            }
-            // 定時内に収まっている場合は正常終了
-            return true;
-        }
-    }
-
-    // 定時・休出でない場合のみ残業入力の存在を確認
-    if (!overtimeInput || overtimeInput.style.display === 'none') return true;
-
-    if (additionalProduction <= 0) {
-        overtimeInput.value = 0;
-        return true;
-    }
-
-    // 残業時間を逆算
-    // 計算式: 残業時間 = 追加生産数 × タクト / 稼働率
-    let calculatedOvertime = (additionalProduction * tact) / occupancyRate;
-    calculatedOvertime = Math.max(0, calculatedOvertime);
-
-    const maxOvertime = shift === 'day' ? OVERTIME_MAX_DAY : OVERTIME_MAX_NIGHT;
-
-    // 残業上限を超える場合（通常時の残業上限チェック）
-    if (calculatedOvertime > maxOvertime) {
-        showToast('error', `${date} ${shiftName}：残業時間が上限（${maxOvertime}分）に達しています。生産数合計を${regularTotalProduction + Math.floor(maxOvertime * occupancyRate / tact)}以下にしてください。`);
-        return false; // 入力を拒否
-    }
-
-    // 残業時間を丸める
-    calculatedOvertime = Math.round(calculatedOvertime / OVERTIME_ROUND_MINUTES) * OVERTIME_ROUND_MINUTES;
-    overtimeInput.value = calculatedOvertime;
-    return true; // 入力を許可
 }
 
 // ========================================
@@ -1528,7 +1420,7 @@ function setupEventListeners() {
             isRecalculating = true;
 
             // 1. 残業時間を逆算して上限チェック
-            const isValid = recalculateOvertimeFromProduction(dateIndex, shift, itemName);
+            const isValid = recalculateOvertimeFromProductionWrapper(dateIndex, shift, itemName);
 
             // 上限を超える場合は元の値に戻す
             if (!isValid) {
@@ -1601,60 +1493,5 @@ $(document).ready(function () {
 // ========================================
 // 残業inputの表示/非表示制御
 // ========================================
-function updateOvertimeInputVisibility() {
-    const checkCells = document.querySelectorAll('.check-cell');
-
-    checkCells.forEach((checkCell, dateIndex) => {
-        const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
-        const checkText = checkCell.textContent.trim();
-        const isHolidayWork = checkText === '休出';
-        const isRegularTime = checkText === '定時';
-
-        // 残業inputを取得
-        const dayOvertimeInputs = document.querySelectorAll(
-            `.overtime-input[data-shift="day"][data-date-index="${dateIndex}"]`
-        );
-        const nightOvertimeInputs = document.querySelectorAll(
-            `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"]`
-        );
-
-        if (isWeekend && !isHolidayWork) {
-            // 週末で休出がついていない場合：日勤・夜勤両方とも非表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-        } else if (isHolidayWork) {
-            // 休出の場合：日勤・夜勤両方とも非表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-        } else if (isRegularTime) {
-            // 定時の場合：日勤のみ非表示、夜勤は表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-        } else {
-            // それ以外は両方表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-        }
-    });
-}
+// updateOvertimeInputVisibility は shared/assembly_machining/control.js からインポート
+// 組付用（includeStopTime: false）

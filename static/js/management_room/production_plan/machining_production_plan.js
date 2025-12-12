@@ -54,9 +54,14 @@ import {
     getShipmentValue,
     setCellStyle,
     getItemNames,
-    // toggleInputs, setOvertimeLimit, updateOvertimeInputVisibility は加工固有の実装を使用
     createHandleLineChange,
-    createHandleMonthChange
+    createHandleMonthChange,
+    // 新しく追加した共通関数
+    calculateSectionTotal,
+    setOvertimeLimit,
+    toggleInputs,
+    updateOvertimeInputVisibility,
+    recalculateOvertimeFromProduction
 } from './shared/assembly_machining/index.js';
 
 // ========================================
@@ -685,42 +690,7 @@ function allocateShipmentToProduction() {
 // ========================================
 // 合計値・在庫計算機能
 // ========================================
-/**
- * セクションごとの合計を計算（input要素とspan要素の両方に対応）
- * @param {NodeList} rows - 対象の行
- * @param {string} elementClass - 合計対象の要素のクラス名
- * @param {Object} options - オプション設定
- * @param {boolean} options.showZero - 0の場合も表示するか（デフォルト: false）
- * @param {string} options.targetCellClass - 合計を表示するセルのクラス名（デフォルト: 'monthly-total'）
- */
-function calculateSectionTotal(rows, elementClass, options = {}) {
-    const { showZero = false, targetCellClass = 'monthly-total' } = options;
-
-    rows.forEach(row => {
-        let total = 0;
-        const elements = row.querySelectorAll(`.${elementClass}`);
-
-        elements.forEach(element => {
-            if (element.style.display !== 'none') {
-                // input要素かspan要素かを判定
-                const value = element.tagName === 'SPAN'
-                    ? (parseInt(element.textContent) || 0)
-                    : (parseInt(element.value) || 0);
-                total += value;
-            }
-        });
-
-        const targetCell = row.querySelector(`.${targetCellClass}`);
-        if (targetCell) {
-            targetCell.textContent = (total > 0 || showZero) ? total : '';
-            targetCell.style.fontWeight = 'bold';
-            targetCell.style.textAlign = 'center';
-            if (targetCellClass === 'stock-difference') {
-                targetCell.style.backgroundColor = '#e0f2fe';
-            }
-        }
-    });
-}
+// calculateSectionTotal は shared/assembly_machining/totals.js からインポート
 
 /**
  * 表示されている在庫を取得（ヘルパー関数）
@@ -1184,7 +1154,7 @@ window.toggleCheck = function(element) {
     debouncedUpdateWorkingDayStatus(dateIndex, lineIndex);
 
     // 残業input表示制御を更新
-    updateOvertimeInputVisibility();
+    updateOvertimeInputVisibility({ includeStopTime: true });
 
     // 合計を更新（在庫はupdateWorkingDayStatus内で更新される）
     setTimeout(() => {
@@ -1192,62 +1162,8 @@ window.toggleCheck = function(element) {
     }, 150);
 };
 
-// 入力フィールドの表示/非表示を制御
-// toggleInputsは加工固有（在庫表示の制御を含むため共通モジュールとは異なる）
-function toggleInputs(dateIndex, shift, show, lineIndex = null) {
-    let selector = `[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
-    if (lineIndex !== null) {
-        selector += `[data-line-index="${lineIndex}"]`;
-    }
-
-    // input要素の表示/非表示
-    document.querySelectorAll(selector + ' input').forEach(input => {
-        // 残業inputは除外（別途制御）
-        if (input.classList.contains('overtime-input')) {
-            return;
-        }
-        // 非表示にする場合は値を0にクリア（在庫計算への影響を防ぐ）
-        if (!show) {
-            input.value = 0;
-        }
-        input.style.display = show ? '' : 'none';
-    });
-
-    // 在庫表示(span)の表示/非表示
-    document.querySelectorAll(selector + ' .stock-display').forEach(display => {
-        // 非表示にする場合は値をクリア
-        if (!show) {
-            display.textContent = '';
-        }
-        display.style.display = show ? '' : 'none';
-    });
-}
-
-// setOvertimeLimitは加工固有（プログラマティック変更フラグの設定を含むため共通モジュールとは異なる）
-function setOvertimeLimit(dateIndex, shift, max, lineIndex = null) {
-    let selector = `.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
-    if (lineIndex !== null) {
-        selector += `[data-line-index="${lineIndex}"]`;
-    }
-    const input = getInputElement(selector);
-    if (input) {
-        if (max !== null) {
-            input.setAttribute('max', max);
-            // 上限が0の場合、現在値が0でなければ0に設定
-            // プログラマティックな変更を示すフラグを設定してinputイベントを抑制
-            if (max === 0 && input.value !== '0') {
-                input.dataset.programmaticChange = 'true';
-                input.value = '0';
-                // フラグをクリア（nextTickで）
-                setTimeout(() => {
-                    delete input.dataset.programmaticChange;
-                }, 0);
-            }
-        } else {
-            input.removeAttribute('max');
-        }
-    }
-}
+// toggleInputs と setOvertimeLimit は shared/assembly_machining/control.js からインポート
+// 加工用（includeStockDisplay: true）
 
 // 週末の休出時に定時分の初期値を設定
 function setWeekendRegularTimeProduction(dateIndex, lineIndex) {
@@ -1365,8 +1281,8 @@ function initializeWeekendWorkingStatus() {
                     input.value = 0;
                 });
 
-                toggleInputs(dateIndex, 'day', false, lineIndex);
-                toggleInputs(dateIndex, 'night', false, lineIndex);
+                toggleInputs(dateIndex, 'day', false, { lineIndex, includeStockDisplay: true });
+                toggleInputs(dateIndex, 'night', false, { lineIndex, includeStockDisplay: true });
             }
         } else {
             // 平日の初期化処理
@@ -1414,8 +1330,8 @@ function updateWorkingDayStatus(dateIndex, lineIndex = 0, isInitializing = false
 
         if (isWorking) {
             // 休出あり: すべての入力フィールドを表示（このラインのみ）
-            toggleInputs(dateIndex, 'day', true, lineIndex);
-            toggleInputs(dateIndex, 'night', false, lineIndex); // 夜勤は週末常に非表示
+            toggleInputs(dateIndex, 'day', true, { lineIndex, includeStockDisplay: true });
+            toggleInputs(dateIndex, 'night', false, { lineIndex, includeStockDisplay: true }); // 夜勤は週末常に非表示
 
             // 休出の場合、初期化時以外は生産数を計算して在庫を再計算
             if (!isInitializing) {
@@ -1475,8 +1391,8 @@ function updateWorkingDayStatus(dateIndex, lineIndex = 0, isInitializing = false
         }
 
         // 残業計画の上限値を設定（休出は残業0）（このラインのみ）
-        setOvertimeLimit(dateIndex, 'day', isWorking ? 0 : 0, lineIndex);
-        setOvertimeLimit(dateIndex, 'night', isWorking ? 0 : 0, lineIndex);
+        setOvertimeLimit(dateIndex, 'day', isWorking ? 0 : 0, { lineIndex });
+        setOvertimeLimit(dateIndex, 'night', isWorking ? 0 : 0, { lineIndex });
     } else {
         // 平日の場合
         const isWorking = checkText === CELL_TEXT.REGULAR;
@@ -1738,95 +1654,17 @@ function saveProductionPlan() {
 // ========================================
 // 生産数から残業時間を逆算
 // ========================================
-function recalculateOvertimeFromProduction(dateIndex, shift, _itemName, lineIndex) {
+// recalculateOvertimeFromProduction は shared/assembly_machining/totals.js からインポート
+// 加工用のラッパー関数
+function recalculateOvertimeFromProductionWrapper(dateIndex, shift, itemName, lineIndex) {
     lineIndex = lineIndex || 0;
-
-    const itemData = linesItemData[lineIndex] || {};
-    const tact = itemData.tact || 0;
-    if (tact === 0) return true;
-
-    const occupancyRateInput = getInputElement(`.operation-rate-input[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-    if (!occupancyRateInput || occupancyRateInput.style.display === 'none') return true;
-    const occupancyRate = (parseFloat(occupancyRateInput.value) || 0) / 100;
-    if (occupancyRate === 0) return true;
-
-    // 残業入力（定時・休出時は非表示のため、存在確認は後で行う）
-    const overtimeInput = getInputElement(`.overtime-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-
-    const stopTimeInput = getInputElement(`.stop-time-input[data-shift="${shift}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-    const stopTime = getInputValue(stopTimeInput);
-    const regularTime = shift === 'day' ? REGULAR_TIME_DAY : REGULAR_TIME_NIGHT;
-
-    // 全品番の生産数を合計
-    const itemNames = getItemNames(lineIndex);
-    let totalProduction = 0;
-    itemNames.forEach(name => {
-        const productionInput = getInputElement(`.production-input[data-shift="${shift}"][data-item="${name}"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-        if (productionInput && productionInput.style.display !== 'none') {
-            totalProduction += parseInt(productionInput.value) || 0;
-        }
+    return recalculateOvertimeFromProduction(dateIndex, shift, itemName, {
+        lineIndex,
+        roundingMethod: 'ceil',
+        linesItemData: window.linesItemData || linesItemData,
+        itemData: null,
+        showToast: window.showToast || showToast
     });
-
-    if (totalProduction === 0) {
-        if (overtimeInput) overtimeInput.value = 0;
-        return true;
-    }
-
-    // 定時間で生産できる台数を計算
-    const regularProductionTime = regularTime - stopTime;
-    const regularTotalProduction = regularProductionTime > 0
-        ? Math.ceil(regularProductionTime / tact * occupancyRate)
-        : 0;
-
-    // 残業で必要な追加生産数
-    const additionalProduction = totalProduction - regularTotalProduction;
-
-    // チェックセル取得（各ラインごとに独立）
-    const checkCell = document.querySelector(`.check-cell[data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`);
-    const date = checkCell?.getAttribute('data-date') || '';
-    const shiftName = shift === 'day' ? '日勤' : '夜勤';
-
-    // 日勤のみ：定時ONまたは休出の場合は残業不可
-    if (shift === 'day') {
-        const isRegularHours = checkCell && checkCell.getAttribute('data-regular-hours') === 'true';
-        const checkText = checkCell ? checkCell.textContent.trim() : '';
-        const isHolidayWork = checkText === '休出';
-
-        if (isRegularHours || isHolidayWork) {
-            if (additionalProduction > 0) {
-                const mode = isRegularHours ? '定時' : '休出';
-                showToast('error', `${date} 日勤：${mode}の場合は残業できません。生産数合計を${regularTotalProduction}以下にしてください。`);
-                return false;
-            }
-            // 定時内に収まっている場合は正常終了
-            return true;
-        }
-    }
-
-    // 定時・休出でない場合のみ残業入力の存在を確認
-    if (!overtimeInput || overtimeInput.style.display === 'none') return true;
-
-    if (additionalProduction <= 0) {
-        overtimeInput.value = 0;
-        return true;
-    }
-
-    // 残業時間を逆算
-    let calculatedOvertime = (additionalProduction * tact) / occupancyRate;
-    calculatedOvertime = Math.max(0, calculatedOvertime);
-
-    const maxOvertime = shift === 'day' ? OVERTIME_MAX_DAY : OVERTIME_MAX_NIGHT;
-
-    // 残業上限を超える場合（通常時の残業上限チェック）
-    if (calculatedOvertime > maxOvertime) {
-        showToast('error', `${date} ${shiftName}：残業時間が上限（${maxOvertime}分）に達しています。生産数合計を${regularTotalProduction + Math.floor(maxOvertime * occupancyRate / tact)}以下にしてください。`);
-        return false;
-    }
-
-    // 残業時間を丸め単位で切り上げ
-    calculatedOvertime = Math.ceil(calculatedOvertime / OVERTIME_ROUND_MINUTES) * OVERTIME_ROUND_MINUTES;
-    overtimeInput.value = calculatedOvertime;
-    return true;
 }
 
 // ========================================
@@ -1887,7 +1725,7 @@ function setupEventListeners() {
             saveProductionRatios(lineIndex, dateIndex, shift);
 
             // 残業時間の逆算と上限チェック（定時・休出時の上限チェックも含む）
-            const isValid = recalculateOvertimeFromProduction(dateIndex, shift, itemName, lineIndex);
+            const isValid = recalculateOvertimeFromProductionWrapper(dateIndex, shift, itemName, lineIndex);
             if (!isValid) {
                 this.value = previousValue;
                 // 元の値に戻したので、比率も再保存
@@ -2007,110 +1845,8 @@ function highlightUnderRegularTimeColumns() {
 // ========================================
 // 残業input表示制御
 // ========================================
-/**
- * 残業inputの表示/非表示を更新
- * - 休出: 日勤・夜勤とも非表示
- * - 定時: 日勤のみ非表示
- * - 土日（休出なし）: 日勤・夜勤とも非表示
- * - 通常: すべて表示
- */
-// updateOvertimeInputVisibilityは加工固有（計画停止時間の制御を含むため共通モジュールとは異なる）
-function updateOvertimeInputVisibility() {
-    const checkCells = document.querySelectorAll('.check-cell');
-
-    checkCells.forEach((checkCell) => {
-        const dateIndex = parseInt(checkCell.getAttribute('data-date-index'));
-        const lineIndex = parseInt(checkCell.getAttribute('data-line-index'));
-
-        // lineIndexが無効な場合はスキップ
-        if (isNaN(dateIndex) || isNaN(lineIndex)) {
-            return;
-        }
-
-        const checkText = checkCell.textContent.trim();
-        const isHolidayWork = checkText === CELL_TEXT.WEEKEND_WORK;
-        const isRegularTime = checkText === CELL_TEXT.REGULAR;
-        const isWeekend = checkCell.getAttribute('data-weekend') === 'true';
-
-        const dayOvertimeInputs = document.querySelectorAll(
-            `.overtime-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`
-        );
-        const nightOvertimeInputs = document.querySelectorAll(
-            `.overtime-input[data-shift="night"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`
-        );
-        const dayStopTimeInputs = document.querySelectorAll(
-            `.stop-time-input[data-shift="day"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`
-        );
-        const nightStopTimeInputs = document.querySelectorAll(
-            `.stop-time-input[data-shift="night"][data-date-index="${dateIndex}"][data-line-index="${lineIndex}"]`
-        );
-
-        if (isWeekend && !isHolidayWork) {
-            // 土日（休出なし）: 両方非表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            dayStopTimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightStopTimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-        } else if (isHolidayWork) {
-            // 休出: 残業は非表示、計画停止は表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            dayStopTimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-            nightStopTimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-        } else if (isRegularTime) {
-            // 定時: 日勤の残業のみ非表示、計画停止は表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = 'none';
-                input.value = 0;
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-            dayStopTimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-            nightStopTimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-        } else {
-            // 通常: すべて表示
-            dayOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-            nightOvertimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-            dayStopTimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-            nightStopTimeInputs.forEach(input => {
-                input.style.display = '';
-            });
-        }
-    });
-}
+// updateOvertimeInputVisibility は shared/assembly_machining/control.js からインポート
+// 加工用（includeStopTime: true）
 
 // ========================================
 // 非同期計算（パフォーマンス最適化）
@@ -2368,7 +2104,7 @@ $(document).ready(async function () {
     initializeWeekendWorkingStatus();
 
     // 残業input表示制御を初期化
-    updateOvertimeInputVisibility();
+    updateOvertimeInputVisibility({ includeStopTime: true });
 
     // 出庫数は読み取り専用なので入力制御不要
 
