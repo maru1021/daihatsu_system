@@ -15,9 +15,10 @@ from daihatsu.views.graph_maker_view import GraphMakerView
 from daihatsu.views.schedule_import import ScheduleImport
 from daihatsu.views.get_local_error import GetLocalError
 from daihatsu.views.audio_anomaly_detection import AudioAnomalyDetectionView
+from daihatsu.views.home_view import HomeView
 
 urlpatterns = [
-    path('', TemplateView.as_view(template_name='home.html'), name='home'),
+    path('', HomeView.as_view(), name='home'),
     path('auth/login', CustomLoginView.as_view(template_name='auth/login.html'), name='login'),
     path('auth/logout', CustomLogoutView.as_view(), name='logout'),
     path('auth/password-change/', PasswordChangeView.as_view(), name='password_change'),

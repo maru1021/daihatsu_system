@@ -1,0 +1,418 @@
+/* ========================================
+   ホームページ専用スタイル
+   ======================================== */
+
+/* ベース設定 */
+#main-content {
+  padding: 0 !important;
+  margin-left: var(--sidebar-width) !important;
+  background: #ffffff !important;
+  min-height: 100vh !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+/* ヒーローコンテナ */
+.home-hero {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Three.jsキャンバス */
+#three-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* ========================================
+   ヒーローコンテンツ
+   ======================================== */
+.hero-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  text-align: center;
+  width: 90%;
+  max-width: 1400px;
+}
+
+/* ========================================
+   メインテキスト
+   ======================================== */
+.hero-text {
+  position: relative;
+  display: inline-block;
+  padding: 2rem 3rem;
+  overflow: visible;
+  cursor: default;
+}
+
+.hero-text h1 {
+  font-size: 5.5rem;
+  font-weight: 800;
+  margin: 0;
+  letter-spacing: 0.4em;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, 'Yu Gothic', 'YuGothic', 'Hiragino Kaku Gothic ProN', sans-serif;
+  animation: textReveal 1.5s cubic-bezier(0.77, 0, 0.175, 1) forwards;
+  opacity: 0;
+  line-height: 1.4;
+  filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.12))
+          drop-shadow(0 12px 40px rgba(44, 62, 80, 0.08))
+          drop-shadow(0 2px 8px rgba(0, 0, 0, 0.06));
+}
+
+.hero-text h1 .line-1,
+.hero-text h1 .line-2,
+.hero-text h1 .line-3 {
+  display: block;
+  white-space: nowrap;
+}
+
+/* 各文字にグラデーション */
+.hero-text h1 .char {
+  display: inline-block;
+  background: linear-gradient(135deg,
+    #0f0f0f 0%,
+    #2c3e50 25%,
+    #34495e 50%,
+    #2c3e50 75%,
+    #0f0f0f 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 6s ease-in-out infinite;
+  position: relative;
+}
+
+/* ランダムな遅延でふわふわアニメーション */
+.hero-text h1 .char {
+  animation: charFloat 3s ease-in-out infinite;
+}
+
+.hero-text h1 .char:nth-child(1) { animation-delay: 0s; }
+.hero-text h1 .char:nth-child(2) { animation-delay: 0.1s; }
+.hero-text h1 .char:nth-child(3) { animation-delay: 0.2s; }
+.hero-text h1 .char:nth-child(4) { animation-delay: 0.3s; }
+.hero-text h1 .char:nth-child(5) { animation-delay: 0.4s; }
+.hero-text h1 .char:nth-child(6) { animation-delay: 0.5s; }
+.hero-text h1 .char:nth-child(7) { animation-delay: 0.6s; }
+.hero-text h1 .char:nth-child(8) { animation-delay: 0.7s; }
+.hero-text h1 .char:nth-child(9) { animation-delay: 0.8s; }
+.hero-text h1 .char:nth-child(10) { animation-delay: 0.9s; }
+
+@keyframes charFloat {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-5px) rotate(1deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(-1deg);
+  }
+  75% {
+    transform: translateY(-3px) rotate(0.5deg);
+  }
+}
+
+.hero-text h1 .line-2 {
+  padding-left: 4rem;
+}
+
+.hero-text h1 .line-3 {
+  font-size: 0.5em;
+  margin-top: 1rem;
+  letter-spacing: 0.3em;
+  opacity: 1;
+  background: linear-gradient(135deg,
+    #0f0f0f 0%,
+    #2c3e50 50%,
+    #0f0f0f 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ========================================
+   アニメーション
+   ======================================== */
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes textReveal {
+  0% {
+    opacity: 0;
+    transform: scale(1.1);
+    filter: blur(12px);
+  }
+  60% {
+    opacity: 0.8;
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+/* テキスト背景の光エフェクト */
+.hero-text::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 110%;
+  height: 140%;
+  background: radial-gradient(ellipse at center,
+    rgba(44, 62, 80, 0.04) 0%,
+    rgba(44, 62, 80, 0.02) 40%,
+    transparent 70%);
+  z-index: -1;
+  animation: glowPulse 4s ease-in-out infinite, glowFadeIn 2s ease-out forwards;
+  border-radius: 20px;
+  opacity: 0;
+}
+
+@keyframes glowPulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+@keyframes glowFadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0.7;
+  }
+}
+
+/* ========================================
+   装飾ライン
+   ======================================== */
+.decorative-top,
+.decorative-bottom {
+  position: relative;
+  overflow: hidden;
+}
+
+.decorative-top {
+  margin-bottom: 3rem;
+  height: 3px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(44, 62, 80, 0.3) 10%,
+    #2c3e50 30%,
+    #34495e 50%,
+    #2c3e50 70%,
+    rgba(44, 62, 80, 0.3) 90%,
+    transparent 100%);
+  animation: lineSlideIn 1.2s cubic-bezier(0.77, 0, 0.175, 1) 0.3s backwards;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.2),
+              0 4px 16px rgba(44, 62, 80, 0.1),
+              0 -1px 4px rgba(255, 255, 255, 0.1);
+}
+
+.decorative-bottom {
+  margin-top: 3rem;
+  height: 3px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(44, 62, 80, 0.3) 10%,
+    #2c3e50 30%,
+    #34495e 50%,
+    #2c3e50 70%,
+    rgba(44, 62, 80, 0.3) 90%,
+    transparent 100%);
+  animation: lineSlideIn 1.2s cubic-bezier(0.77, 0, 0.175, 1) 0.5s backwards;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.2),
+              0 4px 16px rgba(44, 62, 80, 0.1),
+              0 -1px 4px rgba(255, 255, 255, 0.1);
+}
+
+
+@keyframes lineSlideIn {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ラインのキラキラ効果 */
+.decorative-top::after,
+.decorative-bottom::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 80%;
+  height: 100%;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(255, 255, 255, 0.9),
+    transparent);
+  animation: shimmer 4s infinite;
+}
+
+.decorative-bottom::after {
+  animation-delay: 2s;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 200%;
+  }
+}
+
+/* ========================================
+   サブタイトル
+   ======================================== */
+.hero-subtitle {
+  margin-top: 2rem;
+  font-size: 1.1rem;
+  color: #2c3e50;
+  letter-spacing: 0.5em;
+  opacity: 0;
+  animation: subtitleSlideUp 1.2s cubic-bezier(0.77, 0, 0.175, 1) 0.7s forwards;
+  font-weight: 500;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.08),
+               0 4px 16px rgba(44, 62, 80, 0.06),
+               0 1px 2px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+}
+
+@keyframes subtitleSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  100% {
+    opacity: 0.85;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ========================================
+   ローディング表示
+   ======================================== */
+.loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  color: #666;
+  font-size: 1.2rem;
+}
+
+/* ========================================
+   レスポンシブ対応
+   ======================================== */
+@media (max-width: 1200px) {
+  .hero-text h1 {
+    font-size: 4.5rem;
+    letter-spacing: 0.35em;
+  }
+  .hero-text {
+    padding: 1.5rem 2.5rem;
+  }
+}
+
+@media (max-width: 992px) {
+  .hero-text h1 {
+    font-size: 3.5rem;
+    letter-spacing: 0.3em;
+  }
+  .hero-text {
+    padding: 1.2rem 2rem;
+  }
+  .decorative-top,
+  .decorative-bottom {
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-text h1 {
+    font-size: 2.8rem;
+    letter-spacing: 0.25em;
+  }
+  .hero-text h1 .line-3 {
+    font-size: 0.45em;
+    margin-top: 0.8rem;
+  }
+  .hero-text {
+    padding: 1rem 1.5rem;
+  }
+  .hero-subtitle {
+    font-size: 0.9rem;
+    letter-spacing: 0.3em;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-text h1 {
+    font-size: 2rem;
+    letter-spacing: 0.2em;
+  }
+  .hero-text h1 .line-2 {
+    padding-left: 2rem;
+  }
+  .hero-text h1 .line-3 {
+    font-size: 0.4em;
+    margin-top: 0.6rem;
+  }
+  .hero-text {
+    padding: 0.8rem 1rem;
+  }
+  .decorative-top,
+  .decorative-bottom {
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+    height: 2px;
+  }
+  .hero-subtitle {
+    font-size: 0.75rem;
+    margin-top: 1rem;
+  }
+}

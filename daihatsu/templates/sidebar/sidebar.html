@@ -18,9 +18,6 @@
       <a
         class="nav-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}"
         href="{% url 'home' %}"
-        hx-get="{% url 'home' %}"
-        hx-target=".main-content"
-        hx-push-url="true"
       >
         <i class="fas fa-home"></i>
         ホーム
