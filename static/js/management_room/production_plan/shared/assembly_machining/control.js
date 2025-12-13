@@ -80,18 +80,19 @@ export function setOvertimeLimit(dateIndex, shift, max, options = {}) {
  * @param {string} shift - シフト（'day' または 'night'）
  * @param {boolean} show - 表示する場合はtrue、非表示にする場合はfalse
  * @param {Object} options - オプション設定
- * @param {number|null} options.lineIndex - ラインインデックス（デフォルト: null）
- * @param {boolean} options.includeStockDisplay - 在庫表示も制御する場合はtrue（デフォルト: false）
+ * @param {number|null} options.lineIndex - ラインインデックス（デフォルト: null、加工側では必須）
+ * @param {boolean} options.includeStockDisplay - 在庫表示も制御する場合はtrue（デフォルト: false、加工側ではtrue推奨）
  */
 export function toggleInputs(dateIndex, shift, show, options = {}) {
     const { lineIndex = null, includeStockDisplay = false } = options;
 
-    let selector = `[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
+    // input要素を直接セレクト（親要素経由ではなく、input自体のdata属性で絞り込む）
+    let selector = `input[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
     if (lineIndex !== null) {
         selector += `[data-line-index="${lineIndex}"]`;
     }
 
-    document.querySelectorAll(selector + ' input').forEach(input => {
+    document.querySelectorAll(selector).forEach(input => {
         // 残業inputは除外（updateOvertimeInputVisibility()で制御）
         if (input.classList.contains('overtime-input')) {
             return;
@@ -106,7 +107,11 @@ export function toggleInputs(dateIndex, shift, show, options = {}) {
 
     // 在庫表示（span要素）の制御（加工用）
     if (includeStockDisplay) {
-        document.querySelectorAll(selector + ' .stock-display').forEach(display => {
+        let stockSelector = `.stock-display[data-shift="${shift}"][data-date-index="${dateIndex}"]`;
+        if (lineIndex !== null) {
+            stockSelector += `[data-line-index="${lineIndex}"]`;
+        }
+        document.querySelectorAll(stockSelector).forEach(display => {
             if (!show) {
                 display.textContent = '';
             }

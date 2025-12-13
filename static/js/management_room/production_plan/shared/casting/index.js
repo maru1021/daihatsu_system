@@ -17,6 +17,17 @@ import * as Inventory from './inventory.js';
 import * as Calculation from './calculation.js';
 import * as Control from './control.js';
 import * as Initialization from './initialization.js';
+import { setupCastingRowHover } from './row_hover.js';
+
+// 共通モジュール
+import {
+    setupRowHover,
+    setupColumnHover,
+    addDateHighlight,
+    removeDateHighlight,
+    OVERTIME_MAX_DAY,
+    OVERTIME_MAX_NIGHT
+} from '../common.js';
 
 /**
  * 鋳造系生産計画クラス
@@ -288,3 +299,9 @@ export const applyAutoProductionPlan = Auto.applyAutoProductionPlan;
 // Events
 import * as Events from './events.js';
 export const setupEventListeners = Events.setupEventListeners;
+
+// Common (共通モジュール)
+export { setupRowHover, setupColumnHover, addDateHighlight, removeDateHighlight, OVERTIME_MAX_DAY, OVERTIME_MAX_NIGHT };
+
+// Casting/CVT固有の機能
+export { setupCastingRowHover };

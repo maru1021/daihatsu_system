@@ -19,6 +19,7 @@ use context7
   - [algorithm.md](management_room/production_plan/casting/algorithm.md): アルゴリズム（ヘッドのみ）
   - [cover_algorithm.md](management_room/production_plan/casting/cover_algorithm.md): カバーラインアルゴリズム
   - [frontend.md](management_room/production_plan/casting/frontend.md): JS
+  - [row_hover.md](management_room/production_plan/casting/row_hover.md): 行ホバー機能（品番・設備）
 
 - **加工**: [management_room/production_plan/machining/](management_room/production_plan/machining/)
   - [overview.md](management_room/production_plan/machining/overview.md): 概要・モデル

@@ -23,3 +23,13 @@ export * from './navigation.js';
 
 // 合計計算関数
 export * from './totals.js';
+
+// 共通モジュール (鋳造・加工・組付・CVTで共有)
+export {
+    setupRowHover,
+    setupColumnHover,
+    addDateHighlight,
+    removeDateHighlight,
+    OVERTIME_MAX_DAY,
+    OVERTIME_MAX_NIGHT
+} from '../common.js';

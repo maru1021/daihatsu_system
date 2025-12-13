@@ -154,16 +154,59 @@
 </tr>
 {% endfor %}
 
-<!-- 生産数 -->
+<!-- 生産割合 -->
 {% for item_name in line_data.item_names %}
-<tr data-section="production" data-shift="day" data-item="{{ item_name }}">
+<tr data-section="production_ratio" data-shift="day" data-item="{{ item_name }}">
   {% if forloop.first %}
   <th class="category-label" rowspan="{{ line_data.rowspan_count }}">
-    生産数
+    生産割合
   </th>
 
   <!-- 日勤 -->
   <th class="shift-label" rowspan="{{ line_data.item_length }}">日勤</th>
+  {% endif %}
+  <th class="vehicle-label">{{ item_name }}</th>
+  {% for date_info in line_data.dates_data %}
+  <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="day" data-item="{{ item_name }}" data-line-index="{{ line_index }}" data-date-index="{{ forloop.counter0 }}">
+    <span class="production-ratio-display" data-shift="day" data-item="{{ item_name }}" data-line-index="{{ line_index }}" data-date-index="{{ forloop.counter0 }}"></span>
+  </td>
+  {% endfor %}
+  <td class="monthly-total production-ratio-monthly" data-shift="day" data-item="{{ item_name }}" data-line-index="{{ line_index }}"></td>
+  <td class="daily-total production-ratio-daily" data-shift="day" data-item="{{ item_name }}" data-line-index="{{ line_index }}"></td>
+</tr>
+{% endfor %}
+
+<!-- 夜勤 -->
+{% for item_name in line_data.item_names %}
+<tr class="night-shift" data-section="production_ratio" data-shift="night" data-item="{{ item_name }}">
+  {% if forloop.first %}
+  <th class="shift-label" rowspan="{{ line_data.item_length }}">夜勤</th>
+  {% endif %}
+  <th class="vehicle-label">{{ item_name }}</th>
+  {% for date_info in line_data.dates_data %}
+  <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="night" data-item="{{ item_name }}" data-line-index="{{ line_index }}" data-date-index="{{ forloop.counter0 }}">
+    <span class="production-ratio-display" data-shift="night" data-item="{{ item_name }}" data-line-index="{{ line_index }}" data-date-index="{{ forloop.counter0 }}"{% if date_info.is_weekend %} style="display:none;"{% endif %}></span>
+  </td>
+  {% endfor %}
+  <td class="monthly-total production-ratio-monthly" data-shift="night" data-item="{{ item_name }}" data-line-index="{{ line_index }}"></td>
+  <td class="daily-total production-ratio-daily" data-shift="night" data-item="{{ item_name }}" data-line-index="{{ line_index }}" style="display:none;"></td>
+</tr>
+{% endfor %}
+
+<!-- 生産数 -->
+{% for item_name in line_data.item_names %}
+<tr data-section="production" data-shift="day" data-item="{{ item_name }}">
+  {% if forloop.first %}
+  {% with adjusted_rowspan=line_data.rowspan_count|add:2 %}
+  <th class="category-label" rowspan="{{ adjusted_rowspan }}">
+    生産数
+  </th>
+  {% endwith %}
+
+  <!-- 日勤 -->
+  {% with adjusted_shift_rowspan=line_data.item_length|add:1 %}
+  <th class="shift-label" rowspan="{{ adjusted_shift_rowspan }}">日勤</th>
+  {% endwith %}
   {% endif %}
   <th class="vehicle-label">{{ item_name }}</th>
   {% for date_info in line_data.dates_data %}
@@ -178,11 +221,25 @@
 </tr>
 {% endfor %}
 
+<!-- 日勤合計行 -->
+<tr data-section="production" data-shift="day" data-type="total" class="production-total-row">
+  <th class="vehicle-label" style="font-weight: bold;">合計</th>
+  {% for date_info in line_data.dates_data %}
+  <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="day" data-line-index="{{ line_index }}" data-date-index="{{ forloop.counter0 }}">
+    <span class="production-total-display" data-shift="day" data-line-index="{{ line_index }}" data-date-index="{{ forloop.counter0 }}" style="font-weight: bold;">0</span>
+  </td>
+  {% endfor %}
+  <td class="monthly-total production-total-monthly" data-shift="day" data-line-index="{{ line_index }}" style="font-weight: bold;">0</td>
+  <td class="daily-total production-total-daily" data-shift="day" data-line-index="{{ line_index }}" style="font-weight: bold;">0</td>
+</tr>
+
 <!-- 夜勤 -->
 {% for item_name in line_data.item_names %}
 <tr class="night-shift" data-section="production" data-shift="night" data-item="{{ item_name }}">
   {% if forloop.first %}
-  <th class="shift-label" rowspan="{{ line_data.item_length }}">夜勤</th>
+  {% with adjusted_shift_rowspan=line_data.item_length|add:1 %}
+  <th class="shift-label" rowspan="{{ adjusted_shift_rowspan }}">夜勤</th>
+  {% endwith %}
   {% endif %}
   <th class="vehicle-label">{{ item_name }}</th>
   {% for date_info in line_data.dates_data %}
@@ -195,6 +252,18 @@
   <td class="monthly-total"></td>
 </tr>
 {% endfor %}
+
+<!-- 夜勤合計行 -->
+<tr class="night-shift" data-section="production" data-shift="night" data-type="total" class="production-total-row">
+  <th class="vehicle-label" style="font-weight: bold;">合計</th>
+  {% for date_info in line_data.dates_data %}
+  <td class="production-cell{% if date_info.is_weekend %} weekend{% endif %}" data-shift="night" data-line-index="{{ line_index }}" data-date-index="{{ forloop.counter0 }}">
+    <span class="production-total-display" data-shift="night" data-line-index="{{ line_index }}" data-date-index="{{ forloop.counter0 }}" style="font-weight: bold;{% if date_info.is_weekend %} display:none;{% endif %}">0</span>
+  </td>
+  {% endfor %}
+  <td class="monthly-total production-total-monthly" data-shift="night" data-line-index="{{ line_index }}" style="font-weight: bold;">0</td>
+  <td class="daily-total production-total-daily" data-shift="night" data-line-index="{{ line_index }}" style="display:none;"></td>
+</tr>
 
 <!-- 在庫数 -->
 {% for item_name in line_data.item_names %}
@@ -367,7 +436,6 @@
 <script src="{% static 'js/vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
 <script src="{% static 'js/vendor/select2/select2.min.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
-<script src="{% static 'js/management_room/production_plan/shared/common.js' %}"></script>
 <script type="module" src="{% static 'js/management_room/production_plan/machining_production_plan.js' %}"></script>
 
 <script>

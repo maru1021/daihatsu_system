@@ -2,8 +2,7 @@
 // 組付生産計画JavaScript
 // ========================================
 // 依存:
-//   - shared/common.js: setupColumnHover() (カラムホバー処理)
-//   - shared/assembly_machining/index.js: 共通定数・関数
+//   - shared/assembly_machining/index.js: 共通定数・関数・カラムホバー処理
 //
 // ========================================
 // 共通モジュールのインポート
@@ -36,7 +35,10 @@ import {
     setOvertimeLimit,
     toggleInputs,
     updateOvertimeInputVisibility,
-    recalculateOvertimeFromProduction
+    recalculateOvertimeFromProduction,
+    // ホバー処理（common.jsから）
+    setupRowHover,
+    setupColumnHover
 } from './shared/assembly_machining/index.js';
 
 // ========================================
@@ -1475,7 +1477,8 @@ $(document).ready(function () {
     // イベントリスナーを設定
     setupEventListeners();
 
-    // 列のホバー処理を設定
+    // ホバー処理を設定
+    setupRowHover();
     setupColumnHover();
 
     // 残業inputの表示/非表示を初期化

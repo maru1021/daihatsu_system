@@ -1,10 +1,17 @@
 {% load group_tags %}
+{% load static %}
 {% user_groups user as groups %}
 
 <nav class="sidebar" id="main-sidebar">
   <div class="sidebar-header">
-    <h3>Daihatsu</h3>
-    <div>{{ user.username }}</div>
+    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.6rem;">
+
+        <img src="{% static 'image/toppage/index.png' %}" alt="わたしにダイハツメイ" style="height: 40px; width: 45%; height: auto; opacity: 0.95;">
+        <h3 style="margin-top: 10%; font-size: 1.5rem; font-weight: 600;">Daihatsu</h3>
+      </div>
+      <div style="font-size: 0.9rem; color: rgba(255, 255, 255, 0.8); padding-left: 0.2rem;">{{ user.username }}</div>
+    </div>
   </div>
   <ul class="nav flex-column">
     <li class="nav-item">

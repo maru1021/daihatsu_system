@@ -48,6 +48,8 @@ import {
     STOCK_UPDATE_DELAY,
     SHIFT,
     CELL_TEXT,
+    setupRowHover,
+    setupColumnHover,
     debounce,
     getInputElement,
     getInputValue,
@@ -725,6 +727,168 @@ function updateStockDifferenceCell(stockDifferenceCell, difference) {
 }
 
 /**
+ * 生産数の合計行を更新（各直の全品番の合計）
+ */
+function updateProductionTotalRows() {
+    const tables = domCache.tables || document.querySelectorAll('table[data-line-index]');
+    const dateCount = domCache.dateCount || document.querySelectorAll('.operation-rate-input[data-line-index="0"]').length;
+
+    tables.forEach((table, lineIndex) => {
+        const itemNames = getItemNames(lineIndex);
+
+        ['day', 'night'].forEach(shift => {
+            // 各日付の合計を計算・表示
+            for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+                const { total } = getProductionByItem(lineIndex, dateIndex, shift, itemNames);
+                const totalDisplay = getElementInTable(table, 'production-total-display', { shift, 'line-index': lineIndex, 'date-index': dateIndex });
+                displayValue(totalDisplay, total);
+            }
+
+            // 月計（直）を計算・表示
+            const { monthlyTotal } = getMonthlyProductionByItem(lineIndex, shift, itemNames, dateCount);
+            const monthlyTotalCell = getElementInTable(table, 'production-total-monthly', { shift, 'line-index': lineIndex });
+            displayValue(monthlyTotalCell, monthlyTotal);
+
+            // 日勤の場合は月計（日勤+夜勤）も計算
+            if (shift === 'day') {
+                const { monthlyTotal: nightMonthlyTotal } = getMonthlyProductionByItem(lineIndex, 'night', itemNames, dateCount);
+                const grandTotal = monthlyTotal + nightMonthlyTotal;
+                const dailyTotalCell = getElementInTable(table, 'production-total-daily', { shift, 'line-index': lineIndex });
+                displayValue(dailyTotalCell, grandTotal);
+            }
+        });
+    });
+}
+
+/**
+ * セレクタを生成（ヘルパー関数）
+ */
+function buildSelector(className, attributes = {}) {
+    let selector = `.${className}`;
+    Object.entries(attributes).forEach(([key, value]) => {
+        selector += `[data-${key}="${value}"]`;
+    });
+    return selector;
+}
+
+/**
+ * テーブル内の要素を取得（ヘルパー関数）
+ */
+function getElementInTable(table, className, attributes = {}) {
+    return table.querySelector(buildSelector(className, attributes));
+}
+
+/**
+ * 値を表示（0の場合は空文字）
+ */
+function displayValue(element, value) {
+    if (!element) return;
+    element.textContent = value > 0 ? value : '';
+}
+
+/**
+ * 割合を表示（ヘルパー関数）
+ */
+function displayRatio(element, value, total) {
+    if (!element) return;
+
+    if (total > 0 && value > 0) {
+        const ratio = (value / total * 100).toFixed(1);
+        element.textContent = `${ratio}%`;
+    } else {
+        element.textContent = '';
+    }
+}
+
+/**
+ * 指定された直・日付の品番別生産数を取得（ヘルパー関数）
+ */
+function getProductionByItem(lineIndex, dateIndex, shift, itemNames) {
+    const production = {};
+    let total = 0;
+
+    itemNames.forEach(itemName => {
+        const productionInput = getCachedInput('production', lineIndex, dateIndex, shift, itemName);
+        if (productionInput && productionInput.style.display !== 'none') {
+            const value = parseInt(productionInput.value) || 0;
+            production[itemName] = value;
+            total += value;
+        }
+    });
+
+    return { production, total };
+}
+
+/**
+ * 指定された直の月間品番別生産数を取得（ヘルパー関数）
+ */
+function getMonthlyProductionByItem(lineIndex, shift, itemNames, dateCount) {
+    const monthlyProduction = {};
+    let monthlyTotal = 0;
+
+    itemNames.forEach(itemName => {
+        monthlyProduction[itemName] = 0;
+    });
+
+    for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+        const { production } = getProductionByItem(lineIndex, dateIndex, shift, itemNames);
+        itemNames.forEach(itemName => {
+            if (production[itemName]) {
+                monthlyProduction[itemName] += production[itemName];
+                monthlyTotal += production[itemName];
+            }
+        });
+    }
+
+    return { monthlyProduction, monthlyTotal };
+}
+
+/**
+ * 生産割合を更新（各直の品番ごとの生産比率をパーセント表示）
+ */
+function updateProductionRatios() {
+    const tables = domCache.tables || document.querySelectorAll('table[data-line-index]');
+    const dateCount = domCache.dateCount || document.querySelectorAll('.operation-rate-input[data-line-index="0"]').length;
+
+    tables.forEach((table, lineIndex) => {
+        const itemNames = getItemNames(lineIndex);
+
+        ['day', 'night'].forEach(shift => {
+            // 各日付の割合を計算・表示
+            for (let dateIndex = 0; dateIndex < dateCount; dateIndex++) {
+                const { production, total } = getProductionByItem(lineIndex, dateIndex, shift, itemNames);
+
+                itemNames.forEach(itemName => {
+                    const ratioDisplay = getElementInTable(table, 'production-ratio-display', { shift, item: itemName, 'line-index': lineIndex, 'date-index': dateIndex });
+                    displayRatio(ratioDisplay, production[itemName] || 0, total);
+                });
+            }
+
+            // 月計の割合を計算・表示
+            const { monthlyProduction, monthlyTotal } = getMonthlyProductionByItem(lineIndex, shift, itemNames, dateCount);
+
+            itemNames.forEach(itemName => {
+                const monthlyRatioCell = getElementInTable(table, 'production-ratio-monthly', { shift, item: itemName, 'line-index': lineIndex });
+                displayRatio(monthlyRatioCell, monthlyProduction[itemName], monthlyTotal);
+            });
+
+            // 日勤の場合は月計（日勤+夜勤）の割合も計算・表示
+            if (shift === 'day') {
+                const { monthlyProduction: nightMonthlyProduction, monthlyTotal: nightMonthlyTotal } =
+                    getMonthlyProductionByItem(lineIndex, 'night', itemNames, dateCount);
+
+                itemNames.forEach(itemName => {
+                    const dailyRatioCell = getElementInTable(table, 'production-ratio-daily', { shift, item: itemName, 'line-index': lineIndex });
+                    const totalProduction = monthlyProduction[itemName] + (nightMonthlyProduction[itemName] || 0);
+                    const grandTotal = monthlyTotal + nightMonthlyTotal;
+                    displayRatio(dailyRatioCell, totalProduction, grandTotal);
+                });
+            }
+        });
+    });
+}
+
+/**
  * 在庫数の月計を更新（月末在庫 - 前月末在庫の差分）
  */
 function updateStockMonthlyTotals() {
@@ -1107,6 +1271,12 @@ function updateRowTotals() {
         'production-input'
     );
 
+    // 生産数の合計行を更新
+    updateProductionTotalRows();
+
+    // 生産割合を更新
+    updateProductionRatios();
+
     // 在庫数の月計（月末在庫 - 前月末在庫）
     updateStockMonthlyTotals();
 
@@ -1350,8 +1520,8 @@ function updateWorkingDayStatus(dateIndex, lineIndex = 0, isInitializing = false
             }
         } else {
             // 休出なし: 出庫数と在庫のみ表示（このラインのみ）
-            toggleInputs(dateIndex, 'day', false, lineIndex);
-            toggleInputs(dateIndex, 'night', false, lineIndex);
+            toggleInputs(dateIndex, 'day', false, { lineIndex, includeStockDisplay: true });
+            toggleInputs(dateIndex, 'night', false, { lineIndex, includeStockDisplay: true });
 
             // 出庫数がある場合は出庫数と在庫を表示、ない場合は出庫数のみ表示
             const hasShipment = Array.from(
@@ -2119,7 +2289,8 @@ $(document).ready(async function () {
     // イベントリスナーを設定（初期計算後に設定することで、初期値設定時のイベント発火を防ぐ）
     setupEventListeners();
 
-    // カラムホバーを設定
+    // ホバー処理を設定
+    setupRowHover();
     setupColumnHover();
 
     // ========================================

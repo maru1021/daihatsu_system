@@ -11,8 +11,8 @@
     --hover-gray: #f5f5f5;
 
     /* 週末色 */
-    --weekend-bg: #c1f6d523;
-    --weekend-hover: #b3e5fc;
+    --weekend-bg: #fff3e0;
+    --weekend-hover: #ffe0b2;
 
     /* 夜勤色 */
     --night-shift-bg: #f0f6ff;
@@ -219,19 +219,20 @@ tr.night-shift th {
     background-color: var(--light-blue);
 }
 
-tr:hover td {
+/* 行ホバー処理（JavaScriptで制御） */
+tr.row-hover td {
     background-color: var(--hover-gray);
 }
 
-tr:hover td.weekend {
+tr.row-hover td.weekend {
     background-color: var(--weekend-hover);
 }
 
-tr:hover th.vehicle-label {
+tr.row-hover th.vehicle-label {
     background-color: #fff9c4 !important;
 }
 
-tr.night-shift:hover td {
+tr.night-shift.row-hover td {
     background-color: var(--night-shift-hover) !important;
 }
 

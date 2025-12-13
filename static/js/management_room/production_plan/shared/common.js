@@ -1,10 +1,79 @@
 // ========================================
-// 生産計画共通JavaScript
+// 生産計画共通JavaScript - モジュール
 // ========================================
 // 鋳造・加工・組付・CVT生産計画で共有される関数群
 
-const OVERTIME_MAX_DAY = 120;     // 日勤の残業上限（分）
-const OVERTIME_MAX_NIGHT = 60;    // 夜勤の残業上限（分）
+export const OVERTIME_MAX_DAY = 120;     // 日勤の残業上限（分）
+export const OVERTIME_MAX_NIGHT = 60;    // 夜勤の残業上限（分）
+
+// ========================================
+// 行ホバー処理
+// ========================================
+
+/**
+ * 行のホバー処理を設定（同じ品番の行をハイライト）
+ */
+export function setupRowHover() {
+    const tbody = document.querySelector('tbody');
+    if (!tbody) return;
+
+    let currentHoverKey = null;
+
+    tbody.addEventListener('mouseover', function (e) {
+        const row = e.target.closest('tr');
+        if (!row) return;
+
+        // data-shift と data-item 属性から値を取得
+        const shift = row.getAttribute('data-shift');
+        const item = row.getAttribute('data-item');
+
+        if (!shift || !item) return;
+
+        // 同じ行を再度ホバーした場合は何もしない
+        const hoverKey = `${shift}|${item}`;
+        if (hoverKey === currentHoverKey) return;
+
+        // 前の行のハイライトを削除
+        removeAllRowHighlights();
+
+        // 新しい行をハイライト
+        currentHoverKey = hoverKey;
+        highlightMatchingRows(shift, item);
+    });
+
+    tbody.addEventListener('mouseout', function (e) {
+        // マウスがtbody全体から出た場合のみハイライトを削除
+        if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
+            removeAllRowHighlights();
+            currentHoverKey = null;
+        }
+    });
+}
+
+/**
+ * 同じシフトと品番を持つ行をハイライト
+ * @param {string} shift - シフト（day/night）
+ * @param {string} item - 品番
+ */
+function highlightMatchingRows(shift, item) {
+    const tbody = document.querySelector('tbody');
+    if (!tbody) return;
+
+    const rows = tbody.querySelectorAll(`tr[data-shift="${shift}"][data-item="${item}"]`);
+    rows.forEach(row => {
+        row.classList.add('row-hover');
+    });
+}
+
+/**
+ * すべての行のハイライトを削除
+ */
+function removeAllRowHighlights() {
+    const rows = document.querySelectorAll('tr.row-hover');
+    rows.forEach(row => {
+        row.classList.remove('row-hover');
+    });
+}
 
 // ========================================
 // カラムホバー処理
@@ -13,7 +82,7 @@ const OVERTIME_MAX_NIGHT = 60;    // 夜勤の残業上限（分）
 /**
  * 列のホバー処理を設定
  */
-function setupColumnHover() {
+export function setupColumnHover() {
     const tbody = document.querySelector('tbody');
     if (!tbody) return;
 
@@ -60,7 +129,7 @@ function setupColumnHover() {
  * 指定した日付列にハイライトを追加
  * @param {number} dateIndex - 日付インデックス
  */
-function addDateHighlight(dateIndex) {
+export function addDateHighlight(dateIndex) {
     // dateIndexは data-date-index の値（0始まりの日付インデックス）
 
     // 最上部のヘッダー日付（thead内の2行目）
@@ -92,7 +161,7 @@ function addDateHighlight(dateIndex) {
  * 指定した日付列のハイライトを削除
  * @param {number} dateIndex - 日付インデックス
  */
-function removeDateHighlight(dateIndex) {
+export function removeDateHighlight(dateIndex) {
     // dateIndexは data-date-index の値（0始まりの日付インデックス）
 
     // 最上部のヘッダー日付（thead内の2行目）

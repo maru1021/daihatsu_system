@@ -48,6 +48,8 @@ import {
     updateOvertimeInputVisibility,
     initializeWeekendWorkingStatus,
     getMachineName,
+    setupCastingRowHover,
+    setupColumnHover,
     getNextWorkingShift,
     getPrevWorkingShift,
     getNextWorkingShiftSelect,
@@ -2936,6 +2938,7 @@ async function initialize() {
     // ステップ4: イベントリスナーとインタラクション
     // ========================================
     setupEventListeners();              // イベントリスナーを設定
+    setupCastingRowHover();             // 行のホバー処理を設定（品番と設備の両方に対応）
     setupColumnHover();                 // 列のホバー処理を設定
 
     // ========================================

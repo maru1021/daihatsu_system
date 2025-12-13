@@ -106,7 +106,7 @@ td.weekend .overtime-input {
 <tbody>
 <!-- 出庫 -->
 {% for item_name in item_names %}
-<tr data-section="delivery" data-shift="day">
+<tr data-section="delivery" data-shift="day" data-item="{{ item_name }}">
     {% if forloop.first %}
     <th class="category-label" rowspan="{{ item_total_rows }}">出庫数</th>
     <th class="shift-label" rowspan="{{ item_names|length }}">日勤</th>
@@ -122,7 +122,7 @@ td.weekend .overtime-input {
 </tr>
 {% endfor %}
 {% for item_name in item_names %}
-<tr class="night-shift" data-section="delivery" data-shift="night">
+<tr class="night-shift" data-section="delivery" data-shift="night" data-item="{{ item_name }}">
     {% if forloop.first %}
     <th class="shift-label" rowspan="{{ item_names|length }}">夜勤</th>
     {% endif %}
@@ -175,7 +175,7 @@ td.weekend .overtime-input {
 {% endfor %}
 <!-- 在庫 -->
 {% for item_name in item_names %}
-<tr data-section="inventory" data-shift="day">
+<tr data-section="inventory" data-shift="day" data-item="{{ item_name }}">
     {% if forloop.first %}
     <th class="category-label" rowspan="{{ item_total_rows }}">在庫数</th>
     <th class="shift-label" rowspan="{{ item_names|length }}">日勤</th>
@@ -191,7 +191,7 @@ td.weekend .overtime-input {
 </tr>
 {% endfor %}
 {% for item_name in item_names %}
-<tr class="night-shift" data-section="inventory" data-shift="night">
+<tr class="night-shift" data-section="inventory" data-shift="night" data-item="{{ item_name }}">
     {% if forloop.first %}
     <th class="shift-label" rowspan="{{ item_names|length }}">夜勤</th>
     {% endif %}
@@ -207,7 +207,7 @@ td.weekend .overtime-input {
 {% endfor %}
 <!-- 生産台数 -->
 {% for item_name in item_names %}
-<tr data-section="production" data-shift="day">
+<tr data-section="production" data-shift="day" data-item="{{ item_name }}">
     {% if forloop.first %}
     <th class="category-label" rowspan="{{ item_total_rows }}">生産台数</th>
     <th class="shift-label" rowspan="{{ item_names|length }}">日勤</th>
@@ -223,7 +223,7 @@ td.weekend .overtime-input {
 </tr>
 {% endfor %}
 {% for item_name in item_names %}
-<tr class="night-shift" data-section="production" data-shift="night">
+<tr class="night-shift" data-section="production" data-shift="night" data-item="{{ item_name }}">
     {% if forloop.first %}
     <th class="shift-label" rowspan="{{ item_names|length }}">夜勤</th>
     {% endif %}
@@ -454,7 +454,6 @@ td.weekend .overtime-input {
 <script src="{% static 'js/vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
 <script src="{% static 'js/vendor/select2/select2.min.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
-<script src="{% static 'js/management_room/production_plan/shared/common.js' %}"></script>
 <script type="module" src="{% static 'js/management_room/production_plan/cvt_production_plan.js' %}"></script>
 
 <script>
